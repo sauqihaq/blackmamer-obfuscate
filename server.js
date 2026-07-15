@@ -1,25 +1,18 @@
 const express = require("express");
 const cors = require("cors");
-const { execSync } = require("child_process");
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "5mb" }));
 
-// ─── HEALTH CHECK ──────────────────────────────────────────────────────────
 app.get("/", (req, res) => {
   res.json({ status: "ok", service: "BlackMamer Lua Obfuscator API" });
 });
 
-// ─── OBFUSCATE ENDPOINT ──────────────────────────────────────────────────
 app.post("/obfuscate", (req, res) => {
-  const { code, preset = "Medium" } = req.body;
-  
+  const { code } = req.body;
   if (!code || typeof code !== "string") {
     return res.status(400).json({ error: "No code provided." });
   }
@@ -28,56 +21,20 @@ app.post("/obfuscate", (req, res) => {
   }
 
   try {
-    const result = obfuscateWithPrometheus(code, preset);
+    const result = obfuscate(code);
     res.json({ result });
   } catch (e) {
     res.status(500).json({ error: "Obfuscation failed: " + e.message });
   }
 });
 
-// ─── PROMETHEUS OBFUSCATOR ────────────────────────────────────────────────
-
-function obfuscateWithPrometheus(code, preset) {
-  const tempDir = os.tmpdir();
-  const inputFile = path.join(tempDir, `input_${Date.now()}.lua`);
-  const outputFile = path.join(tempDir, `output_${Date.now()}.lua`);
-  
-  try {
-    // Tulis kode ke file
-    fs.writeFileSync(inputFile, code, "utf8");
-    
-    // Jalankan Prometheus CLI
-    // Asumsi: Prometheus sudah di-clone di /app/Prometheus
-    const prometheusPath = path.join(__dirname, "Prometheus", "cli.lua");
-    const cmd = `lua ${prometheusPath} --preset ${preset} --LuaU "${inputFile}" --out "${outputFile}"`;
-    
-    console.log("Running:", cmd);
-    execSync(cmd, { stdio: "pipe", timeout: 60000 });
-    
-    // Baca hasil
-    const result = fs.readFileSync(outputFile, "utf8");
-    return result;
-    
-  } catch (e) {
-    console.error("Prometheus error:", e.message);
-    // Fallback jika Prometheus gagal
-    return fallbackObfuscator(code);
-  } finally {
-    // Cleanup
-    try { fs.unlinkSync(inputFile); } catch(e) {}
-    try { fs.unlinkSync(outputFile); } catch(e) {}
-  }
-}
-
-// ─── FALLBACK OBFUSCATOR (WeAreDevs Style) ──────────────────────────────
-
-function fallbackObfuscator(src) {
+function obfuscate(src) {
   let code = src
     .replace(/--\[\[[\s\S]*?--\]\]/g, "")
     .replace(/--[^\n]*/g, "")
     .trim();
 
-  // String table
+  // ─── STRING TABLE ──────────────────────────────────────────────────────
   const stringTable = [];
   const stringMap = {};
   let stringIndex = 0;
@@ -104,7 +61,7 @@ function fallbackObfuscator(src) {
     return key;
   });
 
-  // Number
+  // ─── NUMBER TABLE ──────────────────────────────────────────────────────
   const numberMap = {};
   let numberIndex = 0;
 
@@ -117,7 +74,7 @@ function fallbackObfuscator(src) {
     return key;
   });
 
-  // Variable rename
+  // ─── VARIABLE RENAME ──────────────────────────────────────────────────
   const varMap = {};
   let varIndex = 0;
   const reserved = new Set([
@@ -156,7 +113,7 @@ function fallbackObfuscator(src) {
     }
   }
 
-  // Replace
+  // ─── REPLACE ──────────────────────────────────────────────────────────
   for (const [key, idx] of Object.entries(stringMap)) {
     code = code.replace(new RegExp(key, "g"), `r[${idx + 1}]`);
   }
@@ -169,7 +126,8 @@ function fallbackObfuscator(src) {
     code = code.replace(new RegExp(`\\b${orig}\\b`, "g"), obf);
   }
 
-  return wrapWeAreDevsStyle(code, stringTable);
+  // ─── WRAP (SEMUA DALAM SATU BARIS) ──────────────────────────────────
+  return wrapWeAreDevsOneLine(code, stringTable);
 }
 
 function generateWeAreDevsName(idx) {
@@ -183,32 +141,21 @@ function generateWeAreDevsName(idx) {
   return name;
 }
 
-function wrapWeAreDevsStyle(code, strings) {
+// ─── WRAPPER SATU BARIS (SEPERTI WEAREDEVS) ────────────────────────────
+function wrapWeAreDevsOneLine(code, strings) {
   const stringTable = strings.length > 0 ? strings.join(",") : '""';
   const unpackIndex = Math.floor(Math.random() * 1000) + 100;
   
+  // Hapus semua newline dan spasi berlebih
+  const oneLineCode = code.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
+  
   const header = `--[[ v1.0.0 https://blackmamerstudio.netlify.app ]]`;
   
-  const decoder = `
-local function E(E)return r[E-(${strings.length + 1})]end
-do local E=string.sub local M=table.insert local V=string.len local L=table.concat local R=type local J=r local x=math.floor local l=string.char
-local I={}
-for x=1,#J do local h=J[x]if R(h)=="string"then
-local R=V(h)local Q={}local v=1 local A=0 local m=0
-while v<=R do local r=E(h,v,v)local V=I[r]if V then A=A+V*(32)^(3-m)m=m+1
-if m==4 then m=0 local r=x(A/256)local E=x((A%256)/16)local V=A%16
-M(Q,l(r,E,V))A=0 end elseif r=="="then M(Q,l(x(A/256)))if v>=R or E(h,v+1,v+1)~="="then M(Q,l(x((A%256)/16)))end break end v=v+1 end J[x]=L(Q)end end end`;
+  const decoder = `local function E(E)return r[E-(${strings.length + 1})]end do local E=string.sub local M=table.insert local V=string.len local L=table.concat local R=type local J=r local x=math.floor local l=string.char local I={} for x=1,#J do local h=J[x]if R(h)=="string"then local R=V(h)local Q={}local v=1 local A=0 local m=0 while v<=R do local r=E(h,v,v)local V=I[r]if V then A=A+V*(32)^(3-m)m=m+1 if m==4 then m=0 local r=x(A/256)local E=x((A%256)/16)local V=A%16 M(Q,l(r,E,V))A=0 end elseif r=="="then M(Q,l(x(A/256)))if v>=R or E(h,v+1,v+1)~="="then M(Q,l(x((A%256)/16)))end break end v=v+1 end J[x]=L(Q)end end end`;
 
-  const loader = `return(function(...)local r={${stringTable}};
-for E,M in ipairs({{-1,0},{0,1}})do
-while M[-1]<M[0]do r[M[0]],r[M[1]],M[0],M[1]=r[M[1]],r[M[0]],M[0]+1,M[1]-1 end end
-${decoder}
-return(function($,_,__,___,____,_____,______,_______) 
-${code}
-end)(getfenv and getfenv()or _ENV,unpack or table[${unpackIndex}],newproxy,setmetadatagetmetatable,select,{...})end)(...)`;
+  const loader = `return(function(...)local r={${stringTable}};for E,M in ipairs({{-1,0},{0,1}})do while M[-1]<M[0]do r[M[0]],r[M[1]],M[0],M[1]=r[M[1]],r[M[0]],M[0]+1,M[1]-1 end end ${decoder} return(function($,_,__,___,____,_____,______,_______) ${oneLineCode} end)(getfenv and getfenv()or _ENV,unpack or table[${unpackIndex}],newproxy,setmetadatagetmetatable,select,{...})end)(...)`;
 
   return header + loader;
 }
 
-// ─── START SERVER ──────────────────────────────────────────────────────────
 app.listen(PORT, () => console.log(`✅ BlackMamer Obfuscator API running on port ${PORT}`));

@@ -1,39 +1,44 @@
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
+app.use(express.static("public"));
 
 // ─── ROUTES ──────────────────────────────────────────────────────────────
 
 app.get("/", (req, res) => {
-    res.json({ 
-        status: "ok", 
-        service: "Lua Obfuscator - WeAreDevs Clone",
+    res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+app.get("/api", (req, res) => {
+    res.json({
+        status: "ok",
+        service: "BlackMamerStudio Lua Obfuscator",
         version: "1.0.0"
     });
 });
 
-app.post("/obfuscate", (req, res) => {
-    const { code } = req.body;
-    
-    if (!code || typeof code !== "string") {
-        return res.status(400).json({ error: "No code provided." });
+app.post("/api/obfuscate", (req, res) => {
+    const { script } = req.body;
+
+    if (!script || typeof script !== "string") {
+        return res.status(400).json({ error: "No script provided." });
     }
-    
-    if (code.length > 500000) {
-        return res.status(400).json({ error: "Code too large (max ~500KB)." });
+    if (script.length > 500000) {
+        return res.status(400).json({ error: "Script too large (max ~500KB)." });
     }
 
     try {
-        const result = obfuscate(code);
-        res.json({ 
+        const result = obfuscate(script);
+        res.json({
             success: true,
-            result: result,
-            originalSize: code.length,
+            obfuscated: result,
+            originalSize: script.length,
             obfuscatedSize: result.length
         });
     } catch (e) {
@@ -42,49 +47,39 @@ app.post("/obfuscate", (req, res) => {
     }
 });
 
-// ─── CORE OBFUSCATOR ────────────────────────────────────────────────────
+// ─── CORE OBFUSCATOR (100% SAMA DENGAN WEAREDEVS) ─────────────────────
 
 function obfuscate(src) {
     let code = src;
-    
-    // 1. HAPUS SEMUA KOMENTAR
+
+    // 1. Hapus komentar
     code = code.replace(/--\[\[[\s\S]*?\]\]/g, '');
     code = code.replace(/--[^\n]*/g, '');
-    
-    // 2. EXTRACT & ENCODE SEMUA STRING
+
+    // 2. Extract & encode strings
     const strings = [];
     let stringIdx = 0;
-    
-    // Handle string: "text", 'text', [[text]], [=[text]=]
-    const stringPatterns = [
-        /(["'])((?:[^\1\\]|\\[\s\S])*?)\1/g,
-        /(\[=*\[)([\s\S]*?)(\]\=*\])/g
-    ];
-    
-    for (const pattern of stringPatterns) {
-        code = code.replace(pattern, (match, open, content, close) => {
-            if (content.length > 500) return match;
-            
-            const encoded = content.split('').map(c => {
-                return `\\${String(c.charCodeAt(0)).padStart(3, '0')}`;
-            }).join('');
-            
-            strings.push(`"${encoded}"`);
-            const placeholder = `__STR_${stringIdx}__`;
-            stringIdx++;
-            return placeholder;
-        });
-    }
-    
-    // 3. OBFUSCATE VARIABLE NAMES
+
+    code = code.replace(/(["'])((?:[^\1\\]|\\[\s\S])*?)\1/g, (match, quote, content) => {
+        if (content.length > 500) return match;
+        const encoded = content.split('').map(c => {
+            return `\\${String(c.charCodeAt(0)).padStart(3, '0')}`;
+        }).join('');
+        strings.push(`"${encoded}"`);
+        const placeholder = `__STR_${stringIdx}__`;
+        stringIdx++;
+        return placeholder;
+    });
+
+    // 3. Rename variables (single letters)
     const varMap = {};
     let varIdx = 0;
     const reserved = new Set([
-        "and","break","do","else","elseif","end","false","for","function",
-        "goto","if","in","local","nil","not","or","repeat","return",
-        "then","true","until","while"
+        "and", "break", "do", "else", "elseif", "end", "false", "for", "function",
+        "goto", "if", "in", "local", "nil", "not", "or", "repeat", "return",
+        "then", "true", "until", "while"
     ]);
-    
+
     const allVars = new Set();
     const varRegex = /\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
     let match;
@@ -94,27 +89,25 @@ function obfuscate(src) {
             allVars.add(name);
         }
     }
-    
+
     const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
     for (const name of allVars) {
         let newName;
-        let attempts = 0;
         do {
             newName = letters[varIdx % letters.length];
             varIdx++;
             if (varIdx >= letters.length) {
                 newName += Math.floor(varIdx / letters.length);
             }
-            attempts++;
-        } while ((reserved.has(newName) || varMap[newName]) && attempts < 100);
+        } while (reserved.has(newName) || varMap[newName]);
         varMap[name] = newName;
     }
-    
+
     for (const [orig, obf] of Object.entries(varMap)) {
         code = code.replace(new RegExp(`\\b${orig}\\b`, 'g'), obf);
     }
-    
-    // 4. OBFUSCATE TABLE KEYS (.key → [0])
+
+    // 4. Obfuscate table keys
     const keyMap = {};
     let keyIdx = 0;
     code = code.replace(/\.([a-zA-Z_][a-zA-Z0-9_]*)/g, (match, key) => {
@@ -123,8 +116,8 @@ function obfuscate(src) {
         }
         return `[${keyMap[key]}]`;
     });
-    
-    // 5. OBFUSCATE FUNCTION NAMES
+
+    // 5. Obfuscate function names
     const funcMap = {};
     let funcIdx = 0;
     code = code.replace(/function\s+([a-zA-Z_][a-zA-Z0-9_]*)/g, (match, name) => {
@@ -137,18 +130,33 @@ function obfuscate(src) {
         }
         return `function ${funcMap[name]}`;
     });
-    
-    // 6. REPLACE STRING PLACEHOLDERS
+
+    // 6. Obfuscate method calls (.func() → [0]())
+    code = code.replace(/\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g, (match, name) => {
+        if (keyMap[name] !== undefined) {
+            return `[${keyMap[name]}]($`;
+        }
+        return match;
+    });
+
+    code = code.replace(/:([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g, (match, name) => {
+        if (keyMap[name] !== undefined) {
+            return `[${keyMap[name]}]($`;
+        }
+        return match;
+    });
+
+    // 7. Replace string placeholders
     for (let i = 0; i < stringIdx; i++) {
         code = code.replace(new RegExp(`__STR_${i}__`, 'g'), `r[${i + 1}]`);
     }
-    
-    // 7. CLEAN UP
+
+    // 8. Minify
     code = code.replace(/\n/g, " ");
     code = code.replace(/\s+/g, " ");
     code = code.trim();
-    
-    // 8. WRAP
+
+    // 9. Wrap (SAMA PERSIS DENGAN WEAREDEVS)
     return wrapWeAreDevs(code, strings);
 }
 
@@ -157,9 +165,9 @@ function obfuscate(src) {
 function wrapWeAreDevs(code, strings) {
     const stringTable = strings.length > 0 ? strings.join(",") : '""';
     const randomTableIndex = Math.floor(Math.random() * 900) + 100;
-    
+
     const header = '--[[ v1.0.0 https://wearedevs.net/obfuscator ]]';
-    
+
     const decoder = `
 local function E(E)return r[E+(981936-935207)]end
 for E,M in ipairs({{-512178+512179,782660-782189},{251061+-251060,-928189+928559};{415663+-415292,-222803+223274}})do
@@ -171,17 +179,16 @@ local R=V(h)local Q={}local v=-764320-(-764321)local A=-934156-(-934156)local m=
 while v<=R do local r=E(h,v,v)local V=I[r]if V then A=A+V*(548711-548647)^((1027446+-1027443)-m)m=m+(672207+-672206)
 if m==705040+-705036 then m=705959+-705959 local r=x(A/(-159578+225114))local E=x((A%(-948015-(-1013551)))/(-503648-(-503904)))local V=A%(392393+-392137)
 M(Q,l(r,E,V))A=255081+-255081 end elseif r=="\\061"then M(Q,l(x(A/(488834-423298))))if v>=R or E(h,v+(-3951-(-3952)),v+(236622+-236621))~="\\061"then M(Q,l(x((A%(-360575+426111))/(-48825+49081))))end break end v=v+(280658-280657)end J[r]=L(Q)end end end`;
-    
+
     const wrapper = `
 return(function($,_,__,___,____,_____,______,_______) ${code} end)(getfenv and getfenv()or _ENV,unpack or table[${randomTableIndex}],newproxy,setmetadatagetmetatable,select,{...})end)(...)`;
-    
+
     return header + `return(function(...)local r={${stringTable}};` + decoder + wrapper;
 }
 
 // ─── START SERVER ──────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
-    console.log(`✅ WeAreDevs Clone Obfuscator running on port ${PORT}`);
+    console.log(`✅ BlackMamerStudio Obfuscator running on port ${PORT}`);
     console.log(`📍 http://localhost:${PORT}`);
-    console.log(`📝 POST /obfuscate with { "code": "your lua code" }`);
 });

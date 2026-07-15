@@ -33,14 +33,14 @@ app.post("/obfuscate", (req, res) => {
 // ─── CORE OBFUSCATOR ─── WEAREDEVS STYLE ──────────────────────────────────
 
 function obfuscate(src) {
-  // 1. Bersihkan script
+  // 1. Bersihkan script (hapus komentar)
   let code = src
     .replace(/--\[\[[\s\S]*?--\]\]/g, "")
     .replace(/--[^\n]*/g, "")
     .trim();
 
-  // 2. Parse dan extract semua string literal
-  const strings = [];
+  // 2. Ekstrak semua string literal ke dalam tabel
+  const stringTable = [];
   const stringMap = {};
   let stringIndex = 0;
 
@@ -55,36 +55,47 @@ function obfuscate(src) {
     
     if (raw.length === 0 || raw.length > 500) return match;
     
-    // Encode string ke ASCII
-    const encoded = raw.split('').map(c => c.charCodeAt(0)).join(',');
-    const key = `S${stringIndex}`;
-    stringMap[key] = `"${encoded}"`;
-    strings.push(key);
+    // Encode string ke ASCII escape (seperti WeAreDevs)
+    const encoded = raw.split('').map(c => {
+      const code = c.charCodeAt(0);
+      return `\\${String(code).padStart(3, '0')}`;
+    }).join('');
+    
+    stringTable.push(`"${encoded}"`);
+    const key = `__STR_${stringIndex}__`;
+    stringMap[key] = stringIndex;
     stringIndex++;
-    return `__STR_${key}__`;
+    return key;
   });
 
-  // 3. Parse dan extract semua number literals
-  let numberIndex = 0;
+  // 3. Ekstrak semua number literals
+  const numberTable = [];
   const numberMap = {};
-  
+  let numberIndex = 0;
+
   code = code.replace(/\b(\d+)\b/g, (match, num) => {
     const n = parseInt(num);
     if (isNaN(n) || n < 0 || n > 99999) return match;
-    const key = `N${numberIndex}`;
+    const key = `__NUM_${numberIndex}__`;
     numberMap[key] = n;
+    numberTable.push(n.toString());
     numberIndex++;
-    return `__NUM_${key}__`;
+    return key;
   });
 
-  // 4. Parse variable names (local + global)
+  // 4. Rename semua variable (local + parameters)
   const varMap = {};
   let varIndex = 0;
   const reserved = new Set([
     "and","break","do","else","elseif","end","false","for","function","goto",
     "if","in","local","nil","not","or","repeat","return","then","true","until","while",
     "game","workspace","script","Players","ReplicatedStorage","ServerStorage",
-    "RunService","DataStoreService","HttpService","TweenService","CollectionService"
+    "RunService","DataStoreService","HttpService","TweenService","CollectionService",
+    "Instance","Vector3","CFrame","Color3","UDim","UDim2","Enum","ColorSequence",
+    "NumberSequence","TweenInfo","task","wait","tick","time","pairs","ipairs",
+    "next","select","unpack","rawget","rawset","rawequal","rawlen",
+    "setmetatable","getmetatable","pcall","xpcall","error","assert",
+    "type","tostring","tonumber","print","warn","require","load","loadstring"
   ]);
 
   // Temukan semua local variables
@@ -94,8 +105,7 @@ function obfuscate(src) {
     const names = m[1].split(",").map(s => s.trim());
     for (const name of names) {
       if (!reserved.has(name) && !varMap[name]) {
-        const obf = generateVarName(varIndex);
-        varMap[name] = obf;
+        varMap[name] = generateVarName(varIndex);
         varIndex++;
       }
     }
@@ -108,45 +118,38 @@ function obfuscate(src) {
     for (const p of params) {
       const clean = p.replace(/^\.\.\./, "").trim();
       if (clean && !reserved.has(clean) && !varMap[clean]) {
-        const obf = generateVarName(varIndex);
-        varMap[clean] = obf;
+        varMap[clean] = generateVarName(varIndex);
         varIndex++;
       }
     }
   }
 
-  // 5. Replace semua string, number, variable placeholders
-  for (const [key, value] of Object.entries(stringMap)) {
-    code = code.replace(new RegExp(`__STR_${key}__`, "g"), `x[${strings.indexOf(key) + 1}]`);
+  // 5. Replace semua placeholder
+  // String
+  for (const [key, idx] of Object.entries(stringMap)) {
+    code = code.replace(new RegExp(key, "g"), `x[${idx + 1}]`);
   }
   
-  for (const [key, value] of Object.entries(numberMap)) {
-    code = code.replace(new RegExp(`__NUM_${key}__`, "g"), `(x[${numberIndex + parseInt(key.replace("N","")) + 1}])`);
+  // Number
+  for (const [key, val] of Object.entries(numberMap)) {
+    code = code.replace(new RegExp(key, "g"), `(${val})`);
   }
   
+  // Variable
   for (const [orig, obf] of Object.entries(varMap)) {
     code = code.replace(new RegExp(`\\b${orig}\\b`, "g"), obf);
   }
 
-  // 6. Build string table
-  const stringTable = strings.map((key, i) => {
-    const val = stringMap[key];
-    return val;
-  });
-
-  // 7. Build number table
-  const numberTable = Object.values(numberMap);
-
-  // 8. Control Flow Flattening - ubah struktur kode
+  // 6. Control Flow Flattening
   code = flattenControlFlow(code);
 
-  // 9. Wrap dengan loader ala WeAreDevs
-  return wrapWeAreDevs(code, stringTable, numberTable, varMap);
+  // 7. Wrap dengan loader ala WeAreDevs
+  return wrapWeAreDevs(code, stringTable, numberTable);
 }
 
 // ─── GENERATE VARIABLE NAME ──────────────────────────────────────────────
 function generateVarName(idx) {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   let name = "";
   let i = idx;
   do {
@@ -158,71 +161,81 @@ function generateVarName(idx) {
 
 // ─── CONTROL FLOW FLATTENING ─────────────────────────────────────────────
 function flattenControlFlow(code) {
-  // Sederhana: bungkus dalam loop while dengan state
-  const lines = code.split("\n");
-  let flattened = [];
-  let state = 0;
-  let states = [];
+  // Parse menjadi baris-baris
+  const lines = code.split("\n").map(l => l.trim()).filter(l => l.length > 0);
   
-  // Parse basic blocks (sangat sederhana)
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (line === "") continue;
-    states.push(line);
-  }
-
   // Buat state machine
-  flattened.push(`local _state=0`);
-  flattened.push(`while _state<${states.length} do`);
-  flattened.push(`  if _state==0 then`);
+  let flattened = [];
+  flattened.push(`local _M=0`);
+  flattened.push(`while _M<${lines.length} do`);
   
-  for (let i = 0; i < states.length; i++) {
-    const nextState = (i + 1) % states.length;
-    flattened.push(`  elseif _state==${i} then`);
-    flattened.push(`    ${states[i]}`);
-    flattened.push(`    _state=${nextState}`);
+  for (let i = 0; i < lines.length; i++) {
+    const nextState = (i + 1) % lines.length;
+    const line = lines[i];
+    
+    if (i === 0) {
+      flattened.push(`  if _M==0 then`);
+    } else {
+      flattened.push(`  elseif _M==${i} then`);
+    }
+    
+    // Hapus "if" dan "then" yang bisa membuat state machine rusak
+    let processedLine = line;
+    
+    // Handle if/elseif/else/end
+    if (/^if\s/.test(processedLine) || /^elseif\s/.test(processedLine)) {
+      processedLine = processedLine.replace(/^if\s+/, 'if ');
+      // Tambahkan state transition di akhir
+      flattened.push(`    ${processedLine} then`);
+      flattened.push(`      _M=${nextState}`);
+    } else if (/^else\s*$/.test(processedLine)) {
+      flattened.push(`    else`);
+      flattened.push(`      _M=${nextState}`);
+    } else if (/^end\s*$/.test(processedLine)) {
+      flattened.push(`    end`);
+    } else {
+      flattened.push(`    ${processedLine}`);
+      flattened.push(`    _M=${nextState}`);
+    }
   }
   
   flattened.push(`  end`);
   flattened.push(`end`);
-
+  
   return flattened.join("\n");
 }
 
 // ─── WEAREDEVS STYLE WRAPPER ─────────────────────────────────────────────
-function wrapWeAreDevs(code, strings, numbers, vars) {
-  // Build string table (format: {"\097\098\099", ...})
-  const stringTable = strings.map(s => {
-    // Convert to ASCII escape
-    const chars = s.split(',').map(n => parseInt(n));
-    const escaped = chars.map(c => `\\${String(c).padStart(3, '0')}`).join('');
-    return `"${escaped}"`;
-  });
-
+function wrapWeAreDevs(code, strings, numbers) {
+  // Build string table
+  const stringTable = strings.length > 0 ? strings.join(",") : '""';
+  
   // Build number table
-  const numberTable = numbers.map(n => n.toString());
-
-  // Build variable mapping
-  const varTable = Object.entries(vars).map(([orig, obf]) => {
-    return `["${orig}"]="${obf}"`;
-  });
-
+  const numberTable = numbers.length > 0 ? numbers.join(",") : '0';
+  
+  // Random angka untuk table.unpack index
+  const unpackIndex = Math.floor(Math.random() * 1000) + 100;
+  
   const header = `--[[ v1.0.0 https://blackmamerstudio.netlify.app ]]`;
   
-  const loader = `return(function(...)local x={${stringTable.join(",")}};
-for B,O in ipairs({{-1,0},{0,1}})do
-while O[-1]<O[0]do x[O[0]],x[O[1]],O[0],O[1]=x[O[1]],x[O[0]],O[0]+1,O[1]-1 end end
-local function J(J)return x[J-(#x-1)]end
-do local J=type local K=string.char local Q=x local P=table.insert local y=string.sub local l=math.floor local A=string.len local I=table.concat
-local d={}
-for x=1,#Q do local S=Q[x]if J(S)=="string"then
-local J=A(S)local G={}local c=1 local Z=0 local p=0
-while c<=J do local x=y(S,c,c)local Q=d[x]if Q then Z=Z+Q*(32)^(3-p)p=p+1
-if p==4 then p=0 local x=l(Z/256)local J=l((Z%256)/16)local Q=Z%16
-P(G,K(x,J,Q))Z=0 end elseif x=="="then P(G,K(l(Z/256)))if c>=J or y(S,c+1,c+1)~="="then P(G,K(l((Z%256)/16)))end break end c=c+1 end Q[x]=I(G)end end end
+  // String decoding function (seperti WeAreDevs)
+  const decoder = `
+local function E(E)return x[E-(${stringTable.length + 1})]end
+do local E=string.sub local M=table.insert local V=string.len local L=table.concat local R=type local J=x local x=math.floor local l=string.char
+local I={}
+for x=1,#J do local h=J[x]if R(h)=="string"then
+local R=V(h)local Q={}local v=1 local A=0 local m=0
+while v<=R do local r=E(h,v,v)local V=I[r]if V then A=A+V*(32)^(3-m)m=m+1
+if m==4 then m=0 local r=x(A/256)local E=x((A%256)/16)local V=A%16
+M(Q,l(r,E,V))A=0 end elseif r=="="then M(Q,l(x(A/256)))if v>=R or E(h,v+1,v+1)~="="then M(Q,l(x((A%256)/16)))end break end v=v+1 end J[x]=L(Q)end end end`;
+
+  const loader = `return(function(...)local x={${stringTable}};
+for E,M in ipairs({{-1,0},{0,1}})do
+while M[-1]<M[0]do x[M[0]],x[M[1]],M[0],M[1]=x[M[1]],x[M[0]],M[0]+1,M[1]-1 end end
+${decoder}
 return(function($,_,__,___,____,_____,______,_______) 
 ${code}
-end)(getfenv and getfenv()or _ENV,unpack or table[${Math.floor(Math.random()*1000)}],newproxy,setmetatable,getmetatable,select,{...})end)(...)`;
+end)(getfenv and getfenv()or _ENV,unpack or table[${unpackIndex}],newproxy,setmetatable,getmetatable,select,{...})end)(...)`;
 
   return header + loader;
 }

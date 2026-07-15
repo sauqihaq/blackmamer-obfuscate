@@ -1,25 +1,24 @@
 #!/bin/bash
 
+set -e
+
 echo "🔨 Building Prometheus for Render..."
 
-# Install Go if not available
-if ! command -v go &> /dev/null; then
-    echo "Installing Go..."
-    apt-get update && apt-get install -y golang-go git
-fi
+# Install Go
+apt-get update
+apt-get install -y golang-go git
 
-# Clone Prometheus if not exists
+# Clone Prometheus
 if [ ! -d "Prometheus" ]; then
-    echo "Cloning Prometheus..."
     git clone https://github.com/wcrddn/Prometheus.git
 fi
 
 # Build Prometheus
 cd Prometheus
-echo "Building Prometheus..."
 go build -o prometheus
+chmod +x prometheus
 
-# Copy binary to root
+# Copy ke root
 cp prometheus ../
 
 cd ..

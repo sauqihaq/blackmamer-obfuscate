@@ -1,10 +1,13 @@
 services:
   - type: web
-    name: blackmamer-obfuscator-api
-    env: node
-    buildCommand: npm install
-    startCommand: node server.js
+    name: blackmamer-obfuscator
+    runtime: node
+    plan: free
+    buildCommand: |
+      apt-get update && apt-get install -y golang-go git
+      npm install
+      bash build.sh
+    startCommand: npm start
     envVars:
       - key: NODE_VERSION
-        value: 18.0.0
-    plan: free
+        value: 18.17.0

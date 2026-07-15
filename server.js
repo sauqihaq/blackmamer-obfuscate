@@ -12,6 +12,20 @@ const PORT = process.env.PORT || 10000;
 // Path ke cli.lua hasil git clone di Dockerfile (RUN git clone ... /app/prometheus)
 const PROMETHEUS_CLI = '/app/prometheus/cli.lua';
 
+const BANNER = `--[[
+    ██████╗ ██╗      █████╗  ██████╗██╗  ██╗███╗   ███╗ █████╗ ███╗   ███╗███████╗██████╗     ███████╗████████╗██╗   ██╗██████╗ ██╗ ██████╗ 
+    ██╔══██╗██║     ██╔══██╗██╔════╝██║ ██╔╝████╗ ████║██╔══██╗████╗ ████║██╔════╝██╔══██╗    ██╔════╝╚══██╔══╝██║   ██║██╔══██╗██║██╔═══██╗
+    ██████╔╝██║     ███████║██║     █████╔╝ ██╔████╔██║███████║██╔████╔██║█████╗  ██████╔╝    ███████╗   ██║   ██║   ██║██║  ██║██║██║   ██║
+    ██╔══██╗██║     ██╔══██║██║     ██╔═██╗ ██║╚██╔╝██║██╔══██║██║╚██╔╝██║██╔══╝  ██╔══██╗    ╚════██║   ██║   ██║   ██║██║  ██║██║██║   ██║
+    ██████╔╝███████╗██║  ██║╚██████╗██║  ██╗██║ ╚═╝ ██║██║  ██║██║ ╚═╝ ██║███████╗██║  ██║    ███████║   ██║   ╚██████╔╝██████╔╝██║╚██████╔╝
+    ╚═════╝ ╚══════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝    ╚══════╝   ╚═╝    ╚═════╝ ╚═════╝ ╚═╝ ╚═════╝ 
+                                                                ═══ OBFUSCATED & SECURED BY BLACKMAMER STUDIO ═══
+                                                                   🔗 https://blackmamerstudioobfuscated.netlify.app/
+                                                                        🛡️ "Code Strong, Stay Protected"
+--]]
+
+`;
+
 app.use(cors()); // izinkan request dari domain lain (misal frontend Netlify)
 app.use(express.json({ limit: '2mb' }));
 
@@ -62,7 +76,7 @@ app.post('/api/obfuscate', (req, res) => {
             return res.status(500).json({ error: 'Gagal membaca hasil obfuscate.' });
           }
 
-          res.json({ obfuscated });
+          res.json({ obfuscated: BANNER + obfuscated });
         });
       }
     );

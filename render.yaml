@@ -1,12 +1,9 @@
 services:
   - type: web
     name: blackmamer-obfuscator-api
-    env: node
-    buildCommand: |
-      npm install
-      npm install -g @gamely/prometheus-cli
-    startCommand: node server.js
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
     envVars:
       - key: NODE_VERSION
         value: 18.0.0
-    plan: free

@@ -1,13 +1,6 @@
 services:
   - type: web
     name: blackmamer-obfuscator
-    runtime: node
+    runtime: image
     plan: free
-    buildCommand: |
-      chmod +x build.sh
-      ./build.sh
-      npm install
-    startCommand: node server.js
-    envVars:
-      - key: NODE_VERSION
-        value: 18.17.0
+    dockerfilePath: ./Dockerfile

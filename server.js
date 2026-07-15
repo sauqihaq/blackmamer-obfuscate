@@ -13,6 +13,15 @@ app.use(express.static("public"));
 
 // ─── ROUTES ──────────────────────────────────────────────────────────────
 
+// ✅ TAMBAHKAN INI BIAR /api BISA DIAKSES
+app.get("/api", (req, res) => {
+    res.json({
+        status: "ok",
+        service: "BlackMamerStudio Lua Obfuscator (Prometheus)",
+        version: "1.0.0"
+    });
+});
+
 app.post("/api/obfuscate", (req, res) => {
     const { script } = req.body;
     if (!script || typeof script !== "string") {
@@ -30,28 +39,26 @@ app.post("/api/obfuscate", (req, res) => {
     fs.writeFileSync(tempFile, script);
 
     // Cari binary Prometheus
-    let prometheusPath = "./prometheus";
+    let prometheusPath = path.join(__dirname, "Prometheus", "prometheus");
     if (!fs.existsSync(prometheusPath)) {
-        // Coba di folder Prometheus
-        const altPath = path.join(__dirname, "Prometheus", "prometheus");
-        if (fs.existsSync(altPath)) {
-            prometheusPath = altPath;
-        } else {
-            return res.status(500).json({ 
-                error: "Prometheus binary not found. Please build it first." 
-            });
-        }
+        prometheusPath = path.join(__dirname, "prometheus");
+    }
+    
+    if (!fs.existsSync(prometheusPath)) {
+        return res.status(500).json({ 
+            error: "Prometheus binary not found. Build failed." 
+        });
     }
 
     // Jalankan Prometheus
     exec(`${prometheusPath} -file ${tempFile} -obfuscate`, (error, stdout, stderr) => {
         // Hapus file temp
-        fs.unlinkSync(tempFile);
+        try { fs.unlinkSync(tempFile); } catch(e) {}
 
         if (error) {
             console.error("Prometheus error:", stderr || error.message);
             return res.status(500).json({ 
-                error: "Obfuscation failed: " + (stderr || error.message)
+                error: "Prometheus failed: " + (stderr || error.message)
             });
         }
 
@@ -75,5 +82,5 @@ app.get("/", (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`✅ Obfuscator running on port ${PORT}`);
+    console.log(`✅ BlackMamerStudio Obfuscator (Prometheus) running on port ${PORT}`);
 });

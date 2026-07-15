@@ -2,7 +2,9 @@ services:
   - type: web
     name: blackmamer-obfuscator-api
     env: node
-    buildCommand: npm install
+    buildCommand: |
+      npm install
+      npm install -g @gamely/prometheus-cli
     startCommand: node server.js
     envVars:
       - key: NODE_VERSION

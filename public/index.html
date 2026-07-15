@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlackMamer Lua Obfuscator</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0a0f;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            background: #12121a;
+            border-radius: 16px;
+            padding: 30px;
+            border: 1px solid #2a2a3a;
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 4px;
+        }
+        h1 {
+            font-size: 28px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #ff6b35, #ff2d55);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            color: #8888aa;
+            margin-bottom: 24px;
+            font-size: 14px;
+        }
+        .row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 768px) {
+            .row { grid-template-columns: 1fr; }
+        }
+        .box {
+            background: #0a0a12;
+            border-radius: 12px;
+            border: 1px solid #2a2a3a;
+            overflow: hidden;
+        }
+        .box-header {
+            padding: 12px 16px;
+            background: #12121a;
+            border-bottom: 1px solid #2a2a3a;
+            font-size: 13px;
+            font-weight: 600;
+            color: #8888aa;
+            display: flex;
+            justify-content: space-between;
+        }
+        .badge {
+            background: #ff6b35;
+            color: #fff;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+        }
+        .badge.output { background: #7c3aed; }
+        textarea {
+            width: 100%;
+            height: 400px;
+            padding: 16px;
+            background: #0a0a12;
+            color: #e0e0e0;
+            border: none;
+            outline: none;
+            font-family: 'Consolas', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            resize: vertical;
+        }
+        textarea:focus { box-shadow: inset 0 0 0 1px #ff6b35; }
+        .actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }
+        .btn {
+            padding: 10px 28px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #ff6b35, #ff2d55);
+            color: #fff;
+        }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(255,107,53,0.3); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .btn-secondary { background: #1a1a2a; color: #e0e0e0; }
+        .btn-secondary:hover { background: #2a2a3a; }
+        .btn-success { background: #10b981; color: #fff; }
+        .btn-success:hover { background: #34d399; }
+        .btn-download { background: #7c3aed; color: #fff; }
+        .btn-download:hover { background: #8b5cf6; }
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-top: 16px;
+            font-size: 13px;
+            color: #8888aa;
+        }
+        .stats span {
+            background: #12121a;
+            padding: 4px 12px;
+            border-radius: 6px;
+            border: 1px solid #2a2a3a;
+        }
+        .stats .highlight { color: #ff6b35; font-weight: 600; }
+        .error {
+            background: #1a0a0a;
+            border: 1px solid #ef4444;
+            color: #ef4444;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-top: 12px;
+            display: none;
+        }
+        .error.show { display: block; }
+        .loading {
+            display: none;
+            align-items: center;
+            gap: 10px;
+            color: #8888aa;
+        }
+        .loading.show { display: inline-flex; }
+        .spinner {
+            width: 18px;
+            height: 18px;
+            border: 2px solid #2a2a3a;
+            border-top-color: #ff6b35;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .footer {
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid #2a2a3a;
+            text-align: center;
+            font-size: 12px;
+            color: #555577;
+        }
+        .footer a { color: #ff6b35; text-decoration: none; }
+        .status {
+            margin-top: 12px;
+            padding: 10px;
+            border-radius: 8px;
+            background: #12121a;
+            border: 1px solid #2a2a3a;
+            font-size: 14px;
+            min-height: 20px;
+        }
+        .status.success { color: #10b981; border-color: #10b981; }
+        .status.error { color: #ef4444; border-color: #ef4444; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <h1>⚡ BlackMamerStudio</h1>
+            <span class="badge">OBFUSCATOR</span>
+        </div>
+        <div class="subtitle">
+            Premium Lua Obfuscator &bull; 100% compatible with Roblox Studio
+        </div>
+
+        <div class="row">
+            <div class="box">
+                <div class="box-header">
+                    <span>📝 Input</span>
+                    <span class="badge">Lua Code</span>
+                </div>
+                <textarea id="input" placeholder="-- Paste your Lua code here&#10;print(&quot;Hello World&quot;)">print("Hello World")</textarea>
+            </div>
+            <div class="box">
+                <div class="box-header">
+                    <span>🔐 Output</span>
+                    <span class="badge output">Obfuscated</span>
+                </div>
+                <textarea id="output" readonly placeholder="Result will appear here..."></textarea>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-primary" id="obfuscateBtn">⚡ Obfuscate</button>
+            <button class="btn btn-secondary" id="clearBtn">🗑️ Clear</button>
+            <button class="btn btn-success" id="copyBtn">📋 Copy</button>
+            <button class="btn btn-download" id="downloadBtn">⬇️ Download .lua</button>
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <span>Obfuscating...</span>
+            </div>
+        </div>
+
+        <div class="status" id="status"></div>
+        <div class="error" id="error"></div>
+
+        <div class="stats">
+            <span>Input: <span class="highlight" id="inputSize">0</span> chars</span>
+            <span>Output: <span class="highlight" id="outputSize">0</span> chars</span>
+            <span>Ratio: <span class="highlight" id="ratio">0%</span></span>
+        </div>
+
+        <div class="footer">
+            Made with ❤️ by <a href="#">BlackMamerStudio</a>
+        </div>
+    </div>
+
+    <script>
+        const input = document.getElementById('input');
+        const output = document.getElementById('output');
+        const obfuscateBtn = document.getElementById('obfuscateBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const copyBtn = document.getElementById('copyBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const errorEl = document.getElementById('error');
+        const statusEl = document.getElementById('status');
+        const loadingEl = document.getElementById('loading');
+        const inputSize = document.getElementById('inputSize');
+        const outputSize = document.getElementById('outputSize');
+        const ratio = document.getElementById('ratio');
+
+        function showStatus(msg, type) {
+            statusEl.textContent = msg;
+            statusEl.className = 'status' + (type ? ' ' + type : '');
+        }
+
+        function showError(msg) {
+            errorEl.textContent = '❌ ' + msg;
+            errorEl.classList.add('show');
+            setTimeout(() => errorEl.classList.remove('show'), 8000);
+        }
+
+        function hideError() { errorEl.classList.remove('show'); }
+
+        input.addEventListener('input', updateStats);
+        output.addEventListener('input', updateStats);
+
+        function updateStats() {
+            const inLen = input.value.length;
+            const outLen = output.value.length;
+            inputSize.textContent = inLen;
+            outputSize.textContent = outLen;
+            ratio.textContent = inLen > 0 ? Math.round((outLen / inLen) * 100) + '%' : '0%';
+        }
+        updateStats();
+
+        obfuscateBtn.addEventListener('click', async () => {
+            const code = input.value.trim();
+            if (!code) {
+                showError('Please paste some Lua code first.');
+                return;
+            }
+
+            obfuscateBtn.disabled = true;
+            loadingEl.classList.add('show');
+            hideError();
+            showStatus('Obfuscating your script, please wait...');
+
+            try {
+                const response = await fetch('/api/obfuscate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ script: code })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    showError(data.error);
+                    showStatus('Obfuscation failed!', 'error');
+                } else {
+                    output.value = data.obfuscated;
+                    updateStats();
+                    showStatus('Obfuscation complete!', 'success');
+                }
+            } catch (err) {
+                showError('Network error: ' + err.message);
+                showStatus('Obfuscation failed!', 'error');
+            } finally {
+                obfuscateBtn.disabled = false;
+                loadingEl.classList.remove('show');
+            }
+        });
+
+        clearBtn.addEventListener('click', () => {
+            input.value = '';
+            output.value = '';
+            hideError();
+            showStatus('Cleared!', '');
+            updateStats();
+        });
+
+        copyBtn.addEventListener('click', async () => {
+            if (!output.value) {
+                showError('Nothing to copy.');
+                return;
+            }
+            try {
+                await navigator.clipboard.writeText(output.value);
+                copyBtn.textContent = '✅ Copied!';
+                setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 2000);
+            } catch {
+                output.select();
+                document.execCommand('copy');
+                copyBtn.textContent = '✅ Copied!';
+                setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 2000);
+            }
+        });
+
+        downloadBtn.addEventListener('click', () => {
+            if (!output.value) {
+                showError('Nothing to download.');
+                return;
+            }
+            const blob = new Blob([output.value], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `obfuscated_script-${Date.now()}.lua`;
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+
+        input.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                obfuscateBtn.click();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -20,12 +20,12 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok', service: 'blackmamer-obfuscator' });
 });
 
-app.post('/obfuscate', (req, res) => {
-  const code = req.body && req.body.code;
+app.post('/api/obfuscate', (req, res) => {
+  const code = req.body && req.body.script;
   const preset = (req.body && req.body.preset) || 'Medium'; // Weak | Medium | Strong
 
   if (!code || typeof code !== 'string' || code.trim().length === 0) {
-    return res.status(400).json({ error: 'Field "code" (string) wajib diisi di body JSON.' });
+    return res.status(400).json({ error: 'Field "script" (string) wajib diisi di body JSON.' });
   }
 
   const id = crypto.randomBytes(8).toString('hex');

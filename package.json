@@ -1,7 +1,7 @@
 {
     "name": "blackmamer-obfuscator",
     "version": "1.0.0",
-    "description": "Prometheus-based Lua Obfuscator",
+    "description": "Prometheus Lua Obfuscator",
     "main": "server.js",
     "scripts": {
         "start": "node server.js",

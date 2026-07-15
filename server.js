@@ -1,18 +1,23 @@
 const express = require("express");
 const cors = require("cors");
+const { execSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json({ limit: "10mb" }));
 
 app.get("/", (req, res) => {
   res.json({ status: "ok", service: "BlackMamer Lua Obfuscator API" });
 });
 
 app.post("/obfuscate", (req, res) => {
-  const { code } = req.body;
+  const { code, preset = "Medium" } = req.body;
+  
   if (!code || typeof code !== "string") {
     return res.status(400).json({ error: "No code provided." });
   }
@@ -21,20 +26,48 @@ app.post("/obfuscate", (req, res) => {
   }
 
   try {
-    const result = obfuscate(code);
+    const result = obfuscateWithPrometheus(code, preset);
     res.json({ result });
   } catch (e) {
     res.status(500).json({ error: "Obfuscation failed: " + e.message });
   }
 });
 
-function obfuscate(src) {
+function obfuscateWithPrometheus(code, preset) {
+  const tempDir = os.tmpdir();
+  const inputFile = path.join(tempDir, `input_${Date.now()}.lua`);
+  const outputFile = path.join(tempDir, `output_${Date.now()}.lua`);
+  
+  try {
+    fs.writeFileSync(inputFile, code, "utf8");
+    
+    // Path Prometheus di Render
+    const prometheusPath = "/opt/render/project/src/Prometheus/cli.lua";
+    const cmd = `lua ${prometheusPath} --preset ${preset} --LuaU "${inputFile}" --out "${outputFile}"`;
+    
+    console.log("Running:", cmd);
+    execSync(cmd, { stdio: "pipe", timeout: 60000 });
+    
+    const result = fs.readFileSync(outputFile, "utf8");
+    return result;
+    
+  } catch (e) {
+    console.error("Prometheus error:", e.message);
+    return fallbackObfuscator(code);
+  } finally {
+    try { fs.unlinkSync(inputFile); } catch(e) {}
+    try { fs.unlinkSync(outputFile); } catch(e) {}
+  }
+}
+
+// ─── FALLBACK OBFUSCATOR ────────────────────────────────────────────────
+
+function fallbackObfuscator(src) {
   let code = src
     .replace(/--\[\[[\s\S]*?--\]\]/g, "")
     .replace(/--[^\n]*/g, "")
     .trim();
 
-  // ─── STRING TABLE ──────────────────────────────────────────────────────
   const stringTable = [];
   const stringMap = {};
   let stringIndex = 0;
@@ -61,7 +94,6 @@ function obfuscate(src) {
     return key;
   });
 
-  // ─── NUMBER TABLE ──────────────────────────────────────────────────────
   const numberMap = {};
   let numberIndex = 0;
 
@@ -74,7 +106,6 @@ function obfuscate(src) {
     return key;
   });
 
-  // ─── VARIABLE RENAME ──────────────────────────────────────────────────
   const varMap = {};
   let varIndex = 0;
   const reserved = new Set([
@@ -113,7 +144,6 @@ function obfuscate(src) {
     }
   }
 
-  // ─── REPLACE ──────────────────────────────────────────────────────────
   for (const [key, idx] of Object.entries(stringMap)) {
     code = code.replace(new RegExp(key, "g"), `r[${idx + 1}]`);
   }
@@ -126,7 +156,6 @@ function obfuscate(src) {
     code = code.replace(new RegExp(`\\b${orig}\\b`, "g"), obf);
   }
 
-  // ─── WRAP (SEMUA DALAM SATU BARIS) ──────────────────────────────────
   return wrapWeAreDevsOneLine(code, stringTable);
 }
 
@@ -141,12 +170,10 @@ function generateWeAreDevsName(idx) {
   return name;
 }
 
-// ─── WRAPPER SATU BARIS (SEPERTI WEAREDEVS) ────────────────────────────
 function wrapWeAreDevsOneLine(code, strings) {
   const stringTable = strings.length > 0 ? strings.join(",") : '""';
   const unpackIndex = Math.floor(Math.random() * 1000) + 100;
   
-  // Hapus semua newline dan spasi berlebih
   const oneLineCode = code.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
   
   const header = `--[[ v1.0.0 https://blackmamerstudio.netlify.app ]]`;

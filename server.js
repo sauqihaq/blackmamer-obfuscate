@@ -1,6 +1,5 @@
 const express = require("express");
 const cors = require("cors");
-const crypto = require("crypto");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -69,7 +68,6 @@ function obfuscate(src) {
   });
 
   // 3. Ekstrak semua number literals
-  const numberTable = [];
   const numberMap = {};
   let numberIndex = 0;
 
@@ -78,7 +76,6 @@ function obfuscate(src) {
     if (isNaN(n) || n < 0 || n > 99999) return match;
     const key = `__NUM_${numberIndex}__`;
     numberMap[key] = n;
-    numberTable.push(n.toString());
     numberIndex++;
     return key;
   });
@@ -125,26 +122,23 @@ function obfuscate(src) {
   }
 
   // 5. Replace semua placeholder
-  // String
   for (const [key, idx] of Object.entries(stringMap)) {
     code = code.replace(new RegExp(key, "g"), `x[${idx + 1}]`);
   }
   
-  // Number
   for (const [key, val] of Object.entries(numberMap)) {
     code = code.replace(new RegExp(key, "g"), `(${val})`);
   }
   
-  // Variable
   for (const [orig, obf] of Object.entries(varMap)) {
     code = code.replace(new RegExp(`\\b${orig}\\b`, "g"), obf);
   }
 
-  // 6. Control Flow Flattening
-  code = flattenControlFlow(code);
+  // 6. Control Flow Flattening (VERSION 3 - AMAN)
+  code = flattenControlFlowSafe(code);
 
   // 7. Wrap dengan loader ala WeAreDevs
-  return wrapWeAreDevs(code, stringTable, numberTable);
+  return wrapWeAreDevs(code, stringTable);
 }
 
 // ─── GENERATE VARIABLE NAME ──────────────────────────────────────────────
@@ -159,59 +153,174 @@ function generateVarName(idx) {
   return name;
 }
 
-// ─── CONTROL FLOW FLATTENING ─────────────────────────────────────────────
-function flattenControlFlow(code) {
-  // Parse menjadi baris-baris
-  const lines = code.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+// ─── CONTROL FLOW FLATTENING (VERSION 3 - AMAN UNTUK IF/ELSE) ──────────
+function flattenControlFlowSafe(code) {
+  // Pisahkan baris
+  let lines = code.split("\n").map(l => l.trim()).filter(l => l.length > 0);
   
-  // Buat state machine
-  let flattened = [];
-  flattened.push(`local _M=0`);
-  flattened.push(`while _M<${lines.length} do`);
+  if (lines.length === 0) return code;
+  
+  let result = [];
+  let state = 0;
+  let indent = 0;
+  let skipNext = false;
+  
+  // Build state machine
+  result.push(`local _M=0`);
+  result.push(`while _M<${lines.length + 1} do`);
   
   for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
     const nextState = (i + 1) % lines.length;
-    const line = lines[i];
     
-    if (i === 0) {
-      flattened.push(`  if _M==0 then`);
-    } else {
-      flattened.push(`  elseif _M==${i} then`);
+    // Skip baris yang sudah diproses
+    if (skipNext) {
+      skipNext = false;
+      continue;
     }
     
-    // Hapus "if" dan "then" yang bisa membuat state machine rusak
-    let processedLine = line;
+    // Deteksi if/elseif/else/end
+    if (/^if\s+/.test(line)) {
+      // Extract kondisi
+      const condition = line.replace(/^if\s+/, '').replace(/\s+then\s*$/, '');
+      
+      // Cari pasangan end
+      let depth = 1;
+      let endIndex = i + 1;
+      let elseIndex = -1;
+      let hasElse = false;
+      let elseIfBlocks = [];
+      
+      for (let j = i + 1; j < lines.length; j++) {
+        const l = lines[j];
+        if (/^if\s+/.test(l)) depth++;
+        else if (/^end\s*$/.test(l)) {
+          depth--;
+          if (depth === 0) {
+            endIndex = j;
+            break;
+          }
+        } else if (/^else\s*$/.test(l) && depth === 1) {
+          hasElse = true;
+          elseIndex = j;
+          break;
+        } else if (/^elseif\s+/.test(l) && depth === 1) {
+          hasElse = true;
+          elseIndex = j;
+          elseIfBlocks.push(j);
+          break;
+        }
+      }
+      
+      // Simpan state saat ini
+      const startState = state;
+      const trueState = state + 1;
+      const falseState = hasElse ? state + 2 : endIndex + 1;
+      
+      // Generate if state
+      result.push(`  if _M==${state} then`);
+      result.push(`    if ${condition} then`);
+      result.push(`      _M=${trueState}`);
+      result.push(`    else`);
+      result.push(`      _M=${falseState}`);
+      result.push(`    end`);
+      state++;
+      
+      // Proses blok IF (true)
+      const blockStart = i + 1;
+      const blockEnd = hasElse ? elseIndex : endIndex;
+      
+      for (let j = blockStart; j < blockEnd; j++) {
+        const blockLine = lines[j];
+        if (!/^else|^elseif|^end/.test(blockLine)) {
+          result.push(`  if _M==${state} then`);
+          result.push(`    ${blockLine}`);
+          result.push(`    _M=${state + 1}`);
+          state++;
+        }
+      }
+      
+      // Arahkan ke akhir blok
+      result.push(`  if _M==${state} then`);
+      result.push(`    _M=${endIndex + 1}`);
+      state++;
+      
+      // Skip ke end
+      i = endIndex;
+      continue;
+    }
     
-    // Handle if/elseif/else/end
-    if (/^if\s/.test(processedLine) || /^elseif\s/.test(processedLine)) {
-      processedLine = processedLine.replace(/^if\s+/, 'if ');
-      // Tambahkan state transition di akhir
-      flattened.push(`    ${processedLine} then`);
-      flattened.push(`      _M=${nextState}`);
-    } else if (/^else\s*$/.test(processedLine)) {
-      flattened.push(`    else`);
-      flattened.push(`      _M=${nextState}`);
-    } else if (/^end\s*$/.test(processedLine)) {
-      flattened.push(`    end`);
-    } else {
-      flattened.push(`    ${processedLine}`);
-      flattened.push(`    _M=${nextState}`);
+    // Handle else
+    if (/^else\s*$/.test(line)) {
+      // Cari end
+      let depth = 1;
+      let endIndex = i + 1;
+      for (let j = i + 1; j < lines.length; j++) {
+        const l = lines[j];
+        if (/^if\s+/.test(l)) depth++;
+        else if (/^end\s*$/.test(l)) {
+          depth--;
+          if (depth === 0) {
+            endIndex = j;
+            break;
+          }
+        }
+      }
+      
+      // Proses blok ELSE
+      result.push(`  if _M==${state} then`);
+      state++;
+      for (let j = i + 1; j < endIndex; j++) {
+        const blockLine = lines[j];
+        if (!/^else|^elseif|^end/.test(blockLine)) {
+          result.push(`  if _M==${state} then`);
+          result.push(`    ${blockLine}`);
+          result.push(`    _M=${state + 1}`);
+          state++;
+        }
+      }
+      result.push(`  if _M==${state} then`);
+      result.push(`    _M=${endIndex + 1}`);
+      state++;
+      
+      i = endIndex;
+      continue;
+    }
+    
+    // Handle end - skip
+    if (/^end\s*$/.test(line)) {
+      continue;
+    }
+    
+    // Handle normal lines
+    if (line.length > 0) {
+      result.push(`  if _M==${state} then`);
+      
+      // Deteksi pattern khusus
+      if (/^return\s+/.test(line)) {
+        result.push(`    ${line}`);
+        // Return tidak perlu state transition
+      } else {
+        result.push(`    ${line}`);
+        result.push(`    _M=${state + 1}`);
+        state++;
+      }
     }
   }
   
-  flattened.push(`  end`);
-  flattened.push(`end`);
+  // Final state - exit
+  result.push(`  if _M==${state} then`);
+  result.push(`    break`);
+  result.push(`  end`);
+  result.push(`end`);
   
-  return flattened.join("\n");
+  return result.join("\n");
 }
 
 // ─── WEAREDEVS STYLE WRAPPER ─────────────────────────────────────────────
-function wrapWeAreDevs(code, strings, numbers) {
+function wrapWeAreDevs(code, strings) {
   // Build string table
   const stringTable = strings.length > 0 ? strings.join(",") : '""';
-  
-  // Build number table
-  const numberTable = numbers.length > 0 ? numbers.join(",") : '0';
   
   // Random angka untuk table.unpack index
   const unpackIndex = Math.floor(Math.random() * 1000) + 100;
@@ -220,7 +329,7 @@ function wrapWeAreDevs(code, strings, numbers) {
   
   // String decoding function (seperti WeAreDevs)
   const decoder = `
-local function E(E)return x[E-(${stringTable.length + 1})]end
+local function E(E)return x[E-(${strings.length + 1})]end
 do local E=string.sub local M=table.insert local V=string.len local L=table.concat local R=type local J=x local x=math.floor local l=string.char
 local I={}
 for x=1,#J do local h=J[x]if R(h)=="string"then

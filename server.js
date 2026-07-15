@@ -29,16 +29,16 @@ app.post("/obfuscate", (req, res) => {
   }
 });
 
-// ─── CORE OBFUSCATOR ─── WEAREDEVS STYLE ──────────────────────────────────
+// ─── CORE OBFUSCATOR ─── WEAREDEVS CLONE ──────────────────────────────────
 
 function obfuscate(src) {
-  // 1. Bersihkan script (hapus komentar)
+  // 1. Bersihkan script
   let code = src
     .replace(/--\[\[[\s\S]*?--\]\]/g, "")
     .replace(/--[^\n]*/g, "")
     .trim();
 
-  // 2. Ekstrak semua string literal ke dalam tabel
+  // 2. Ekstrak semua string literal
   const stringTable = [];
   const stringMap = {};
   let stringIndex = 0;
@@ -54,7 +54,6 @@ function obfuscate(src) {
     
     if (raw.length === 0 || raw.length > 500) return match;
     
-    // Encode string ke ASCII escape (seperti WeAreDevs)
     const encoded = raw.split('').map(c => {
       const code = c.charCodeAt(0);
       return `\\${String(code).padStart(3, '0')}`;
@@ -67,7 +66,7 @@ function obfuscate(src) {
     return key;
   });
 
-  // 3. Ekstrak semua number literals
+  // 3. Ekstrak semua number
   const numberMap = {};
   let numberIndex = 0;
 
@@ -80,7 +79,7 @@ function obfuscate(src) {
     return key;
   });
 
-  // 4. Rename semua variable (local + parameters)
+  // 4. Rename variables
   const varMap = {};
   let varIndex = 0;
   const reserved = new Set([
@@ -95,7 +94,6 @@ function obfuscate(src) {
     "type","tostring","tonumber","print","warn","require","load","loadstring"
   ]);
 
-  // Temukan semua local variables
   const localRegex = /\blocal\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\s*,\s*[a-zA-Z_][a-zA-Z0-9_]*)*)/g;
   let m;
   while ((m = localRegex.exec(code)) !== null) {
@@ -108,7 +106,6 @@ function obfuscate(src) {
     }
   }
 
-  // Function parameters
   const funcRegex = /function\s*(?:[a-zA-Z_.:\[\]"']*)\s*\(([^)]*)\)/g;
   while ((m = funcRegex.exec(code)) !== null) {
     const params = m[1].split(",").map(s => s.trim()).filter(Boolean);
@@ -134,14 +131,13 @@ function obfuscate(src) {
     code = code.replace(new RegExp(`\\b${orig}\\b`, "g"), obf);
   }
 
-  // 6. Control Flow Flattening (VERSION 3 - AMAN)
+  // 6. Control Flow Flattening (VERSION 4 - AMAN)
   code = flattenControlFlowSafe(code);
 
   // 7. Wrap dengan loader ala WeAreDevs
   return wrapWeAreDevs(code, stringTable);
 }
 
-// ─── GENERATE VARIABLE NAME ──────────────────────────────────────────────
 function generateVarName(idx) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   let name = "";
@@ -153,163 +149,28 @@ function generateVarName(idx) {
   return name;
 }
 
-// ─── CONTROL FLOW FLATTENING (VERSION 3 - AMAN UNTUK IF/ELSE) ──────────
+// ─── CONTROL FLOW FLATTENING VERSION 4 ──────────────────────────────────
 function flattenControlFlowSafe(code) {
-  // Pisahkan baris
-  let lines = code.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+  // Parse kode menjadi baris-baris
+  const lines = code.split("\n").map(l => l.trim()).filter(l => l.length > 0);
   
   if (lines.length === 0) return code;
   
+  // Bangun struktur blok
+  const blocks = buildBlocks(lines);
+  
+  // Generate state machine
   let result = [];
   let state = 0;
-  let indent = 0;
-  let skipNext = false;
   
-  // Build state machine
   result.push(`local _M=0`);
-  result.push(`while _M<${lines.length + 1} do`);
+  result.push(`while _M<${countStates(blocks) + 1} do`);
   
-  for (let i = 0; i < lines.length; i++) {
-    let line = lines[i];
-    const nextState = (i + 1) % lines.length;
-    
-    // Skip baris yang sudah diproses
-    if (skipNext) {
-      skipNext = false;
-      continue;
-    }
-    
-    // Deteksi if/elseif/else/end
-    if (/^if\s+/.test(line)) {
-      // Extract kondisi
-      const condition = line.replace(/^if\s+/, '').replace(/\s+then\s*$/, '');
-      
-      // Cari pasangan end
-      let depth = 1;
-      let endIndex = i + 1;
-      let elseIndex = -1;
-      let hasElse = false;
-      let elseIfBlocks = [];
-      
-      for (let j = i + 1; j < lines.length; j++) {
-        const l = lines[j];
-        if (/^if\s+/.test(l)) depth++;
-        else if (/^end\s*$/.test(l)) {
-          depth--;
-          if (depth === 0) {
-            endIndex = j;
-            break;
-          }
-        } else if (/^else\s*$/.test(l) && depth === 1) {
-          hasElse = true;
-          elseIndex = j;
-          break;
-        } else if (/^elseif\s+/.test(l) && depth === 1) {
-          hasElse = true;
-          elseIndex = j;
-          elseIfBlocks.push(j);
-          break;
-        }
-      }
-      
-      // Simpan state saat ini
-      const startState = state;
-      const trueState = state + 1;
-      const falseState = hasElse ? state + 2 : endIndex + 1;
-      
-      // Generate if state
-      result.push(`  if _M==${state} then`);
-      result.push(`    if ${condition} then`);
-      result.push(`      _M=${trueState}`);
-      result.push(`    else`);
-      result.push(`      _M=${falseState}`);
-      result.push(`    end`);
-      state++;
-      
-      // Proses blok IF (true)
-      const blockStart = i + 1;
-      const blockEnd = hasElse ? elseIndex : endIndex;
-      
-      for (let j = blockStart; j < blockEnd; j++) {
-        const blockLine = lines[j];
-        if (!/^else|^elseif|^end/.test(blockLine)) {
-          result.push(`  if _M==${state} then`);
-          result.push(`    ${blockLine}`);
-          result.push(`    _M=${state + 1}`);
-          state++;
-        }
-      }
-      
-      // Arahkan ke akhir blok
-      result.push(`  if _M==${state} then`);
-      result.push(`    _M=${endIndex + 1}`);
-      state++;
-      
-      // Skip ke end
-      i = endIndex;
-      continue;
-    }
-    
-    // Handle else
-    if (/^else\s*$/.test(line)) {
-      // Cari end
-      let depth = 1;
-      let endIndex = i + 1;
-      for (let j = i + 1; j < lines.length; j++) {
-        const l = lines[j];
-        if (/^if\s+/.test(l)) depth++;
-        else if (/^end\s*$/.test(l)) {
-          depth--;
-          if (depth === 0) {
-            endIndex = j;
-            break;
-          }
-        }
-      }
-      
-      // Proses blok ELSE
-      result.push(`  if _M==${state} then`);
-      state++;
-      for (let j = i + 1; j < endIndex; j++) {
-        const blockLine = lines[j];
-        if (!/^else|^elseif|^end/.test(blockLine)) {
-          result.push(`  if _M==${state} then`);
-          result.push(`    ${blockLine}`);
-          result.push(`    _M=${state + 1}`);
-          state++;
-        }
-      }
-      result.push(`  if _M==${state} then`);
-      result.push(`    _M=${endIndex + 1}`);
-      state++;
-      
-      i = endIndex;
-      continue;
-    }
-    
-    // Handle end - skip
-    if (/^end\s*$/.test(line)) {
-      continue;
-    }
-    
-    // Handle normal lines
-    if (line.length > 0) {
-      result.push(`  if _M==${state} then`);
-      
-      // Deteksi pattern khusus
-      if (/^return\s+/.test(line)) {
-        result.push(`    ${line}`);
-        // Return tidak perlu state transition
-      } else {
-        result.push(`    ${line}`);
-        result.push(`    _M=${state + 1}`);
-        state++;
-      }
-    }
-  }
+  const generated = generateStates(blocks, state);
+  result.push(generated.code);
   
   // Final state - exit
-  result.push(`  if _M==${state} then`);
+  result.push(`  if _M==${generated.state} then`);
   result.push(`    break`);
   result.push(`  end`);
   result.push(`end`);
@@ -317,17 +178,187 @@ function flattenControlFlowSafe(code) {
   return result.join("\n");
 }
 
+function buildBlocks(lines) {
+  const blocks = [];
+  let i = 0;
+  
+  while (i < lines.length) {
+    const line = lines[i];
+    
+    if (/^if\s+/.test(line)) {
+      // Cari pasangan end
+      const block = { type: 'if', condition: line.replace(/^if\s+/, '').replace(/\s+then\s*$/, ''), children: [] };
+      let depth = 1;
+      let j = i + 1;
+      
+      while (j < lines.length) {
+        const l = lines[j];
+        if (/^if\s+/.test(l)) depth++;
+        else if (/^end\s*$/.test(l)) {
+          depth--;
+          if (depth === 0) {
+            // Proses children
+            const childLines = lines.slice(i + 1, j);
+            block.children = buildBlocks(childLines);
+            blocks.push(block);
+            i = j + 1;
+            break;
+          }
+        } else if (/^else\s*$/.test(l) && depth === 1) {
+          // Else block
+          block.elseBlock = { type: 'else', children: [] };
+          const elseLines = [];
+          let elseDepth = 1;
+          let k = j + 1;
+          while (k < lines.length) {
+            const el = lines[k];
+            if (/^if\s+/.test(el)) elseDepth++;
+            else if (/^end\s*$/.test(el)) {
+              elseDepth--;
+              if (elseDepth === 0) {
+                block.elseBlock.children = buildBlocks(lines.slice(j + 1, k));
+                i = k + 1;
+                break;
+              }
+            }
+            k++;
+          }
+          blocks.push(block);
+          break;
+        } else if (/^elseif\s+/.test(l) && depth === 1) {
+          // Elseif block - treat as else with condition
+          block.elseBlock = { 
+            type: 'elseif', 
+            condition: l.replace(/^elseif\s+/, '').replace(/\s+then\s*$/, ''),
+            children: []
+          };
+          // Cari end untuk elseif
+          let elseifDepth = 1;
+          let k = j + 1;
+          while (k < lines.length) {
+            const el = lines[k];
+            if (/^if\s+/.test(el)) elseifDepth++;
+            else if (/^end\s*$/.test(el)) {
+              elseifDepth--;
+              if (elseifDepth === 0) {
+                block.elseBlock.children = buildBlocks(lines.slice(j + 1, k));
+                i = k + 1;
+                break;
+              }
+            } else if (/^else\s*$/.test(el) && elseifDepth === 1) {
+              block.elseBlock.children = buildBlocks(lines.slice(j + 1, k));
+              // Lanjutkan ke else
+              const remaining = lines.slice(k);
+              const elseBlock = buildBlocks(remaining);
+              if (elseBlock.length > 0) {
+                // Gabungkan
+                block.elseBlock = { 
+                  type: 'ifelse', 
+                  condition: block.elseBlock.condition,
+                  children: block.elseBlock.children,
+                  elseBlock: elseBlock[0].elseBlock || null
+                };
+              }
+              i = k;
+              break;
+            }
+            k++;
+          }
+          blocks.push(block);
+          break;
+        }
+        j++;
+      }
+    } else if (/^else\s*$/.test(line)) {
+      // Else block - skip, sudah ditangani di atas
+      i++;
+      continue;
+    } else if (/^end\s*$/.test(line)) {
+      i++;
+      continue;
+    } else {
+      // Statement biasa
+      blocks.push({ type: 'statement', value: line });
+      i++;
+    }
+  }
+  
+  return blocks;
+}
+
+function countStates(blocks) {
+  let count = 0;
+  for (const block of blocks) {
+    if (block.type === 'if' || block.type === 'ifelse') {
+      count += 1; // state untuk if
+      count += countStates(block.children);
+      if (block.elseBlock) {
+        count += countStates(block.elseBlock.children || []);
+      }
+    } else if (block.type === 'statement') {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function generateStates(blocks, startState) {
+  let state = startState;
+  let code = [];
+  
+  for (const block of blocks) {
+    if (block.type === 'statement') {
+      code.push(`  if _M==${state} then`);
+      code.push(`    ${block.value}`);
+      code.push(`    _M=${state + 1}`);
+      state++;
+    } else if (block.type === 'if') {
+      const trueState = state + 1;
+      const falseState = state + 2 + countStates(block.children);
+      
+      code.push(`  if _M==${state} then`);
+      code.push(`    if ${block.condition} then`);
+      code.push(`      _M=${trueState}`);
+      code.push(`    else`);
+      code.push(`      _M=${falseState}`);
+      code.push(`    end`);
+      state++;
+      
+      // True branch
+      const trueResult = generateStates(block.children, state);
+      code.push(trueResult.code);
+      state = trueResult.state;
+      
+      // Jump ke akhir if
+      const endState = state + 1 + (block.elseBlock ? countStates(block.elseBlock.children || []) : 0);
+      code.push(`  if _M==${state} then`);
+      code.push(`    _M=${endState}`);
+      state++;
+      
+      // False branch (else)
+      if (block.elseBlock) {
+        const elseResult = generateStates(block.elseBlock.children || [], state);
+        code.push(elseResult.code);
+        state = elseResult.state;
+        code.push(`  if _M==${state} then`);
+        code.push(`    _M=${endState}`);
+        state++;
+      }
+      
+      state = endState;
+    }
+  }
+  
+  return { code: code.join("\n"), state: state };
+}
+
 // ─── WEAREDEVS STYLE WRAPPER ─────────────────────────────────────────────
 function wrapWeAreDevs(code, strings) {
-  // Build string table
   const stringTable = strings.length > 0 ? strings.join(",") : '""';
-  
-  // Random angka untuk table.unpack index
   const unpackIndex = Math.floor(Math.random() * 1000) + 100;
   
   const header = `--[[ v1.0.0 https://blackmamerstudio.netlify.app ]]`;
   
-  // String decoding function (seperti WeAreDevs)
   const decoder = `
 local function E(E)return x[E-(${strings.length + 1})]end
 do local E=string.sub local M=table.insert local V=string.len local L=table.concat local R=type local J=x local x=math.floor local l=string.char

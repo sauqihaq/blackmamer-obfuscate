@@ -1,50 +1,74 @@
-const express = require("express");
-const cors = require("cors");
-const { exec } = require("child_process");
-const fs = require("fs");
-const path = require("path");
+const express = require('express');
+const cors = require('cors');
+const { execFile } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-app.use(cors());
-app.use(express.json({ limit: "10mb" }));
-app.use(express.static("public"));
+// Path ke cli.lua hasil git clone di Dockerfile (RUN git clone ... /app/prometheus)
+const PROMETHEUS_CLI = '/app/prometheus/cli.lua';
 
-// ─── ROUTES ──────────────────────────────────────────────────────────────
+app.use(cors()); // izinkan request dari domain lain (misal frontend Netlify)
+app.use(express.json({ limit: '2mb' }));
 
-app.get("/api", (req, res) => {
-    res.json({ status: "ok", service: "BlackMamerStudio Lua Obfuscator", version: "1.0.0" });
+// Health check - biar Render tau service masih hidup
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', service: 'blackmamer-obfuscator' });
 });
 
-app.post("/api/obfuscate", (req, res) => {
-    const { script } = req.body;
-    if (!script) return res.status(400).json({ error: "No script" });
+app.post('/obfuscate', (req, res) => {
+  const code = req.body && req.body.code;
+  const preset = (req.body && req.body.preset) || 'Medium'; // Weak | Medium | Strong
 
-    const tempDir = path.join(__dirname, "temp");
-    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+  if (!code || typeof code !== 'string' || code.trim().length === 0) {
+    return res.status(400).json({ error: 'Field "code" (string) wajib diisi di body JSON.' });
+  }
 
-    const tempFile = path.join(tempDir, `script_${Date.now()}.lua`);
-    fs.writeFileSync(tempFile, script);
+  const id = crypto.randomBytes(8).toString('hex');
+  const inputPath = path.join(os.tmpdir(), `script_${id}.lua`);
+  const outputPath = path.join(os.tmpdir(), `script_${id}.out.lua`);
 
-    // Jalankan Prometheus (Lua)
-    const prometheusPath = path.join(__dirname, "prometheus", "prometheus-main.lua");
-    const cmd = `lua ${prometheusPath} -file ${tempFile} -obfuscate`;
+  fs.writeFile(inputPath, code, (writeErr) => {
+    if (writeErr) {
+      console.error('Gagal menulis temp file:', writeErr);
+      return res.status(500).json({ error: 'Gagal menyiapkan file sementara.' });
+    }
 
-    exec(cmd, (error, stdout, stderr) => {
-        try { fs.unlinkSync(tempFile); } catch(e) {}
+    execFile(
+      'lua',
+      [PROMETHEUS_CLI, '--preset', preset, inputPath, '--out', outputPath, '--nocolors'],
+      { timeout: 30000 },
+      (execErr, stdout, stderr) => {
+        // Bersihin temp file input, ga peduli sukses atau gagal
+        fs.unlink(inputPath, () => {});
 
-        if (error) {
-            console.error("Prometheus error:", stderr);
-            return res.status(500).json({ error: "Prometheus failed: " + stderr });
+        if (execErr) {
+          console.error('Prometheus error:', stderr || execErr.message);
+          return res.status(500).json({
+            error: 'Obfuscation gagal.',
+            detail: (stderr || execErr.message || '').toString().slice(0, 500),
+          });
         }
 
-        res.json({ success: true, obfuscated: stdout });
-    });
+        fs.readFile(outputPath, 'utf8', (readErr, obfuscated) => {
+          fs.unlink(outputPath, () => {}); // bersihin temp file output
+
+          if (readErr) {
+            console.error('Gagal membaca hasil obfuscate:', readErr);
+            return res.status(500).json({ error: 'Gagal membaca hasil obfuscate.' });
+          }
+
+          res.json({ obfuscated });
+        });
+      }
+    );
+  });
 });
 
-app.get("/", (req, res) => {
-    res.sendFile(path.join(__dirname, "public", "index.html"));
+app.listen(PORT, () => {
+  console.log(`✅ Obfuscator running on port ${PORT}`);
 });
-
-app.listen(PORT, () => console.log(`✅ Obfuscator running on port ${PORT}`));

@@ -1,6 +1,6 @@
 const express = require("express");
 const cors = require("cors");
-const luaparse = require("luaparse");  // ← Ganti ke luaparse (lebih stabil)
+const luaparse = require("luaparse");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -25,48 +25,57 @@ app.post("/obfuscate", (req, res) => {
     const result = obfuscate(code);
     res.json({ result });
   } catch (e) {
+    console.error("Error:", e.message);
     res.status(500).json({ error: "Obfuscation failed: " + e.message });
   }
 });
 
-// ─── OBFUSCATOR ──────────────────────────────────────────────────────────
+// ─── CORE OBFUSCATOR ──────────────────────────────────────────────────────
 
 function obfuscate(src) {
-  let ast;
+  let code = src;
+  let ast = null;
+  
+  // 1. Coba parse dengan luaparse
   try {
-    // Parse dengan luaparse
-    ast = luaparse.parse(src, {
+    ast = luaparse.parse(code, {
       comments: false,
       scope: true,
-      locations: true
+      locations: true,
+      raw: true
     });
   } catch (e) {
     console.log("AST Parse failed, using fallback:", e.message);
     return fallbackObfuscate(src);
   }
 
-  // ─── STRING TABLE ──────────────────────────────────────────────────
+  // 2. Extract string dari AST
   const stringTable = [];
   const stringMap = {};
   let stringIndex = 0;
 
-  // Traverse AST untuk extract semua string
-  traverseAST(ast, (node) => {
-    if (node.type === "StringLiteral") {
-      const raw = node.value;
-      if (raw.length > 0 && raw.length <= 500) {
-        const encoded = raw.split('').map(c => {
-          return `\\${String(c.charCodeAt(0)).padStart(3, '0')}`;
-        }).join('');
-        stringTable.push(`"${encoded}"`);
-        const key = `__S_${stringIndex}__`;
-        stringMap[node.start] = { key, idx: stringIndex };
-        stringIndex++;
+  try {
+    traverseAST(ast, (node) => {
+      if (node && node.type === "StringLiteral" && node.value) {
+        const raw = node.value;
+        if (raw.length > 0 && raw.length <= 500) {
+          const encoded = raw.split('').map(c => {
+            return `\\${String(c.charCodeAt(0)).padStart(3, '0')}`;
+          }).join('');
+          stringTable.push(`"${encoded}"`);
+          if (node.start !== undefined) {
+            stringMap[node.start] = { idx: stringIndex };
+          }
+          stringIndex++;
+        }
       }
-    }
-  });
+    });
+  } catch (e) {
+    console.log("String extraction failed, using fallback");
+    return fallbackObfuscate(src);
+  }
 
-  // ─── VARIABLE RENAME ──────────────────────────────────────────────
+  // 3. Rename variables
   const varMap = {};
   let varIndex = 0;
   const reserved = new Set([
@@ -74,51 +83,76 @@ function obfuscate(src) {
     "if","in","local","nil","not","or","repeat","return","then","true","until","while"
   ]);
 
-  const identifiers = [];
-  traverseAST(ast, (node) => {
-    if (node.type === "Identifier" && !reserved.has(node.name)) {
-      identifiers.push(node);
-    }
-    if (node.type === "LocalStatement") {
-      for (const id of node.identifiers) {
-        if (!reserved.has(id.name)) {
-          identifiers.push(id);
+  try {
+    const identifiers = [];
+    traverseAST(ast, (node) => {
+      if (node && node.type === "Identifier" && node.name && !reserved.has(node.name)) {
+        identifiers.push(node);
+      }
+      if (node && node.type === "LocalStatement" && node.identifiers) {
+        for (const id of node.identifiers) {
+          if (id && id.name && !reserved.has(id.name)) {
+            identifiers.push(id);
+          }
         }
       }
-    }
-  });
+    });
 
-  for (const id of identifiers) {
-    if (!varMap[id.name]) {
-      varMap[id.name] = generateRandomName(varIndex);
-      varIndex++;
+    for (const id of identifiers) {
+      if (id && id.name && !varMap[id.name]) {
+        varMap[id.name] = generateRandomName(varIndex);
+        varIndex++;
+      }
     }
+  } catch (e) {
+    console.log("Variable rename failed, using fallback");
+    return fallbackObfuscate(src);
   }
 
-  // ─── REPLACE DI AST ──────────────────────────────────────────────
-  replaceInAST(ast, stringMap, varMap);
+  // 4. Replace di AST
+  try {
+    replaceInAST(ast, stringMap, varMap);
+  } catch (e) {
+    console.log("AST replace failed, using fallback");
+    return fallbackObfuscate(src);
+  }
 
-  // ─── GENERATE CODE ──────────────────────────────────────────────
-  let code = generateCode(ast);
+  // 5. Generate code
+  let generatedCode;
+  try {
+    generatedCode = generateCode(ast);
+  } catch (e) {
+    console.log("Code generation failed, using fallback");
+    return fallbackObfuscate(src);
+  }
 
-  // ─── CONTROL FLOW FLATTENING ────────────────────────────────────
-  code = flattenControlFlow(code);
+  // 6. Control Flow Flattening (optional)
+  generatedCode = flattenControlFlow(generatedCode);
 
-  // ─── WRAP ────────────────────────────────────────────────────────
-  return wrapWeAreDevs(code, stringTable);
+  // 7. Wrap
+  return wrapWeAreDevs(generatedCode, stringTable);
 }
 
-// ─── HELPER FUNCTIONS ────────────────────────────────────────────────────
+// ─── TRAVERSE AST ────────────────────────────────────────────────────────
 
 function traverseAST(node, callback) {
-  callback(node);
+  if (!node || typeof node !== "object") return;
+  
+  try {
+    callback(node);
+  } catch (e) {
+    // Skip jika callback error
+  }
+  
   if (node && typeof node === "object") {
     for (const key of Object.keys(node)) {
       if (key === "parent" || key === "start" || key === "end") continue;
       const child = node[key];
       if (Array.isArray(child)) {
         for (const item of child) {
-          if (item && typeof item === "object") traverseAST(item, callback);
+          if (item && typeof item === "object") {
+            traverseAST(item, callback);
+          }
         }
       } else if (child && typeof child === "object") {
         traverseAST(child, callback);
@@ -129,15 +163,16 @@ function traverseAST(node, callback) {
 
 function replaceInAST(ast, stringMap, varMap) {
   traverseAST(ast, (node) => {
-    if (node.type === "StringLiteral") {
-      const key = stringMap[node.start];
-      if (key) {
+    if (!node) return;
+    if (node.type === "StringLiteral" && node.start !== undefined) {
+      const entry = stringMap[node.start];
+      if (entry) {
         node.type = "Identifier";
-        node.name = `r[${key.idx + 1}]`;
+        node.name = `r[${entry.idx + 1}]`;
         node.raw = node.name;
       }
     }
-    if (node.type === "Identifier") {
+    if (node.type === "Identifier" && node.name) {
       const newName = varMap[node.name];
       if (newName) {
         node.name = newName;
@@ -148,10 +183,9 @@ function replaceInAST(ast, stringMap, varMap) {
 }
 
 function generateCode(ast) {
-  // Reconstruct code dari AST
+  if (!ast || !ast.body) return "";
   let code = "";
-  const body = ast.body || [];
-  for (const node of body) {
+  for (const node of ast.body) {
     code += generateNode(node) + "\n";
   }
   return code;
@@ -160,84 +194,90 @@ function generateCode(ast) {
 function generateNode(node) {
   if (!node) return "";
   
-  switch (node.type) {
-    case "Chunk":
-      return node.body.map(n => generateNode(n)).join("\n");
-    case "Statement":
-    case "AssignmentStatement":
-      const left = node.variables.map(v => generateNode(v)).join(", ");
-      const right = node.init.map(v => generateNode(v)).join(", ");
-      return `${left} = ${right}`;
-    case "Identifier":
-      return node.name;
-    case "StringLiteral":
-      return `"${node.value}"`;
-    case "NumericLiteral":
-      return String(node.value);
-    case "CallStatement":
-      return generateNode(node.expression);
-    case "CallExpression":
-      const args = node.arguments.map(a => generateNode(a)).join(", ");
-      return `${generateNode(node.base)}(${args})`;
-    case "MemberExpression":
-      return `${generateNode(node.base)}.${node.identifier.name}`;
-    case "IndexExpression":
-      return `${generateNode(node.base)}[${generateNode(node.index)}]`;
-    case "TableConstructorExpression":
-      const fields = node.fields.map(f => {
-        if (f.type === "TableKeyString") {
-          return `${f.key.name} = ${generateNode(f.value)}`;
-        } else if (f.type === "TableKey") {
-          return `[${generateNode(f.key)}] = ${generateNode(f.value)}`;
-        } else {
-          return generateNode(f.value);
+  try {
+    switch (node.type) {
+      case "Chunk":
+        return node.body ? node.body.map(n => generateNode(n)).join("\n") : "";
+      case "AssignmentStatement":
+        const left = (node.variables || []).map(v => generateNode(v)).join(", ");
+        const right = (node.init || []).map(v => generateNode(v)).join(", ");
+        return `${left} = ${right}`;
+      case "Identifier":
+        return node.name || "";
+      case "StringLiteral":
+        return `"${node.value || ''}"`;
+      case "NumericLiteral":
+        return String(node.value || 0);
+      case "CallStatement":
+        return node.expression ? generateNode(node.expression) : "";
+      case "CallExpression":
+        const args = (node.arguments || []).map(a => generateNode(a)).join(", ");
+        return `${generateNode(node.base)}(${args})`;
+      case "MemberExpression":
+        return `${generateNode(node.base)}.${node.identifier ? node.identifier.name : ''}`;
+      case "IndexExpression":
+        return `${generateNode(node.base)}[${generateNode(node.index)}]`;
+      case "TableConstructorExpression":
+        const fields = (node.fields || []).map(f => {
+          if (!f) return "";
+          if (f.type === "TableKeyString") {
+            return `${f.key ? f.key.name : ''} = ${generateNode(f.value)}`;
+          } else if (f.type === "TableKey") {
+            return `[${generateNode(f.key)}] = ${generateNode(f.value)}`;
+          } else {
+            return generateNode(f.value);
+          }
+        }).filter(Boolean).join(", ");
+        return `{ ${fields} }`;
+      case "BinaryExpression":
+        return `(${generateNode(node.left)} ${node.operator || ''} ${generateNode(node.right)})`;
+      case "UnaryExpression":
+        return `${node.operator || ''}${generateNode(node.argument)}`;
+      case "LocalStatement":
+        const ids = (node.identifiers || []).map(i => i ? i.name : '').filter(Boolean).join(", ");
+        const init = (node.init || []).map(i => generateNode(i)).filter(Boolean).join(", ");
+        return init ? `local ${ids} = ${init}` : `local ${ids}`;
+      case "FunctionDeclaration":
+        const params = (node.parameters || []).map(p => p ? p.name : '').filter(Boolean).join(", ");
+        const body2 = node.body && node.body.body ? node.body.body.map(n => generateNode(n)).join("\n") : "";
+        return `function ${node.identifier ? node.identifier.name : ''}(${params}) ${body2} end`;
+      case "IfStatement":
+        const cond = generateNode(node.condition);
+        const thenBlock = node.thenBlock ? node.thenBlock.map(n => generateNode(n)).join("\n") : "";
+        let ifCode = `if ${cond} then ${thenBlock}`;
+        if (node.elseBlock) {
+          const elseBlock = node.elseBlock.map(n => generateNode(n)).join("\n");
+          ifCode += ` else ${elseBlock}`;
         }
-      }).join(", ");
-      return `{ ${fields} }`;
-    case "BinaryExpression":
-      return `(${generateNode(node.left)} ${node.operator} ${generateNode(node.right)})`;
-    case "UnaryExpression":
-      return `${node.operator}${generateNode(node.argument)}`;
-    case "LocalStatement":
-      const ids = node.identifiers.map(i => i.name).join(", ");
-      const init = node.init.map(i => generateNode(i)).join(", ");
-      return init ? `local ${ids} = ${init}` : `local ${ids}`;
-    case "FunctionDeclaration":
-      const params = node.parameters.map(p => p.name).join(", ");
-      const body2 = node.body.body.map(n => generateNode(n)).join("\n");
-      return `function ${node.identifier.name}(${params}) ${body2} end`;
-    case "IfStatement":
-      const cond = generateNode(node.condition);
-      const thenBlock = node.thenBlock.map(n => generateNode(n)).join("\n");
-      let ifCode = `if ${cond} then ${thenBlock}`;
-      if (node.elseBlock) {
-        const elseBlock = node.elseBlock.map(n => generateNode(n)).join("\n");
-        ifCode += ` else ${elseBlock}`;
-      }
-      if (node.elseifBlocks) {
-        for (const elseif of node.elseifBlocks) {
-          ifCode += ` elseif ${generateNode(elseif.condition)} then ${elseif.thenBlock.map(n => generateNode(n)).join("\n")}`;
+        if (node.elseifBlocks) {
+          for (const elseif of node.elseifBlocks) {
+            if (elseif) {
+              ifCode += ` elseif ${generateNode(elseif.condition)} then ${elseif.thenBlock ? elseif.thenBlock.map(n => generateNode(n)).join("\n") : ""}`;
+            }
+          }
         }
-      }
-      return ifCode + ` end`;
-    case "WhileStatement":
-      return `while ${generateNode(node.condition)} do ${node.body.map(n => generateNode(n)).join("\n")} end`;
-    case "RepeatStatement":
-      return `repeat ${node.body.map(n => generateNode(n)).join("\n")} until ${generateNode(node.condition)}`;
-    case "ForNumericStatement":
-      return `for ${node.variable.name} = ${generateNode(node.start)} ${node.step ? `, ${generateNode(node.step)}` : ""} do ${node.body.map(n => generateNode(n)).join("\n")} end`;
-    case "ReturnStatement":
-      return `return ${node.arguments.map(a => generateNode(a)).join(", ")}`;
-    case "BreakStatement":
-      return "break";
-    case "NilLiteral":
-      return "nil";
-    case "BooleanLiteral":
-      return String(node.value);
-    case "TableValue":
-      return generateNode(node.value);
-    default:
-      return "";
+        return ifCode + ` end`;
+      case "WhileStatement":
+        return `while ${generateNode(node.condition)} do ${node.body ? node.body.map(n => generateNode(n)).join("\n") : ""} end`;
+      case "RepeatStatement":
+        return `repeat ${node.body ? node.body.map(n => generateNode(n)).join("\n") : ""} until ${generateNode(node.condition)}`;
+      case "ForNumericStatement":
+        return `for ${node.variable ? node.variable.name : ''} = ${generateNode(node.start)}${node.step ? `, ${generateNode(node.step)}` : ""} do ${node.body ? node.body.map(n => generateNode(n)).join("\n") : ""} end`;
+      case "ReturnStatement":
+        return `return ${(node.arguments || []).map(a => generateNode(a)).join(", ")}`;
+      case "BreakStatement":
+        return "break";
+      case "NilLiteral":
+        return "nil";
+      case "BooleanLiteral":
+        return String(node.value || false);
+      case "TableValue":
+        return generateNode(node.value);
+      default:
+        return "";
+    }
+  } catch (e) {
+    return "";
   }
 }
 

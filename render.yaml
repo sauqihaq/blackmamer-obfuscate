@@ -1,6 +1,6 @@
 services:
   - type: web
     name: blackmamer-obfuscator
-    runtime: image
+    runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile

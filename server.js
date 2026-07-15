@@ -7,7 +7,6 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json({ limit: "5mb" }));
 
-// ─── HEALTH CHECK ──────────────────────────────────────────────────────────
 app.get("/", (req, res) => {
   res.json({ status: "ok", service: "BlackMamer Lua Obfuscator API" });
 });
@@ -29,7 +28,7 @@ app.post("/obfuscate", (req, res) => {
   }
 });
 
-// ─── CORE OBFUSCATOR ─── WEAREDEVS CLONE ──────────────────────────────────
+// ─── CORE OBFUSCATOR ─── WEAREDEVS STYLE ──────────────────────────────────
 
 function obfuscate(src) {
   // 1. Bersihkan script
@@ -38,7 +37,7 @@ function obfuscate(src) {
     .replace(/--[^\n]*/g, "")
     .trim();
 
-  // 2. Ekstrak semua string literal
+  // 2. Ekstrak semua string literal ke tabel (seperti WeAreDevs)
   const stringTable = [];
   const stringMap = {};
   let stringIndex = 0;
@@ -54,9 +53,9 @@ function obfuscate(src) {
     
     if (raw.length === 0 || raw.length > 500) return match;
     
+    // Encode ke ASCII escape (seperti WeAreDevs: \084\051\...)
     const encoded = raw.split('').map(c => {
-      const code = c.charCodeAt(0);
-      return `\\${String(code).padStart(3, '0')}`;
+      return `\\${String(c.charCodeAt(0)).padStart(3, '0')}`;
     }).join('');
     
     stringTable.push(`"${encoded}"`);
@@ -66,7 +65,7 @@ function obfuscate(src) {
     return key;
   });
 
-  // 3. Ekstrak semua number
+  // 3. Ekstrak number (opsional, tapi buat lebih sulit dibaca)
   const numberMap = {};
   let numberIndex = 0;
 
@@ -79,7 +78,7 @@ function obfuscate(src) {
     return key;
   });
 
-  // 4. Rename variables
+  // 4. Rename variables (seperti WeAreDevs: A, B, C, ...)
   const varMap = {};
   let varIndex = 0;
   const reserved = new Set([
@@ -100,7 +99,7 @@ function obfuscate(src) {
     const names = m[1].split(",").map(s => s.trim());
     for (const name of names) {
       if (!reserved.has(name) && !varMap[name]) {
-        varMap[name] = generateVarName(varIndex);
+        varMap[name] = generateWeAreDevsName(varIndex);
         varIndex++;
       }
     }
@@ -112,7 +111,7 @@ function obfuscate(src) {
     for (const p of params) {
       const clean = p.replace(/^\.\.\./, "").trim();
       if (clean && !reserved.has(clean) && !varMap[clean]) {
-        varMap[clean] = generateVarName(varIndex);
+        varMap[clean] = generateWeAreDevsName(varIndex);
         varIndex++;
       }
     }
@@ -120,7 +119,7 @@ function obfuscate(src) {
 
   // 5. Replace semua placeholder
   for (const [key, idx] of Object.entries(stringMap)) {
-    code = code.replace(new RegExp(key, "g"), `x[${idx + 1}]`);
+    code = code.replace(new RegExp(key, "g"), `r[${idx + 1}]`);
   }
   
   for (const [key, val] of Object.entries(numberMap)) {
@@ -131,14 +130,13 @@ function obfuscate(src) {
     code = code.replace(new RegExp(`\\b${orig}\\b`, "g"), obf);
   }
 
-  // 6. Control Flow Flattening (VERSION 4 - AMAN)
-  code = flattenControlFlowSafe(code);
-
-  // 7. Wrap dengan loader ala WeAreDevs
+  // 6. Wrap dengan loader ala WeAreDevs
   return wrapWeAreDevs(code, stringTable);
 }
 
-function generateVarName(idx) {
+// ─── GENERATE NAME LIKE WEAREDEVS ──────────────────────────────────────
+function generateWeAreDevsName(idx) {
+  // WeAreDevs menggunakan huruf kapital: A, B, C, ..., Z, AA, AB, ...
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   let name = "";
   let i = idx;
@@ -149,219 +147,21 @@ function generateVarName(idx) {
   return name;
 }
 
-// ─── CONTROL FLOW FLATTENING VERSION 4 ──────────────────────────────────
-function flattenControlFlowSafe(code) {
-  // Parse kode menjadi baris-baris
-  const lines = code.split("\n").map(l => l.trim()).filter(l => l.length > 0);
-  
-  if (lines.length === 0) return code;
-  
-  // Bangun struktur blok
-  const blocks = buildBlocks(lines);
-  
-  // Generate state machine
-  let result = [];
-  let state = 0;
-  
-  result.push(`local _M=0`);
-  result.push(`while _M<${countStates(blocks) + 1} do`);
-  
-  const generated = generateStates(blocks, state);
-  result.push(generated.code);
-  
-  // Final state - exit
-  result.push(`  if _M==${generated.state} then`);
-  result.push(`    break`);
-  result.push(`  end`);
-  result.push(`end`);
-  
-  return result.join("\n");
-}
-
-function buildBlocks(lines) {
-  const blocks = [];
-  let i = 0;
-  
-  while (i < lines.length) {
-    const line = lines[i];
-    
-    if (/^if\s+/.test(line)) {
-      // Cari pasangan end
-      const block = { type: 'if', condition: line.replace(/^if\s+/, '').replace(/\s+then\s*$/, ''), children: [] };
-      let depth = 1;
-      let j = i + 1;
-      
-      while (j < lines.length) {
-        const l = lines[j];
-        if (/^if\s+/.test(l)) depth++;
-        else if (/^end\s*$/.test(l)) {
-          depth--;
-          if (depth === 0) {
-            // Proses children
-            const childLines = lines.slice(i + 1, j);
-            block.children = buildBlocks(childLines);
-            blocks.push(block);
-            i = j + 1;
-            break;
-          }
-        } else if (/^else\s*$/.test(l) && depth === 1) {
-          // Else block
-          block.elseBlock = { type: 'else', children: [] };
-          const elseLines = [];
-          let elseDepth = 1;
-          let k = j + 1;
-          while (k < lines.length) {
-            const el = lines[k];
-            if (/^if\s+/.test(el)) elseDepth++;
-            else if (/^end\s*$/.test(el)) {
-              elseDepth--;
-              if (elseDepth === 0) {
-                block.elseBlock.children = buildBlocks(lines.slice(j + 1, k));
-                i = k + 1;
-                break;
-              }
-            }
-            k++;
-          }
-          blocks.push(block);
-          break;
-        } else if (/^elseif\s+/.test(l) && depth === 1) {
-          // Elseif block - treat as else with condition
-          block.elseBlock = { 
-            type: 'elseif', 
-            condition: l.replace(/^elseif\s+/, '').replace(/\s+then\s*$/, ''),
-            children: []
-          };
-          // Cari end untuk elseif
-          let elseifDepth = 1;
-          let k = j + 1;
-          while (k < lines.length) {
-            const el = lines[k];
-            if (/^if\s+/.test(el)) elseifDepth++;
-            else if (/^end\s*$/.test(el)) {
-              elseifDepth--;
-              if (elseifDepth === 0) {
-                block.elseBlock.children = buildBlocks(lines.slice(j + 1, k));
-                i = k + 1;
-                break;
-              }
-            } else if (/^else\s*$/.test(el) && elseifDepth === 1) {
-              block.elseBlock.children = buildBlocks(lines.slice(j + 1, k));
-              // Lanjutkan ke else
-              const remaining = lines.slice(k);
-              const elseBlock = buildBlocks(remaining);
-              if (elseBlock.length > 0) {
-                // Gabungkan
-                block.elseBlock = { 
-                  type: 'ifelse', 
-                  condition: block.elseBlock.condition,
-                  children: block.elseBlock.children,
-                  elseBlock: elseBlock[0].elseBlock || null
-                };
-              }
-              i = k;
-              break;
-            }
-            k++;
-          }
-          blocks.push(block);
-          break;
-        }
-        j++;
-      }
-    } else if (/^else\s*$/.test(line)) {
-      // Else block - skip, sudah ditangani di atas
-      i++;
-      continue;
-    } else if (/^end\s*$/.test(line)) {
-      i++;
-      continue;
-    } else {
-      // Statement biasa
-      blocks.push({ type: 'statement', value: line });
-      i++;
-    }
-  }
-  
-  return blocks;
-}
-
-function countStates(blocks) {
-  let count = 0;
-  for (const block of blocks) {
-    if (block.type === 'if' || block.type === 'ifelse') {
-      count += 1; // state untuk if
-      count += countStates(block.children);
-      if (block.elseBlock) {
-        count += countStates(block.elseBlock.children || []);
-      }
-    } else if (block.type === 'statement') {
-      count += 1;
-    }
-  }
-  return count;
-}
-
-function generateStates(blocks, startState) {
-  let state = startState;
-  let code = [];
-  
-  for (const block of blocks) {
-    if (block.type === 'statement') {
-      code.push(`  if _M==${state} then`);
-      code.push(`    ${block.value}`);
-      code.push(`    _M=${state + 1}`);
-      state++;
-    } else if (block.type === 'if') {
-      const trueState = state + 1;
-      const falseState = state + 2 + countStates(block.children);
-      
-      code.push(`  if _M==${state} then`);
-      code.push(`    if ${block.condition} then`);
-      code.push(`      _M=${trueState}`);
-      code.push(`    else`);
-      code.push(`      _M=${falseState}`);
-      code.push(`    end`);
-      state++;
-      
-      // True branch
-      const trueResult = generateStates(block.children, state);
-      code.push(trueResult.code);
-      state = trueResult.state;
-      
-      // Jump ke akhir if
-      const endState = state + 1 + (block.elseBlock ? countStates(block.elseBlock.children || []) : 0);
-      code.push(`  if _M==${state} then`);
-      code.push(`    _M=${endState}`);
-      state++;
-      
-      // False branch (else)
-      if (block.elseBlock) {
-        const elseResult = generateStates(block.elseBlock.children || [], state);
-        code.push(elseResult.code);
-        state = elseResult.state;
-        code.push(`  if _M==${state} then`);
-        code.push(`    _M=${endState}`);
-        state++;
-      }
-      
-      state = endState;
-    }
-  }
-  
-  return { code: code.join("\n"), state: state };
-}
-
 // ─── WEAREDEVS STYLE WRAPPER ─────────────────────────────────────────────
 function wrapWeAreDevs(code, strings) {
+  // Build string table
   const stringTable = strings.length > 0 ? strings.join(",") : '""';
+  
+  // Random index untuk table.unpack
   const unpackIndex = Math.floor(Math.random() * 1000) + 100;
   
+  // Header seperti WeAreDevs
   const header = `--[[ v1.0.0 https://blackmamerstudio.netlify.app ]]`;
   
+  // Decoder function (sama seperti WeAreDevs)
   const decoder = `
-local function E(E)return x[E-(${strings.length + 1})]end
-do local E=string.sub local M=table.insert local V=string.len local L=table.concat local R=type local J=x local x=math.floor local l=string.char
+local function E(E)return r[E-(${strings.length + 1})]end
+do local E=string.sub local M=table.insert local V=string.len local L=table.concat local R=type local J=r local x=math.floor local l=string.char
 local I={}
 for x=1,#J do local h=J[x]if R(h)=="string"then
 local R=V(h)local Q={}local v=1 local A=0 local m=0
@@ -369,9 +169,10 @@ while v<=R do local r=E(h,v,v)local V=I[r]if V then A=A+V*(32)^(3-m)m=m+1
 if m==4 then m=0 local r=x(A/256)local E=x((A%256)/16)local V=A%16
 M(Q,l(r,E,V))A=0 end elseif r=="="then M(Q,l(x(A/256)))if v>=R or E(h,v+1,v+1)~="="then M(Q,l(x((A%256)/16)))end break end v=v+1 end J[x]=L(Q)end end end`;
 
-  const loader = `return(function(...)local x={${stringTable}};
+  // Loader seperti WeAreDevs
+  const loader = `return(function(...)local r={${stringTable}};
 for E,M in ipairs({{-1,0},{0,1}})do
-while M[-1]<M[0]do x[M[0]],x[M[1]],M[0],M[1]=x[M[1]],x[M[0]],M[0]+1,M[1]-1 end end
+while M[-1]<M[0]do r[M[0]],r[M[1]],M[0],M[1]=r[M[1]],r[M[0]],M[0]+1,M[1]-1 end end
 ${decoder}
 return(function($,_,__,___,____,_____,______,_______) 
 ${code}

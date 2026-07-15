@@ -1,16 +1,14 @@
 {
-    "name": "blackmamerstudio-obfuscator",
+    "name": "blackmamer-obfuscator",
     "version": "1.0.0",
-    "description": "BlackMamerStudio Premium Lua Obfuscator - 100% compatible with WeAreDevs",
+    "description": "Prometheus-based Lua Obfuscator",
     "main": "server.js",
     "scripts": {
-        "start": "node server.js"
+        "start": "node server.js",
+        "build": "bash build.sh"
     },
     "dependencies": {
         "express": "^4.18.2",
         "cors": "^2.8.5"
-    },
-    "engines": {
-        "node": ">=16.0.0"
     }
 }

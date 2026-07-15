@@ -1,13 +1,14 @@
 {
   "name": "blackmamer-lua-obfuscator-api",
-  "version": "2.0.0",
-  "description": "BlackMamer Studio - Lua Obfuscator API (WeAreDevs Style)",
+  "version": "7.0.0",
+  "description": "BlackMamer Studio - Lua Obfuscator (Prometheus)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "@gamely/prometheus-cli": "^0.0.9"
   }
 }

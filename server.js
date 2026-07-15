@@ -19,9 +19,9 @@ const BANNER = `--[[
     ██╔══██╗██║     ██╔══██║██║     ██╔═██╗ ██║╚██╔╝██║██╔══██║██║╚██╔╝██║██╔══╝  ██╔══██╗    ╚════██║   ██║   ██║   ██║██║  ██║██║██║   ██║
     ██████╔╝███████╗██║  ██║╚██████╗██║  ██╗██║ ╚═╝ ██║██║  ██║██║ ╚═╝ ██║███████╗██║  ██║    ███████║   ██║   ╚██████╔╝██████╔╝██║╚██████╔╝
     ╚═════╝ ╚══════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝╚═╝  ╚═╝    ╚══════╝   ╚═╝    ╚═════╝ ╚═════╝ ╚═╝ ╚═════╝ 
-                                                                ═══ OBFUSCATED & SECURED BY BLACKMAMER STUDIO ═══
-                                                                   🔗 https://blackmamerstudioobfuscated.netlify.app/
-                                                                        🛡️ "Code Strong, Stay Protected"
+                                              ═══ OBFUSCATED & SECURED BY BLACKMAMER STUDIO ═══
+                                             🔗 https://blackmamerstudioobfuscated.netlify.app/
+                                                      🛡️ "Code Strong, Stay Protected"
 --]]
 
 `;

@@ -1,7 +1,7 @@
 {
   "name": "blackmamer-lua-obfuscator-api",
-  "version": "9.0.0",
-  "description": "BlackMamer Studio - Lua Obfuscator with Prometheus",
+  "version": "11.0.0",
+  "description": "BlackMamer Studio - Lua Obfuscator (WeAreDevs Clone)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

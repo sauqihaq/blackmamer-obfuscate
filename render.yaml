@@ -4,10 +4,10 @@ services:
     runtime: node
     plan: free
     buildCommand: |
-      apt-get update && apt-get install -y golang-go git
+      chmod +x build.sh
+      ./build.sh
       npm install
-      bash build.sh
-    startCommand: npm start
+    startCommand: node server.js
     envVars:
       - key: NODE_VERSION
         value: 18.17.0

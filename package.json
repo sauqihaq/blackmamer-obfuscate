@@ -1,11 +1,10 @@
 {
   "name": "blackmamer-lua-obfuscator-api",
-  "version": "1.0.0",
-  "description": "BlackMamer Studio - Lua Obfuscator API",
+  "version": "2.0.0",
+  "description": "BlackMamer Studio - Lua Obfuscator API (WeAreDevs Style)",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "setup": "bash setup.sh"
+    "start": "node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

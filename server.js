@@ -1,23 +1,18 @@
 const express = require("express");
 const cors = require("cors");
-const { execSync } = require("child_process");
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "5mb" }));
 
 app.get("/", (req, res) => {
   res.json({ status: "ok", service: "BlackMamer Lua Obfuscator API" });
 });
 
 app.post("/obfuscate", (req, res) => {
-  const { code, preset = "Medium" } = req.body;
-  
+  const { code } = req.body;
   if (!code || typeof code !== "string") {
     return res.status(400).json({ error: "No code provided." });
   }
@@ -26,66 +21,20 @@ app.post("/obfuscate", (req, res) => {
   }
 
   try {
-    const result = obfuscateWithPrometheus(code, preset);
+    const result = obfuscate(code);
     res.json({ result });
   } catch (e) {
     res.status(500).json({ error: "Obfuscation failed: " + e.message });
   }
 });
 
-function obfuscateWithPrometheus(code, preset) {
-  const tempDir = os.tmpdir();
-  const inputFile = path.join(tempDir, `input_${Date.now()}.lua`);
-  const outputFile = path.join(tempDir, `output_${Date.now()}.lua`);
-  
-  try {
-    fs.writeFileSync(inputFile, code, "utf8");
-    
-    // Coba beberapa kemungkinan path Prometheus
-    let prometheusPath = "";
-    const possiblePaths = [
-      "/opt/render/project/src/Prometheus/cli.lua",
-      "/app/Prometheus/cli.lua",
-      path.join(__dirname, "Prometheus", "cli.lua")
-    ];
-    
-    for (const p of possiblePaths) {
-      if (fs.existsSync(p)) {
-        prometheusPath = p;
-        break;
-      }
-    }
-    
-    if (!prometheusPath) {
-      console.log("Prometheus not found, using fallback");
-      return fallbackObfuscator(code);
-    }
-    
-    const cmd = `lua ${prometheusPath} --preset ${preset} --LuaU "${inputFile}" --out "${outputFile}"`;
-    
-    console.log("Running:", cmd);
-    execSync(cmd, { stdio: "pipe", timeout: 60000 });
-    
-    const result = fs.readFileSync(outputFile, "utf8");
-    return result;
-    
-  } catch (e) {
-    console.error("Prometheus error:", e.message);
-    return fallbackObfuscator(code);
-  } finally {
-    try { fs.unlinkSync(inputFile); } catch(e) {}
-    try { fs.unlinkSync(outputFile); } catch(e) {}
-  }
-}
-
-// ─── FALLBACK OBFUSCATOR (WeAreDevs Style, One Line) ──────────────────
-
-function fallbackObfuscator(src) {
+function obfuscate(src) {
   let code = src
     .replace(/--\[\[[\s\S]*?--\]\]/g, "")
     .replace(/--[^\n]*/g, "")
     .trim();
 
+  // ─── STRING TABLE (ASCII ESCAPE) ──────────────────────────────────────
   const stringTable = [];
   const stringMap = {};
   let stringIndex = 0;
@@ -112,6 +61,7 @@ function fallbackObfuscator(src) {
     return key;
   });
 
+  // ─── NUMBER TABLE ──────────────────────────────────────────────────────
   const numberMap = {};
   let numberIndex = 0;
 
@@ -124,6 +74,7 @@ function fallbackObfuscator(src) {
     return key;
   });
 
+  // ─── VARIABLE RENAME ──────────────────────────────────────────────────
   const varMap = {};
   let varIndex = 0;
   const reserved = new Set([
@@ -162,6 +113,7 @@ function fallbackObfuscator(src) {
     }
   }
 
+  // ─── REPLACE ──────────────────────────────────────────────────────────
   for (const [key, idx] of Object.entries(stringMap)) {
     code = code.replace(new RegExp(key, "g"), `r[${idx + 1}]`);
   }
@@ -174,7 +126,7 @@ function fallbackObfuscator(src) {
     code = code.replace(new RegExp(`\\b${orig}\\b`, "g"), obf);
   }
 
-  return wrapWeAreDevsOneLine(code, stringTable);
+  return wrapWeAreDevsFull(code, stringTable);
 }
 
 function generateWeAreDevsName(idx) {
@@ -188,17 +140,37 @@ function generateWeAreDevsName(idx) {
   return name;
 }
 
-function wrapWeAreDevsOneLine(code, strings) {
+// ─── WRAPPER SAMA PERSIS WEAREDEVS ──────────────────────────────────────
+
+function wrapWeAreDevsFull(code, strings) {
   const stringTable = strings.length > 0 ? strings.join(",") : '""';
-  const unpackIndex = Math.floor(Math.random() * 1000) + 100;
   
-  const oneLineCode = code.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
+  // OFFSET ACAK (seperti WeAreDevs)
+  const offset = Math.floor(Math.random() * 100000) + 900000;
+  const offsetExpr = `+(${offset}-${offset - 1})`;
   
   const header = `--[[ v1.0.0 https://blackmamerstudio.netlify.app ]]`;
   
-  const decoder = `local function E(E)return r[E-(${strings.length + 1})]end do local E=string.sub local M=table.insert local V=string.len local L=table.concat local R=type local J=r local x=math.floor local l=string.char local I={} for x=1,#J do local h=J[x]if R(h)=="string"then local R=V(h)local Q={}local v=1 local A=0 local m=0 while v<=R do local r=E(h,v,v)local V=I[r]if V then A=A+V*(32)^(3-m)m=m+1 if m==4 then m=0 local r=x(A/256)local E=x((A%256)/16)local V=A%16 M(Q,l(r,E,V))A=0 end elseif r=="="then M(Q,l(x(A/256)))if v>=R or E(h,v+1,v+1)~="="then M(Q,l(x((A%256)/16)))end break end v=v+1 end J[x]=L(Q)end end end`;
+  // DECODER SAMA PERSIS WEAREDEVS
+  const decoder = `
+local function E(E)return r[E${offsetExpr}]end
+for E,M in ipairs({{-512178+512179,782660-782189},{251061+-251060,-928189+928559};{415663+-415292,-222803+223274}})do
+while M[-517810+517811]<M[298629+-298627]do r[M[198780+-198779]],r[M[-622346+622348]],M[-131884+131885],M[-226190-(-226192)]=r[M[-38528-(-38530)]],r[M[806755-806754]],M[447643+-447642]+(777417+-777416),M[939661-939659]-(906318+-906317)end end
+do local E=string.sub local M=table.insert local V=string.len local L=table.concat local R=type local J=r local x=math.floor local l=string.char
+local I={}
+for x=1,#J do local h=J[x]if R(h)=="string"then
+local R=V(h)local Q={}local v=1 local A=0 local m=0
+while v<=R do local r=E(h,v,v)local V=I[r]if V then A=A+V*(32)^(3-m)m=m+1
+if m==4 then m=0 local r=x(A/256)local E=x((A%256)/16)local V=A%16
+M(Q,l(r,E,V))A=0 end elseif r=="="then M(Q,l(x(A/256)))if v>=R or E(h,v+1,v+1)~="="then M(Q,l(x((A%256)/16)))end break end v=v+1 end J[x]=L(Q)end end end`;
 
-  const loader = `return(function(...)local r={${stringTable}};for E,M in ipairs({{-1,0},{0,1}})do while M[-1]<M[0]do r[M[0]],r[M[1]],M[0],M[1]=r[M[1]],r[M[0]],M[0]+1,M[1]-1 end end ${decoder} return(function($,_,__,___,____,_____,______,_______) ${oneLineCode} end)(getfenv and getfenv()or _ENV,unpack or table[${unpackIndex}],newproxy,setmetadatagetmetatable,select,{...})end)(...)`;
+  // INJECT KODE KE DALAM STATE MACHINE (tanpa flattening berlebihan)
+  const injectedCode = code;
+  
+  const loader = `return(function(r,V,L,R,J,x,l,Q,W,M,s,C,U,m,v,k,A,I,z,j,b,h)
+A,v,U,s,W,M,j,Q,I,h,m,z,C,k,b=function(r)for E=1,#r,1 do h[r[E]]=h[r[E]]+1 end if L then local M=L(true)local V=J(M)V[E(-1)],V[E(-2)],V[E(-3)]=r,m,function()return 1 end return M else return R({},{[E(1)]=m;[E(2)]=r,[E(3)]=function()return 1 end})end end,0,function(r,E)local V=A(E)local L=function(L,R,J,x)return M(r,{L;R,J,x},E,V)end return L end,function(r,E)local V=A(E)local L=function(L)return M(r,{L},E,V)end return L end,function(r,E)local V=A(E)local L=function(L,R)return M(r,{L,R},E,V)end return L end,function(...)
+${injectedCode}
+end,function(r,E)local V=A(E)local L=function(L,R,J,x,l)return M(r,{L;R;J,x;l},E,V)end return L end,function()v=v+1 h[v]=1 return v end,{},{},function(r)local E,M=1,r[1]while M do h[M],E=h[M]-1,E+1 if h[M]==0 then h[M],I[M]=nil,nil end M=r[E]end end,function(r,E)local V=A(E)local L=function(...)return M(r,{...},E,V)end return L end,function(r,E)local V=A(E)local L=function()return M(r,{},E,V)end return L end,function(r,E)local V=A(E)local L=function(L,R,J)return M(r,{L,R,J},E,V)end return L end,function(r)h[r]=h[r]-1 if h[r]==0 then h[r],I[r]=nil,nil end end)(getfenv and getfenv()or _ENV,unpack or table[${Math.floor(Math.random() * 1000) + 100}],newproxy,setmetadatagetmetatable,select,{...})end)(...)`;
 
   return header + loader;
 }

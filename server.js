@@ -47,15 +47,11 @@ app.post("/obfuscate", (req, res) => {
 function obfuscate(src) {
     let code = src;
     
-    // ═══════════════════════════════════════════════════════════════
     // 1. HAPUS SEMUA KOMENTAR
-    // ═══════════════════════════════════════════════════════════════
     code = code.replace(/--\[\[[\s\S]*?\]\]/g, '');
     code = code.replace(/--[^\n]*/g, '');
     
-    // ═══════════════════════════════════════════════════════════════
     // 2. EXTRACT & ENCODE SEMUA STRING
-    // ═══════════════════════════════════════════════════════════════
     const strings = [];
     let stringIdx = 0;
     
@@ -67,10 +63,8 @@ function obfuscate(src) {
     
     for (const pattern of stringPatterns) {
         code = code.replace(pattern, (match, open, content, close) => {
-            // Skip jika terlalu panjang
             if (content.length > 500) return match;
             
-            // Encode ke ASCII
             const encoded = content.split('').map(c => {
                 return `\\${String(c.charCodeAt(0)).padStart(3, '0')}`;
             }).join('');
@@ -82,9 +76,7 @@ function obfuscate(src) {
         });
     }
     
-    // ═══════════════════════════════════════════════════════════════
-    // 3. OBFUSCATE VARIABLE NAMES (100% AGGRESSIVE)
-    // ═══════════════════════════════════════════════════════════════
+    // 3. OBFUSCATE VARIABLE NAMES
     const varMap = {};
     let varIdx = 0;
     const reserved = new Set([
@@ -93,7 +85,6 @@ function obfuscate(src) {
         "then","true","until","while"
     ]);
     
-    // Kumpulkan semua variable
     const allVars = new Set();
     const varRegex = /\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
     let match;
@@ -104,7 +95,6 @@ function obfuscate(src) {
         }
     }
     
-    // Generate nama single letter
     const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
     for (const name of allVars) {
         let newName;
@@ -120,14 +110,11 @@ function obfuscate(src) {
         varMap[name] = newName;
     }
     
-    // Replace semua variable
     for (const [orig, obf] of Object.entries(varMap)) {
         code = code.replace(new RegExp(`\\b${orig}\\b`, 'g'), obf);
     }
     
-    // ═══════════════════════════════════════════════════════════════
     // 4. OBFUSCATE TABLE KEYS (.key → [0])
-    // ═══════════════════════════════════════════════════════════════
     const keyMap = {};
     let keyIdx = 0;
     code = code.replace(/\.([a-zA-Z_][a-zA-Z0-9_]*)/g, (match, key) => {
@@ -137,9 +124,7 @@ function obfuscate(src) {
         return `[${keyMap[key]}]`;
     });
     
-    // ═══════════════════════════════════════════════════════════════
     // 5. OBFUSCATE FUNCTION NAMES
-    // ═══════════════════════════════════════════════════════════════
     const funcMap = {};
     let funcIdx = 0;
     code = code.replace(/function\s+([a-zA-Z_][a-zA-Z0-9_]*)/g, (match, name) => {
@@ -153,50 +138,28 @@ function obfuscate(src) {
         return `function ${funcMap[name]}`;
     });
     
-    // ═══════════════════════════════════════════════════════════════
-    // 6. OBFUSCATE FUNCTION CALLS (.func() → [0]())
-    // ═══════════════════════════════════════════════════════════════
-    // Hati-hati: ini harus setelah rename variables
-    code = code.replace(/\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g, (match, name) => {
-        if (keyMap[name] !== undefined) {
-            return `[${keyMap[name]]}(`;
-        }
-        return match;
-    });
-    
-    // ═══════════════════════════════════════════════════════════════
-    // 7. REPLACE STRING PLACEHOLDERS DENGAN r[]
-    // ═══════════════════════════════════════════════════════════════
+    // 6. REPLACE STRING PLACEHOLDERS
     for (let i = 0; i < stringIdx; i++) {
         code = code.replace(new RegExp(`__STR_${i}__`, 'g'), `r[${i + 1}]`);
     }
     
-    // ═══════════════════════════════════════════════════════════════
-    // 8. CLEAN UP (minify)
-    // ═══════════════════════════════════════════════════════════════
+    // 7. CLEAN UP
     code = code.replace(/\n/g, " ");
     code = code.replace(/\s+/g, " ");
     code = code.trim();
     
-    // ═══════════════════════════════════════════════════════════════
-    // 9. WRAP DENGAN WEAREDEVS STYLE (100% SAMA)
-    // ═══════════════════════════════════════════════════════════════
+    // 8. WRAP
     return wrapWeAreDevs(code, strings);
 }
 
 // ─── WRAPPER (100% IDENTIK DENGAN WEAREDEVS) ──────────────────────────
 
 function wrapWeAreDevs(code, strings) {
-    // String table
     const stringTable = strings.length > 0 ? strings.join(",") : '""';
-    
-    // Random table index (seperti WeAreDevs)
     const randomTableIndex = Math.floor(Math.random() * 900) + 100;
     
-    // ─── HEADER ────────────────────────────────────────────────────
     const header = '--[[ v1.0.0 https://wearedevs.net/obfuscator ]]';
     
-    // ─── DECODER (COPY PASTE DARI WEAREDEVS) ────────────────────
     const decoder = `
 local function E(E)return r[E+(981936-935207)]end
 for E,M in ipairs({{-512178+512179,782660-782189},{251061+-251060,-928189+928559};{415663+-415292,-222803+223274}})do
@@ -209,11 +172,9 @@ while v<=R do local r=E(h,v,v)local V=I[r]if V then A=A+V*(548711-548647)^((1027
 if m==705040+-705036 then m=705959+-705959 local r=x(A/(-159578+225114))local E=x((A%(-948015-(-1013551)))/(-503648-(-503904)))local V=A%(392393+-392137)
 M(Q,l(r,E,V))A=255081+-255081 end elseif r=="\\061"then M(Q,l(x(A/(488834-423298))))if v>=R or E(h,v+(-3951-(-3952)),v+(236622+-236621))~="\\061"then M(Q,l(x((A%(-360575+426111))/(-48825+49081))))end break end v=v+(280658-280657)end J[r]=L(Q)end end end`;
     
-    // ─── WRAPPER ──────────────────────────────────────────────────
     const wrapper = `
 return(function($,_,__,___,____,_____,______,_______) ${code} end)(getfenv and getfenv()or _ENV,unpack or table[${randomTableIndex}],newproxy,setmetadatagetmetatable,select,{...})end)(...)`;
     
-    // ─── GABUNGKAN ───────────────────────────────────────────────
     return header + `return(function(...)local r={${stringTable}};` + decoder + wrapper;
 }
 

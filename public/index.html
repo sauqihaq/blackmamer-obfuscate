@@ -233,6 +233,11 @@
     </div>
 
     <script>
+        // ─── INI YANG HARUS DIGANTI ──────────────────────────────────────
+        // PASTIKAN PAKE URL RENDER, BUKAN NETLIFY!
+        const API_URL = "https://blackmamer-obfuscate.onrender.com";
+        // ──────────────────────────────────────────────────────────────────
+
         const input = document.getElementById('input');
         const output = document.getElementById('output');
         const obfuscateBtn = document.getElementById('obfuscateBtn');
@@ -284,7 +289,7 @@
             showStatus('Obfuscating your script, please wait...');
 
             try {
-                const response = await fetch('/api/obfuscate', {
+                const response = await fetch(API_URL + '/api/obfuscate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ script: code })

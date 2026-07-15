@@ -1,27 +1,23 @@
-FROM node:18-slim
+# Base image ringan dengan Lua
+FROM alpine:latest
 
-# Install Lua, Luarocks, dan dependencies
-RUN apt-get update && apt-get install -y \
-    lua5.1 \
-    luarocks \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+# Install Lua dan tools yang dibutuhkan
+RUN apk add --no-cache lua5.3 lua-file-mapper git
 
-# Install LuaFileSystem (dibutuhkan Prometheus)
-RUN luarocks install luafilesystem
+# Clone Prometheus (versi Lua)
+RUN git clone https://github.com/wcrddn/Prometheus.git /app/prometheus
 
-# Clone Prometheus
-RUN git clone https://github.com/prometheus-lua/Prometheus.git /opt/render/project/src/Prometheus
+# Copy server.js dan public folder
+WORKDIR /app
+COPY server.js package.json ./
+COPY public ./public
 
-WORKDIR /opt/render/project/src
-
-# Copy package.json dan install Node dependencies
-COPY package*.json ./
+# Install Node.js dan dependencies
+RUN apk add --no-cache nodejs npm
 RUN npm install
 
-# Copy server.js
-COPY server.js ./
+# Expose port
+EXPOSE 10000
 
-EXPOSE 3000
-
+# Jalankan server
 CMD ["node", "server.js"]

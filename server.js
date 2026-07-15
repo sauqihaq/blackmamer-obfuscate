@@ -161,19 +161,20 @@ function minify(code) {
 }
 
 function wrapLoader(code) {
-  // XOR encode seluruh script lalu decode at runtime via load()
   const bytes = [];
   for (let i = 0; i < code.length; i++) bytes.push(code.charCodeAt(i));
   const key = Math.floor(Math.random() * 100) + 50;
   const enc = bytes.map(b => b ^ key);
 
-  const header = `-- Obfuscated with BlackMamer Studio Obfuscator\n-- https://blackmamerstudio.netlify.app\n`;
   const loader =
     `local _k=${key}\n` +
     `local _d={${enc.join(",")}}\n` +
     `local _s=""\n` +
     `for _i=1,#_d do _s=_s..string.char(_d[_i]~_k) end\n` +
-    `load(_s)()\n`;
+    `loadstring(_s)()\n`;  // ← PERBAIKAN: loadstring untuk Roblox
+
+  return header + loader;
+}
 
   return header + loader;
 }

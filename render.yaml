@@ -1,9 +1,14 @@
 services:
   - type: web
     name: blackmamer-obfuscator-api
-    env: docker
-    dockerfilePath: ./Dockerfile
-    plan: free
+    env: node
+    buildCommand: |
+      apt-get update && apt-get install -y lua5.1 luarocks
+      luarocks install luafilesystem
+      git clone https://github.com/prometheus-lua/Prometheus.git
+      npm install
+    startCommand: node server.js
     envVars:
       - key: NODE_VERSION
         value: 18.0.0
+    plan: free

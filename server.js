@@ -41,8 +41,26 @@ function obfuscateWithPrometheus(code, preset) {
   try {
     fs.writeFileSync(inputFile, code, "utf8");
     
-    // Path Prometheus di Render
-    const prometheusPath = "/opt/render/project/src/Prometheus/cli.lua";
+    // Coba beberapa kemungkinan path Prometheus
+    let prometheusPath = "";
+    const possiblePaths = [
+      "/opt/render/project/src/Prometheus/cli.lua",
+      "/app/Prometheus/cli.lua",
+      path.join(__dirname, "Prometheus", "cli.lua")
+    ];
+    
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        prometheusPath = p;
+        break;
+      }
+    }
+    
+    if (!prometheusPath) {
+      console.log("Prometheus not found, using fallback");
+      return fallbackObfuscator(code);
+    }
+    
     const cmd = `lua ${prometheusPath} --preset ${preset} --LuaU "${inputFile}" --out "${outputFile}"`;
     
     console.log("Running:", cmd);
@@ -60,7 +78,7 @@ function obfuscateWithPrometheus(code, preset) {
   }
 }
 
-// ─── FALLBACK OBFUSCATOR ────────────────────────────────────────────────
+// ─── FALLBACK OBFUSCATOR (WeAreDevs Style, One Line) ──────────────────
 
 function fallbackObfuscator(src) {
   let code = src

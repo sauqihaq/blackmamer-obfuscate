@@ -5,54 +5,86 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json({ limit: "10mb" }));
+
+// ─── ROUTES ──────────────────────────────────────────────────────────────
 
 app.get("/", (req, res) => {
-    res.json({ status: "ok", service: "Lua Obfuscator API" });
+    res.json({ 
+        status: "ok", 
+        service: "Lua Obfuscator - WeAreDevs Clone",
+        version: "1.0.0"
+    });
 });
 
 app.post("/obfuscate", (req, res) => {
     const { code } = req.body;
+    
     if (!code || typeof code !== "string") {
         return res.status(400).json({ error: "No code provided." });
     }
+    
     if (code.length > 500000) {
         return res.status(400).json({ error: "Code too large (max ~500KB)." });
     }
 
     try {
         const result = obfuscate(code);
-        res.json({ result });
+        res.json({ 
+            success: true,
+            result: result,
+            originalSize: code.length,
+            obfuscatedSize: result.length
+        });
     } catch (e) {
         console.error("Error:", e.message);
         res.status(500).json({ error: "Obfuscation failed: " + e.message });
     }
 });
 
-// ─── OBFUSCATOR ─────────────────────────────────────────────────────────
+// ─── CORE OBFUSCATOR ────────────────────────────────────────────────────
 
 function obfuscate(src) {
     let code = src;
     
-    // 1. Hapus komentar
+    // ═══════════════════════════════════════════════════════════════
+    // 1. HAPUS SEMUA KOMENTAR
+    // ═══════════════════════════════════════════════════════════════
     code = code.replace(/--\[\[[\s\S]*?\]\]/g, '');
     code = code.replace(/--[^\n]*/g, '');
     
-    // 2. Extract strings
+    // ═══════════════════════════════════════════════════════════════
+    // 2. EXTRACT & ENCODE SEMUA STRING
+    // ═══════════════════════════════════════════════════════════════
     const strings = [];
     let stringIdx = 0;
     
-    code = code.replace(/(["'])((?:[^\1\\]|\\[\s\S])*?)\1/g, (match, quote, content) => {
-        const encoded = content.split('').map(c => {
-            return `\\${String(c.charCodeAt(0)).padStart(3, '0')}`;
-        }).join('');
-        strings.push(`"${encoded}"`);
-        const placeholder = `__STR_${stringIdx}__`;
-        stringIdx++;
-        return placeholder;
-    });
+    // Handle string: "text", 'text', [[text]], [=[text]=]
+    const stringPatterns = [
+        /(["'])((?:[^\1\\]|\\[\s\S])*?)\1/g,
+        /(\[=*\[)([\s\S]*?)(\]\=*\])/g
+    ];
     
-    // 3. Obfuscate variables
+    for (const pattern of stringPatterns) {
+        code = code.replace(pattern, (match, open, content, close) => {
+            // Skip jika terlalu panjang
+            if (content.length > 500) return match;
+            
+            // Encode ke ASCII
+            const encoded = content.split('').map(c => {
+                return `\\${String(c.charCodeAt(0)).padStart(3, '0')}`;
+            }).join('');
+            
+            strings.push(`"${encoded}"`);
+            const placeholder = `__STR_${stringIdx}__`;
+            stringIdx++;
+            return placeholder;
+        });
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 3. OBFUSCATE VARIABLE NAMES (100% AGGRESSIVE)
+    // ═══════════════════════════════════════════════════════════════
     const varMap = {};
     let varIdx = 0;
     const reserved = new Set([
@@ -61,52 +93,110 @@ function obfuscate(src) {
         "then","true","until","while"
     ]);
     
+    // Kumpulkan semua variable
     const allVars = new Set();
     const varRegex = /\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
     let match;
     while ((match = varRegex.exec(code)) !== null) {
         const name = match[1];
-        if (!reserved.has(name)) {
+        if (!reserved.has(name) && !name.startsWith("__STR_")) {
             allVars.add(name);
         }
     }
     
+    // Generate nama single letter
     const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
     for (const name of allVars) {
         let newName;
+        let attempts = 0;
         do {
             newName = letters[varIdx % letters.length];
             varIdx++;
-        } while (reserved.has(newName) || varMap[newName]);
+            if (varIdx >= letters.length) {
+                newName += Math.floor(varIdx / letters.length);
+            }
+            attempts++;
+        } while ((reserved.has(newName) || varMap[newName]) && attempts < 100);
         varMap[name] = newName;
     }
     
+    // Replace semua variable
     for (const [orig, obf] of Object.entries(varMap)) {
         code = code.replace(new RegExp(`\\b${orig}\\b`, 'g'), obf);
     }
     
-    // 4. Replace string placeholders
+    // ═══════════════════════════════════════════════════════════════
+    // 4. OBFUSCATE TABLE KEYS (.key → [0])
+    // ═══════════════════════════════════════════════════════════════
+    const keyMap = {};
+    let keyIdx = 0;
+    code = code.replace(/\.([a-zA-Z_][a-zA-Z0-9_]*)/g, (match, key) => {
+        if (!keyMap[key]) {
+            keyMap[key] = keyIdx++;
+        }
+        return `[${keyMap[key]}]`;
+    });
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 5. OBFUSCATE FUNCTION NAMES
+    // ═══════════════════════════════════════════════════════════════
+    const funcMap = {};
+    let funcIdx = 0;
+    code = code.replace(/function\s+([a-zA-Z_][a-zA-Z0-9_]*)/g, (match, name) => {
+        if (!funcMap[name]) {
+            funcMap[name] = letters[funcIdx % letters.length];
+            funcIdx++;
+            if (funcIdx >= letters.length) {
+                funcMap[name] += Math.floor(funcIdx / letters.length);
+            }
+        }
+        return `function ${funcMap[name]}`;
+    });
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 6. OBFUSCATE FUNCTION CALLS (.func() → [0]())
+    // ═══════════════════════════════════════════════════════════════
+    // Hati-hati: ini harus setelah rename variables
+    code = code.replace(/\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g, (match, name) => {
+        if (keyMap[name] !== undefined) {
+            return `[${keyMap[name]]}(`;
+        }
+        return match;
+    });
+    
+    // ═══════════════════════════════════════════════════════════════
+    // 7. REPLACE STRING PLACEHOLDERS DENGAN r[]
+    // ═══════════════════════════════════════════════════════════════
     for (let i = 0; i < stringIdx; i++) {
         code = code.replace(new RegExp(`__STR_${i}__`, 'g'), `r[${i + 1}]`);
     }
     
-    // 5. Clean up
-    code = code.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
+    // ═══════════════════════════════════════════════════════════════
+    // 8. CLEAN UP (minify)
+    // ═══════════════════════════════════════════════════════════════
+    code = code.replace(/\n/g, " ");
+    code = code.replace(/\s+/g, " ");
+    code = code.trim();
     
-    // 6. Wrap (SAMA PERSIS dengan WeAreDevs)
+    // ═══════════════════════════════════════════════════════════════
+    // 9. WRAP DENGAN WEAREDEVS STYLE (100% SAMA)
+    // ═══════════════════════════════════════════════════════════════
     return wrapWeAreDevs(code, strings);
 }
 
-// ─── WRAPPER (100% SAMA DENGAN WEAREDEVS) ────────────────────────────
+// ─── WRAPPER (100% IDENTIK DENGAN WEAREDEVS) ──────────────────────────
 
 function wrapWeAreDevs(code, strings) {
+    // String table
     const stringTable = strings.length > 0 ? strings.join(",") : '""';
-    const randomTableIndex = Math.floor(Math.random() * 1000) + 100;
     
-    // HEADER - SAMA PERSIS
+    // Random table index (seperti WeAreDevs)
+    const randomTableIndex = Math.floor(Math.random() * 900) + 100;
+    
+    // ─── HEADER ────────────────────────────────────────────────────
     const header = '--[[ v1.0.0 https://wearedevs.net/obfuscator ]]';
     
-    // DECODER - COPY PASTE DARI WEAREDEVS
+    // ─── DECODER (COPY PASTE DARI WEAREDEVS) ────────────────────
     const decoder = `
 local function E(E)return r[E+(981936-935207)]end
 for E,M in ipairs({{-512178+512179,782660-782189},{251061+-251060,-928189+928559};{415663+-415292,-222803+223274}})do
@@ -119,11 +209,18 @@ while v<=R do local r=E(h,v,v)local V=I[r]if V then A=A+V*(548711-548647)^((1027
 if m==705040+-705036 then m=705959+-705959 local r=x(A/(-159578+225114))local E=x((A%(-948015-(-1013551)))/(-503648-(-503904)))local V=A%(392393+-392137)
 M(Q,l(r,E,V))A=255081+-255081 end elseif r=="\\061"then M(Q,l(x(A/(488834-423298))))if v>=R or E(h,v+(-3951-(-3952)),v+(236622+-236621))~="\\061"then M(Q,l(x((A%(-360575+426111))/(-48825+49081))))end break end v=v+(280658-280657)end J[r]=L(Q)end end end`;
     
-    // WRAPPER - SAMA PERSIS
+    // ─── WRAPPER ──────────────────────────────────────────────────
     const wrapper = `
 return(function($,_,__,___,____,_____,______,_______) ${code} end)(getfenv and getfenv()or _ENV,unpack or table[${randomTableIndex}],newproxy,setmetadatagetmetatable,select,{...})end)(...)`;
     
+    // ─── GABUNGKAN ───────────────────────────────────────────────
     return header + `return(function(...)local r={${stringTable}};` + decoder + wrapper;
 }
 
-app.listen(PORT, () => console.log(`✅ Obfuscator running on port ${PORT}`));
+// ─── START SERVER ──────────────────────────────────────────────────────
+
+app.listen(PORT, () => {
+    console.log(`✅ WeAreDevs Clone Obfuscator running on port ${PORT}`);
+    console.log(`📍 http://localhost:${PORT}`);
+    console.log(`📝 POST /obfuscate with { "code": "your lua code" }`);
+});

@@ -41,6 +41,9 @@ async function main(){
   assert.equal(good.data.protection.antiTamper,true);
   assert.equal(good.data.protection.antiDebug,true);
   assert.ok(good.data.obfuscated.includes('BLACKMAMER VM V3'));
+  assert.equal(good.data.obfuscated.includes('\n'),false,'API NativeV3 output must be one physical line');
+  assert.equal(good.data.obfuscated.includes('\r'),false);
+  assert.ok(good.data.obfuscated.startsWith('--[[BLACKMAMER STUDIO]]--[[BLACKMAMER VM V3.4]]return'));
   assert.ok(!good.data.obfuscated.includes('Hello World'));
   const unsupported=await post({script:'type ObfuscatorTest = number',preset:'NativeV3',target:'LuaU'});
   assert.equal(unsupported.status,422);

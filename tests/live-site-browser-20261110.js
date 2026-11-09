@@ -83,9 +83,35 @@ const {chromium}=require('playwright');
       scriptChars:sawSource.length,outputChars:sawOutput.length,
       ms:Date.now()-before,status:sawStatus}));
     
+    const cinematicUrl='https://raw.githubusercontent.com/sauqihaq/blackmamer-obfuscate/main/tests/fixtures/bm-saweria-donation-cinematic.luau';
+    const cinematicResponse=await fetch(cinematicUrl,{signal:AbortSignal.timeout(30000)});
+    assert.equal(cinematicResponse.status,200);
+    const cinematicSource=await cinematicResponse.text();
+    assert.equal(cinematicSource.length,6136);
+    await page.locator('#source').fill(cinematicSource);
+    const cinematicStart=Date.now();
+    await page.locator('#obfuscate').click();
+    await page.waitForFunction(()=>{
+      const busy=document.querySelector('#obfuscate')?.disabled;
+      const output=document.querySelector('#result')?.value||'';
+      const feedback=document.querySelector('#feedback')?.textContent||'';
+      return !busy&&(output.includes('BLACKMAMER VM V3.4')||feedback.includes('Gagal'));
+    },null,{timeout:130000});
+    const cinematicOutput=await page.locator('#result').inputValue();
+    const cinematicStatus=await page.locator('#taskStatus').innerText();
+    const cinematicFeedback=await page.locator('#feedback').innerText();
+    assert.ok(cinematicOutput.includes('BLACKMAMER VM V3.4'),
+      'Netlify browser still reports 422 for exact cinematic: '+cinematicFeedback);
+    assert.ok(cinematicOutput.length>10000);
+    assert.ok(/selesai/i.test(cinematicStatus));
+    assert.equal(await page.locator('#download').isEnabled(),true);
+    console.log(JSON.stringify({test:'Browser full user Donation Cinematic via NativeV3',
+      pass:true,sourceChars:cinematicSource.length,outputChars:cinematicOutput.length,
+      ms:Date.now()-cinematicStart,status:cinematicStatus}));
+    
     assert.deepEqual(errors,[],'JavaScript page errors: '+JSON.stringify(errors));
     console.log(JSON.stringify({test:'No uncaught JavaScript page errors',pass:true}));
-    console.log('RESULT 6/6 BROWSER TESTS PASSED');
+    console.log('RESULT 7/7 BROWSER TESTS PASSED');
   }finally{
     await browser.close();
   }

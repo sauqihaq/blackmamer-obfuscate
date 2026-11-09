@@ -143,9 +143,13 @@ class Parser {
       if (this.take('function')) {
         const name=this.name(); return {t:'localfun',name,fun:this.fun(false)};
       }
-      const name=this.name();
-      if (this.peek()===',' || this.peek()===':') throw new SyntaxErrorV3('V3 supports one untyped local per declaration');
-      return {t:'local',name,value:this.take('=')?this.expr():{t:'nil'}};
+      const names=[this.name()];
+      while(this.take(','))names.push(this.name());
+      if(this.peek()===':')throw new SyntaxErrorV3('Typed local declarations are not yet supported');
+      const values=this.take('=')?this.exprlist():[];
+      if(names.length===1&&values.length<=1)
+        return {t:'local',name:names[0],value:values[0]||{t:'nil'}};
+      return {t:'localmulti',names,values};
     }
     if (this.take('function')) {
       let target={t:'var',name:this.name()},self=false;
@@ -161,10 +165,20 @@ class Parser {
       return {t:'if',branches,otherwise};
     }
     if (this.take('for')) {
-      const name=this.name();this.must('=');const start=this.expr();this.must(',');const limit=this.expr();
-      const step=this.take(',')?this.expr():{t:'num',value:1};this.must('do');
+      const first=this.name();
+      if(this.take('=')){
+        const start=this.expr();this.must(',');const limit=this.expr();
+        const step=this.take(',')?this.expr():{t:'num',value:1};this.must('do');
+        const body=this.block(new Set(['end']));this.must('end');
+        return {t:'fornum',name:first,start,limit,step,body};
+      }
+      const names=[first];
+      while(this.take(','))names.push(this.name());
+      this.must('in');
+      const iterators=this.exprlist();
+      this.must('do');
       const body=this.block(new Set(['end']));this.must('end');
-      return {t:'fornum',name,start,limit,step,body};
+      return {t:'forin',names,iterators,body};
     }
     if (this.take('while')) {
       const condition=this.expr();this.must('do');
@@ -243,6 +257,11 @@ class Parser {
     }
     return node;
   }
+  exprlist(){
+    const values=[this.expr()];
+    while(this.take(','))values.push(this.expr());
+    return values;
+  }
   args(){
     this.must('(');const args=[];
     if(!this.take(')')){do{args.push(this.expr());}while(this.take(','));this.must(')');}
@@ -250,7 +269,7 @@ class Parser {
   }
   parse(){const body=this.block(new Set());this.must('<eof>');return body;}
 }
-const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL'];
+const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT'];
 function compile(source, options={}) {
   if(typeof source!=='string') throw new TypeError('Expected Luau source string');
   if(Buffer.byteLength(source)>128*1024) throw new SyntaxErrorV3('V3 source limit: 128 KB');
@@ -272,7 +291,7 @@ function compile(source, options={}) {
     const reg=()=>{if(++builder.regs>2048)throw new SyntaxErrorV3('V3 register limit exceeded');return builder.regs;};
     const emit=(op,a=0,b=0,c=0)=>{builder.ins.push([codes[op],a,b,c]);return builder.ins.length;};
     const scope=(body)=>{emit('ENTER');builder.depth++;statements(body);builder.depth--;emit('EXIT');};
-    const expr=(n)=>{
+    const expr=(n,multiple=false)=>{
       if(['nil','bool','str','num'].includes(n.t)){const dst=reg();emit('K',dst,key(n.t==='nil'?null:n.value));return dst;}
       if(n.t==='var'){const dst=reg();emit('GET',dst,key(n.name));return dst;}
       if(n.t==='index'){const obj=expr(n.obj),k=expr(n.key),dst=reg();emit('INDEX',dst,obj,k);return dst;}
@@ -285,7 +304,8 @@ function compile(source, options={}) {
           fn=reg();emit('INDEX',fn,obj,k);regs.push(obj);
         } else fn=expr(n.fn);
         for(const arg of n.args)regs.push(expr(arg));
-        const idx=argSets.push(regs);const dst=reg();emit('CALL',dst,fn,idx);return dst;
+        const idx=argSets.push(regs);const dst=reg();
+        emit(multiple?'CALLM':'CALL',dst,fn,idx);return dst;
       }
       if(n.t==='unary'){
         const from=expr(n.x),dst=reg();
@@ -327,6 +347,27 @@ function compile(source, options={}) {
       for(const n of body){
         switch(n.t){
           case 'local':{const r=expr(n.value);emit('DECL',key(n.name),r);break;}
+          case 'localmulti':{
+            // Evaluate every RHS before declaring any local. In Lua/Luau only
+            // the final call may expand into extra return values.
+            const values=n.values;
+            const rhs=values.map((v,i)=>expr(v,i===values.length-1&&
+              (v.t==='call'||v.t==='method')));
+            const last=values.length-1;
+            for(let j=0;j<n.names.length;j++){
+              let value;
+              if(j<last)value=rhs[j];
+              else if(last>=0){
+                const tail=values[last];
+                if(tail.t==='call'||tail.t==='method'){
+                  value=reg();emit('MVGET',value,rhs[last],j-last+1);
+                }else if(j===last)value=rhs[last];
+              }
+              if(!value){value=reg();emit('K',value,key(null));}
+              emit('DECL',key(n.names[j]),value);
+            }
+            break;
+          }
           case 'localfun':{
             const nil=expr({t:'nil'});emit('DECL',key(n.name),nil);
             const r=expr(n.fun);emit('SET',key(n.name),r);break;
@@ -346,6 +387,42 @@ function compile(source, options={}) {
             const end=builder.ins.length+1;
             for(const j of endJumps)builder.ins[j-1][1]=end;
             break;
+          }
+          case 'forin':{
+            if(!n.iterators.length)throw new SyntaxErrorV3('Missing generic for iterator');
+            let iterReg,stateReg,controlReg;
+            if(n.iterators.length===1 && ['call','method'].includes(n.iterators[0].t)){
+              const values=expr(n.iterators[0],true);
+              iterReg=reg();stateReg=reg();controlReg=reg();
+              emit('MVGET',iterReg,values,1);
+              emit('MVGET',stateReg,values,2);
+              emit('MVGET',controlReg,values,3);
+            }else if(n.iterators.length<=3){
+              const registers=n.iterators.map(v=>expr(v));
+              iterReg=registers[0];
+              stateReg=registers[1]||reg();
+              controlReg=registers[2]||reg();
+              if(registers.length<2)emit('K',stateReg,key(null));
+              if(registers.length<3)emit('K',controlReg,key(null));
+            }else{
+              throw new SyntaxErrorV3('Generic for supports up to three iterator expressions');
+            }
+            const condition=reg();
+            const itemRegs=n.names.map(()=>reg());
+            const iteratorArgs=argSets.push([iterReg,stateReg,controlReg,condition,...itemRegs]);
+            const start=builder.ins.length+1;
+            emit('ITERNEXT',iteratorArgs);
+            const exit=emit('JF',condition,0);
+            const loop={breaks:[],depth:builder.depth};builder.loops.push(loop);
+            emit('ENTER');builder.depth++;
+            for(let j=0;j<n.names.length;j++)emit('DECL',key(n.names[j]),itemRegs[j]);
+            statements(n.body);
+            builder.depth--;emit('EXIT');
+            emit('JUMP',start);
+            const end=builder.ins.length+1;
+            builder.ins[exit-1][2]=end;
+            for(const j of loop.breaks)builder.ins[j-1][1]=end;
+            builder.loops.pop();break;
           }
           case 'fornum':{
             emit('ENTER');builder.depth++;
@@ -546,6 +623,7 @@ function compile(source, options={}) {
     '  local modulus=' + modulus + '; local hmod=' + hashMod,
     '  local nativeByte=string.byte; local nativeChar=string.char; local nativeConcat=table.concat',
     '  local nativeUnpack=table.unpack or unpack; local bxor=bit32 and bit32.bxor',
+    '  local nativePack=table.pack or function(...)return {n=select("#",...),...}end',
     '  local nativeType=type; local nativePcall=pcall; local nativeError=error',
     '  local dbg=debug; local globals=(getfenv and getfenv()) or _ENV or _G',
     '  if nativeType(bxor)~="function" then nativeError("BLACKMAMER V3 requires Luau bit32") end',
@@ -647,6 +725,14 @@ function compile(source, options={}) {
     '      elseif op==O.MOV then R[a]=R[b]',
     '      elseif op==O.CALL then local args=A[c] or {};local vals={};for j,v in ipairs(args)do vals[j]=R[v]end',
     '        R[a]=R[b](nativeUnpack(vals,1,#args))',
+    '      elseif op==O.CALLM then local args=A[c] or {};local vals={};for j,v in ipairs(args)do vals[j]=R[v]end',
+    '        R[a]=nativePack(R[b](nativeUnpack(vals,1,#args)))',
+    '      elseif op==O.MVGET then R[a]=R[b][c]',
+    '      elseif op==O.MVPACK then local list=A[b] or {};local vals={};for j,v in ipairs(list)do vals[j]=R[v]end',
+    '        R[a]=vals',
+    '      elseif op==O.ITERNEXT then local list=A[a];local args=nativePack(R[list[1]](R[list[2]],R[list[3]]))',
+    '        local control=args[1];R[list[3]]=control;R[list[4]]=control~=nil',
+    '        for j=5,#list do R[list[j]]=args[j-4] end',
     '      elseif op==O.CLOSURE then local capture=env;R[a]=function(...)return exec(b,{...},capture)end',
     '      elseif op==O.RET then return a==0 and nil or R[a]',
     '      elseif op==O.JUMP then nextpc=a',

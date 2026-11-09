@@ -1,4 +1,4 @@
-name: BLACKMAMER VM2 tests
+name: BLACKMAMER VM Luau verification
 
 on:
   push:
@@ -7,20 +7,48 @@ on:
   pull_request:
     paths:
       - 'blackmamer-vm2.js'
+      - 'blackmamer-vm.js'
       - 'server.js'
+      - 'tests/**'
       - 'test-vm2.js'
       - 'package.json'
       - '.github/workflows/vm2-test.yml'
 
 jobs:
-  vm2-test:
+  vm2-lua:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install Lua
+      - name: Install Lua 5.3
         run: sudo apt-get update && sudo apt-get install -y lua5.3
-      - name: Test VM2 transformation against Lua runtime
+      - name: Test register VM semantics
         run: npm test
+
+  luau-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y lua5.3 cmake g++ make
+      - name: Fetch Luau and Prometheus
+        run: |
+          git clone --depth=1 https://github.com/luau-lang/luau.git luau-src
+          git clone --depth=1 https://github.com/wcrddn/Prometheus.git prometheus
+      - name: Build official Luau CLI
+        run: |
+          cmake -S luau-src -B luau-build -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_TESTS=OFF
+          cmake --build luau-build --target Luau.Repl.CLI --parallel 2
+          test -x luau-build/luau
+      - name: Verify obfuscation behavior under Luau
+        env:
+          LUA_BIN: lua
+          LUAU_BIN: ./luau-build/luau
+          PROMETHEUS_CLI: ./prometheus/cli.lua
+        run: npm run test:luau

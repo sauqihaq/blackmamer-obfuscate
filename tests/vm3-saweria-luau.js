@@ -58,11 +58,11 @@ function runLua(script,label){
   }
   assert.ok(source.includes('for _, userId in ipairs('));
   assert.ok(source.includes('local okId, userId = pcall('));
-  const expected=runLua(mock+'\nlocal function runClient()\n'+source+'\nend\nrunClient()\n'+tail,'saweria-original');
+  const expected=runLua(mock+'\nlocal function runClient(...)\n'+source+'\nend\nrunClient()\n'+tail,'saweria-original');
   assert.match(expected,/SENT\s+Tester\s+120\s+welcome\s+false/);
   for(let build=0;build<3;build++){
     const compiled=compile(source,{antiTamper:true,antiDebug:true});
-    const actual=runLua(mock+'\nlocal function runClient()\n'+compiled.code+'\nend\nrunClient()\n'+tail,'saweria-vm3-'+build);
+    const actual=runLua(mock+'\nlocal function runClient(...)\n'+compiled.code+'\nend\nrunClient()\n'+tail,'saweria-vm3-'+build);
     assert.equal(actual,expected,'full BM Saweria client GUI simulation changed at build '+build);
     cases++;
   }

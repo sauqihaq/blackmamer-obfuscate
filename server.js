@@ -6,6 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { transform } = require('./blackmamer-vm');
+const { generate: compileBlackmamerVM2 } = require('./blackmamer-vm2');
 
 const app = express();
 const execFileAsync = promisify(execFile);
@@ -40,8 +41,8 @@ app.get('/', (_req, res) => {
     status: 'ok',
     service: 'blackmamer-obfuscator',
     engine: 'Prometheus',
-    vm: 'BLACKMAMER VM V1',
-    version: '1.1.0'
+    vm: 'BLACKMAMER VM V1 + experimental V2',
+    version: '1.2.0'
   });
 });
 
@@ -91,21 +92,33 @@ app.post('/api/obfuscate', async (req, res) => {
     });
   }
 
-  // No frontend changes needed: existing requests enable VM automatically.
-  // To disable it explicitly: { "blackmamerVM": false }.
+  // Existing requests keep V1 for compatibility.
+  // Explicit opt-in to experimental V2:
+  // { "vmMode": "hybrid-v2", "blackmamerVM": true }.
   const vmEnabled = body.blackmamerVM !== false;
+  const vmMode = body.vmMode === 'hybrid-v2' ? 'hybrid-v2' : 'v1';
+  let vm2Result = { code, virtualizedExpressions: 0, vmInstructions: 0 };
   let vmResult = { code, literals: 0, protectedBytes: 0 };
   let fallback = false;
 
   if (vmEnabled) {
+    if (vmMode === 'hybrid-v2') {
+      try {
+        vm2Result = compileBlackmamerVM2(code, { maxExpressions: 32 });
+      } catch (error) {
+        fallback = true;
+        console.warn('[BLACKMAMER VM2] Compile failed, retaining source:', error.message);
+      }
+    }
     try {
-      vmResult = transform(code, {
+      vmResult = transform(vm2Result.code, {
         maxLiteralBytes: 256,
         maxTotalBytes: 4096
       });
     } catch (error) {
       fallback = true;
-      console.warn('[BLACKMAMER VM] Transform failed; using original:', error.message);
+      vmResult = { code: vm2Result.code, literals: 0, protectedBytes: 0 };
+      console.warn('[BLACKMAMER VM1] String pass failed:', error.message);
     }
   }
 
@@ -114,7 +127,7 @@ app.post('/api/obfuscate', async (req, res) => {
     try {
       obfuscated = await runPrometheus(vmResult.code, preset);
     } catch (error) {
-      if (!vmEnabled || vmResult.literals === 0) throw error;
+      if (!vmEnabled || (vmResult.literals === 0 && vm2Result.virtualizedExpressions === 0)) throw error;
       fallback = true;
       console.warn('[BLACKMAMER VM] Prometheus rejected VM output; retrying original');
       obfuscated = await runPrometheus(code, preset);
@@ -125,7 +138,10 @@ app.post('/api/obfuscate', async (req, res) => {
       engine: 'Prometheus',
       blackmamerVM: {
         enabled: vmEnabled,
-        applied: vmEnabled && !fallback && vmResult.literals > 0,
+        applied: vmEnabled && !fallback && (vmResult.literals > 0 || vm2Result.virtualizedExpressions > 0),
+        mode: vmMode,
+        virtualizedExpressions: fallback ? 0 : vm2Result.virtualizedExpressions,
+        vmInstructions: fallback ? 0 : vm2Result.vmInstructions,
         fallback,
         protectedLiterals: fallback ? 0 : vmResult.literals,
         protectedBytes: fallback ? 0 : vmResult.protectedBytes

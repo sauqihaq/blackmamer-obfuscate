@@ -156,6 +156,8 @@ app.post('/api/obfuscate', async (req, res) => {
           applied: true,
           mode: 'native-v3',
           virtualizedFunctions: result.virtualizedFunctions,
+          bytecodeLayout: result.bytecodeLayout,
+          bytecodeWidths: result.bytecodeWidths,
           vmInstructions: result.vmInstructions,
           fusedInstructions: result.fusedInstructions,
           superInstructionKinds: result.superInstructionKinds,

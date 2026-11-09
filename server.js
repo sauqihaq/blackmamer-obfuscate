@@ -14,6 +14,7 @@ const PORT = process.env.PORT || 10000;
 
 // Path ke cli.lua hasil git clone di Dockerfile (RUN git clone ... /app/prometheus)
 const PROMETHEUS_CLI = '/app/prometheus/cli.lua';
+const ROBLOX_STRONG_CONFIG = '/app/roblox-strong.lua';
 
 const BANNER = `--[[
     ██████╗ ██╗      █████╗  ██████╗██╗  ██╗███╗   ███╗ █████╗ ███╗   ███╗███████╗██████╗     ███████╗████████╗██╗   ██╗██████╗ ██╗ ██████╗ 
@@ -30,7 +31,7 @@ const BANNER = `--[[
 `;
 
 // BLACKMAMER VM V1 is on by default; Prometheus remains the main engine.
-const PRESETS = new Set(['Weak', 'Medium', 'Strong']);
+const PRESETS = new Set(['Weak', 'Medium', 'Strong', 'RobloxStrong']);
 const MAX_SCRIPT_BYTES = 1024 * 1024;
 
 app.use(cors());
@@ -55,9 +56,12 @@ async function runPrometheus(source, preset, target = 'LuaU') {
 
   try {
     await fs.promises.writeFile(inputPath, source, 'utf8');
+    const configArg = preset === 'RobloxStrong'
+      ? ['--config', ROBLOX_STRONG_CONFIG]
+      : ['--preset', preset];
     await execFileAsync('lua', [
       PROMETHEUS_CLI,
-      '--preset', preset,
+      ...configArg,
       inputPath,
       '--out', outputPath,
       '--nocolors',
@@ -95,7 +99,7 @@ app.post('/api/obfuscate', async (req, res) => {
   }
   if (!PRESETS.has(preset)) {
     return res.status(400).json({
-      error: 'Preset tidak valid. Gunakan Weak, Medium, atau Strong.'
+      error: 'Preset tidak valid. Gunakan Weak, Medium, Strong, atau RobloxStrong.'
     });
   }
 

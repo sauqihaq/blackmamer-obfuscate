@@ -39,15 +39,15 @@ try {
       const compiled=compile(src,{hardened:true,antiTamper:true,antiDebug:true});
       assert.equal(compiled.engine,'BLACKMAMER V4 Native VM');
       assert.equal(compiled.hardened,true);
-      assert.match(compiled.code,/BLACKMAMER VM V4\\.0/);
-      assert.doesNotMatch(compiled.code,/local SALT=\\d+;local CHECK=\\d+/);
+      assert.match(compiled.code,/BLACKMAMER VM V4\.0/);
+      assert.doesNotMatch(compiled.code,/local SALT=\d+;local CHECK=\d+/);
       const actual=run(compiled.code,name+'-'+attempt);
       assert.equal(actual,expected,name+' V4 bytecode output mismatch on build '+attempt);
       comparisons++;
     }
   }
   const corrupted=compile('print("test")',{hardened:true});
-  const tampered=corrupted.code.replace(/(local _[a-z]{7}=\\{")([A-Za-z0-9_-])/,
+  const tampered=corrupted.code.replace(/(local _[a-z]{7}=\{")([A-Za-z0-9_-])/,
     (_,prefix,c)=>prefix+(c==='A'?'B':'A'));
   assert.notEqual(tampered,corrupted.code);
   const tamperedFile=path.join(dir,'tampered.luau');

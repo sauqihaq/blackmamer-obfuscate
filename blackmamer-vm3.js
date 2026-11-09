@@ -1109,6 +1109,9 @@ function compile(source, options={}) {
     return String(codes[name]);
   });
   return {code,engine:'BLACKMAMER V3 Native VM',virtualizedFunctions:funcs.length,
+    bytecodeLayout:'per-prototype-shuffled-12-or-16',
+    bytecodeWidths:{compact:sealedFunctions.filter(f=>f[2]===3).length,
+      wide:sealedFunctions.filter(f=>f[2]===4).length},
     dispatchStructure,
     fusedInstructions:fusionTotal,superInstructionKinds:fusionCounts,
     vmInstructions:funcs.reduce((n,f)=>n+f.ins.length,0),

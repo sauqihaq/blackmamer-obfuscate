@@ -624,13 +624,16 @@ function compile(source, options={}) {
   // silently degrading the hierarchy to a single flat dispatcher.
   const gcd=(a,b)=>{while(b){[a,b]=[b,a%b];}return a;};
   const opcodeValues=handlers.map(part=>{
-    const match=/^\\s*(?:if|elseif) op==O\\.([A-Z]+) then/.exec(part[0]);
+    const match=/^\s*(?:if|elseif) op==O\.([A-Z]+) then/.exec(part[0]);
     if(!match)throw new Error('Unrecognized dispatcher handler');
     return codes[match[1]];
   });
   // Prefer 5–7 populated shards; fall back to 4/3 only when this particular
   // randomized opcode assignment cannot populate the larger moduli.
-  const counts=[5,6,7].map((v,i,all)=>all[(i+rand(all.length))%all.length]);
+  const counts=[5,6,7];
+  for(let i=counts.length-1;i>0;i--){
+    const j=rand(i+1);[counts[i],counts[j]]=[counts[j],counts[i]];
+  }
   const options=[...new Set([...counts,4,3])].filter(count=>
     new Set(opcodeValues.map(op=>op%count)).size===count);
   if(!options.length)throw new Error('Unable to partition VM opcode handlers');

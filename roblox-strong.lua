@@ -12,7 +12,6 @@ return {
   PrettyPrint = false,
   Seed = 0,
   Steps = {
-    { Name = "EncryptStrings", Settings = {} },
     { Name = "Vmify", Settings = {} },
     { Name = "ConstantArray", Settings = {
       Threshold = 1,

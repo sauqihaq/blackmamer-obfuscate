@@ -32,6 +32,7 @@ async function main(){
   assert.equal(good.data.blackmamerVM.mode,'native-v3');
   assert.equal(good.data.blackmamerVM.applied,true);
   assert.equal(good.data.blackmamerVM.fallback,false);
+  assert.ok(Number.isInteger(good.data.blackmamerVM.fusedInstructions));
   assert.equal(good.data.protection.antiTamper,true);
   assert.equal(good.data.protection.antiDebug,true);
   assert.ok(good.data.obfuscated.includes('BLACKMAMER VM V3'));
@@ -44,6 +45,9 @@ async function main(){
   const noProtection=await post({script,preset:'NativeV3',antiTamper:false,antiDebug:false});
   assert.equal(noProtection.status,200);
   assert.deepEqual(noProtection.data.protection,{antiTamper:false,antiDebug:false});
-  console.log('Native V3 API: 4 requests passed, native engine selected and unsupported syntax fails closed');
+  const basic=await post({script,preset:'NativeV3',target:'LuaU',superInstructions:false});
+  assert.equal(basic.status,200,JSON.stringify(basic.data));
+  assert.equal(basic.data.blackmamerVM.fusedInstructions,0);
+  console.log('Native V3 API: 5 requests passed; superinstructions selectable and unsupported syntax fails closed');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;}).finally(()=>server.kill());

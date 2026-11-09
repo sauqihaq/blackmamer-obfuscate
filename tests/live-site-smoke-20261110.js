@@ -69,7 +69,9 @@ async function main(){
 
   const snippets=[
     {name:'NativeV3 Hello World',script:'print("Hello World")',expected:'Hello World'},
-    {name:'NativeV3 numeric for',script:'local sum=0\nfor i=1,5 do sum=sum+i end\nprint(sum)',expected:'15'}
+    {name:'NativeV3 numeric for',script:'local sum=0\nfor i=1,5 do sum=sum+i end\nprint(sum)',expected:'15'},
+    {name:'NativeV3 direct table for',script:'local GIFs={{Name="a"},{Name="b"}}\nlocal names={}\nfor _,g in GIFs do table.insert(names,g.Name) end\nprint(table.concat(names,","))',expected:'a,b'},
+    {name:'NativeV3 builtin type',script:'local result={ok=true}\nprint(type(result))',expected:'table'}
   ];
   for(const item of snippets){
     const payload={script:item.script,preset:'NativeV3',target:'LuaU',

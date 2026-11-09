@@ -4,7 +4,8 @@
   "description": "Backend API buat obfuscate script Lua pakai Prometheus",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node test-vm2.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

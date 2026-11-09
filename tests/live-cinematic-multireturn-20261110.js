@@ -40,6 +40,10 @@ async function check(){
  assert.match(output,/local SBOX_MASK=bit32\.bxor/,'Hybrid VM S-Box masking missing');
  assert.match(output,/local function field\(at,logical\)/,'Hybrid operand layout decoder missing');
  assert.ok(output.includes('BLACKMAMER VM V3.4'));
+ assert.equal(output.includes('\n'),false,'Production VM should have one Luau line');
+ assert.equal(output.includes('\r'),false,'Production VM should not have CR');
+ assert.ok(output.startsWith('--[[BLACKMAMER STUDIO]]--[[BLACKMAMER VM V3.4]]return'),
+   'Production still has multiline ASCII banner or an unminified VM');
  assert.ok(output.length>10000);
  assert.match(output,/local _[a-z]{7}=\{"[A-Za-z0-9_-]+"/,
    'Current Render should emit shuffled alphanumeric payload shards');

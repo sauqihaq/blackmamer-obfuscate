@@ -87,6 +87,24 @@ try {
   }
   assert.ok(roots.size>=2,'Multiple function inputs should randomize the root prototype ID');
 
+  const hybridSample='local function combo(x) return x+3,nil,x*4 end\\nlocal a,b,c=combo(7)\\nprint(a,b==nil,c)';
+  const expectedHybrid=execute(hybridSample,'hybrid-source');
+  for(const width of ['compact','wide']){
+    for(const dispatcher of ['tree','shard']){
+      for(let trial=0;trial<2;trial++){
+        const built=compile(hybridSample,{bytecodeWidth:width,
+          dispatchMode:dispatcher,antiTamper:true,antiDebug:true});
+        assert.equal(built.bytecodeLayout,'per-prototype-shuffled-12-or-16');
+        assert.equal(built.bytecodeWidths[width],built.virtualizedFunctions,
+          'Forced prototype width must apply to every VM function');
+        assert.equal(built.bytecodeWidths[width==='compact'?'wide':'compact'],0);
+        const actualHybrid=execute(built.code,'hybrid-'+width+'-'+dispatcher+'-'+trial);
+        assert.equal(actualHybrid,expectedHybrid,
+          'Hybrid S-Box and '+width+' layout changed original Luau output');
+      }
+    }
+  }
+
   const first=compile('print("Hello World")');
   const second=compile('print("Hello World")');
   assert.notEqual(first.code,second.code,'VM output must mutate between builds');

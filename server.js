@@ -42,12 +42,13 @@ app.get('/', (_req, res) => {
     service: 'blackmamer-obfuscator',
     engine: 'Prometheus',
     vm: 'BLACKMAMER VM V1 + experimental V2',
+    defaultTarget: 'LuaU',
     version: '1.2.0'
   });
 });
 
 // Each request uses its own directory to avoid collisions and cross-user data leaks.
-async function runPrometheus(source, preset) {
+async function runPrometheus(source, preset, target = 'LuaU') {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'blackmamer-'));
   const inputPath = path.join(dir, 'input.lua');
   const outputPath = path.join(dir, 'output.lua');
@@ -59,7 +60,8 @@ async function runPrometheus(source, preset) {
       '--preset', preset,
       inputPath,
       '--out', outputPath,
-      '--nocolors'
+      '--nocolors',
+      target === 'LuaU' ? '--LuaU' : '--Lua51'
     ], {
       timeout: 30000,
       maxBuffer: 8 * 1024 * 1024
@@ -77,6 +79,8 @@ app.post('/api/obfuscate', async (req, res) => {
   const body = req.body || {};
   const code = body.script;
   const preset = body.preset || 'Medium';
+  // Luau target is the Roblox-compatible default, not Lua 5.1.
+  const target = body.target === undefined ? 'LuaU' : body.target;
 
   if (typeof code !== 'string' || code.trim().length === 0) {
     return res.status(400).json({
@@ -85,6 +89,9 @@ app.post('/api/obfuscate', async (req, res) => {
   }
   if (Buffer.byteLength(code, 'utf8') > MAX_SCRIPT_BYTES) {
     return res.status(413).json({ error: 'Script terlalu besar. Maksimal 1 MB.' });
+  }
+  if (!['LuaU', 'Lua51'].includes(target)) {
+    return res.status(400).json({ error: 'Target wajib LuaU atau Lua51.' });
   }
   if (!PRESETS.has(preset)) {
     return res.status(400).json({
@@ -125,17 +132,18 @@ app.post('/api/obfuscate', async (req, res) => {
   try {
     let obfuscated;
     try {
-      obfuscated = await runPrometheus(vmResult.code, preset);
+      obfuscated = await runPrometheus(vmResult.code, preset, target);
     } catch (error) {
       if (!vmEnabled || (vmResult.literals === 0 && vm2Result.virtualizedExpressions === 0)) throw error;
       fallback = true;
       console.warn('[BLACKMAMER VM] Prometheus rejected VM output; retrying original');
-      obfuscated = await runPrometheus(code, preset);
+      obfuscated = await runPrometheus(code, preset, target);
     }
 
     return res.json({
       obfuscated: BANNER + obfuscated,
       engine: 'Prometheus',
+      target,
       blackmamerVM: {
         enabled: vmEnabled,
         applied: vmEnabled && !fallback && (vmResult.literals > 0 || vm2Result.virtualizedExpressions > 0),

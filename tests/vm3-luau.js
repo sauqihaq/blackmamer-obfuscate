@@ -55,9 +55,9 @@ try {
       assert.doesNotMatch(result.code, /\bO\.(GET|K|CALL|RET|JUMP)\b/, 'No named opcode symbols');
       assert.match(result.code, /op=bxor\(/, 'Opcode should decode using per-function and PC-dependent mask');
       assert.match(result.code, /buffer\.fromstring/, 'Runtime must materialize bytecode as Luau buffer');
-      assert.match(result.code, /buffer\.readu8/, 'VM must stream bytecode reads through buffer');
+      assert.match(result.code, /buffer\.readu32/, 'VM must stream 32-bit operands through buffer');
       assert.match(result.code, /local function prototype\(fid\)/, 'Prototype decoder must be callable on demand');
-      assert.match(result.code, /off\+\(pc-1\)\*12/, 'PC must address packed instruction words');
+      assert.match(result.code, /off\+\(pc-1\)\*16/, 'PC must address packed instruction words');
       assert.doesNotMatch(result.code, /instructions\[j\]=\{/, 'No eager instruction array allowed');
 
       assert.match(result.code, /\(\(op\*\d+\+\d+\)%[34567]\)/, 'VM should dispatch through populated randomized opcode buckets');

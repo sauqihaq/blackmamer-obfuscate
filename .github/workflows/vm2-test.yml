@@ -1,0 +1,26 @@
+name: BLACKMAMER VM2 tests
+
+on:
+  push:
+    branches:
+      - feature/blackmamer-hybrid-vm-v2
+  pull_request:
+    paths:
+      - 'blackmamer-vm2.js'
+      - 'server.js'
+      - 'test-vm2.js'
+      - 'package.json'
+      - '.github/workflows/vm2-test.yml'
+
+jobs:
+  vm2-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Lua
+        run: sudo apt-get update && sudo apt-get install -y lua5.3
+      - name: Test VM2 transformation against Lua runtime
+        run: npm test

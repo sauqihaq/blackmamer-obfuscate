@@ -9,10 +9,13 @@ on:
       - fix/vm3-shard-dispatch-degenerate
       - feature/vm3-buffer-prototypes-v33
       - feature/vm3-superinstructions-v34
+      - feature/native-v3-generic-for-multireturn-saweria
       - main
     paths:
       - 'blackmamer-vm3.js'
       - 'tests/vm3-luau.js'
+      - 'tests/vm3-saweria-luau.js'
+      - 'tests/fixtures/**'
       - 'tests/vm3-dispatch.js'
       - 'tests/vm3-superinstructions.js'
       - '.github/workflows/vm3-test.yml'
@@ -22,6 +25,8 @@ on:
     paths:
       - 'blackmamer-vm3.js'
       - 'tests/vm3-luau.js'
+      - 'tests/vm3-saweria-luau.js'
+      - 'tests/fixtures/**'
       - '.github/workflows/vm3-test.yml'
       - 'server.js'
       - 'tests/vm3-api.js'
@@ -61,3 +66,7 @@ jobs:
         env:
           LUAU_BIN: ./luau-build/luau
         run: node tests/vm3-luau.js
+      - name: Compare full BM Saweria GUI script with Native VM3 and Luau CLI
+        env:
+          LUAU_BIN: ./luau-build/luau
+        run: node tests/vm3-saweria-luau.js

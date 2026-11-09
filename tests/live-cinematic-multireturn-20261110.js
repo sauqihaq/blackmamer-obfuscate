@@ -27,12 +27,18 @@ async function check(){
    status:resp.status,elapsedMs:Date.now()-started,scriptCharacters:script.length,
    outputBytes:Buffer.byteLength(output),engine:data.engine||null,
    mode:vm.mode||null,fallback:vm.fallback??null,instructions:vm.vmInstructions??null,
-   fused:vm.fusedInstructions??null,version:(output.match(/BLACKMAMER VM V[\d.]+/)||[])[0]||null,
+   fused:vm.fusedInstructions??null,layout:vm.bytecodeLayout??null,layoutWidths:vm.bytecodeWidths??null,
+   version:(output.match(/BLACKMAMER VM V[\d.]+/)||[])[0]||null,
    error:data.error||null,detail:data.detail||null
  }));
  assert.equal(resp.status,200,'Production backend does not yet support multi-return: '+(data.detail||data.error||resp.status));
  assert.equal(vm.mode,'native-v3');
  assert.equal(vm.fallback,false);
+ assert.equal(vm.bytecodeLayout,'per-prototype-shuffled-12-or-16',
+   'Render has not deployed Hybrid VM yet');
+ assert.ok(vm.bytecodeWidths.compact+vm.bytecodeWidths.wide===vm.virtualizedFunctions);
+ assert.match(output,/local SBOX_MASK=bit32\.bxor/,'Hybrid VM S-Box masking missing');
+ assert.match(output,/local function field\(at,logical\)/,'Hybrid operand layout decoder missing');
  assert.ok(output.includes('BLACKMAMER VM V3.4'));
  assert.ok(output.length>10000);
  assert.match(output,/local _[a-z]{7}=\{"[A-Za-z0-9_-]+"/,

@@ -1,0 +1,27 @@
+name: Netlify Frontend Smoke
+
+on:
+  push:
+    branches:
+      - feature/netlify-obfuscator-v2
+      - main
+    paths:
+      - 'netlify-frontend/**'
+      - 'tests/frontend-smoke.js'
+      - '.github/workflows/frontend-smoke.yml'
+  pull_request:
+    paths:
+      - 'netlify-frontend/**'
+      - 'tests/frontend-smoke.js'
+      - '.github/workflows/frontend-smoke.yml'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate frontend in Node.js
+        run: node tests/frontend-smoke.js

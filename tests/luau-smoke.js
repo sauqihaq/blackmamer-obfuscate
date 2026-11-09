@@ -58,6 +58,15 @@ try {
     });
     fs.writeFileSync(vmFile, protectedResult.code, 'utf8');
 
+    // Identify which stage alters behavior, instead of treating all VM failures
+    // as a single opaque Prometheus error.
+    const v2File = path.join(scratch, t.label + '.vm2.lua');
+    fs.writeFileSync(v2File, custom.code, 'utf8');
+    assert.equal(cmd(LUAU, [v2File], t.label + ' VM2 raw'),
+      expected, t.label + ' changed in VM2 compiler');
+    assert.equal(cmd(LUAU, [vmFile], t.label + ' VM1 raw'),
+      expected, t.label + ' changed in VM1 string stage');
+
     cmd(LUA, [
       PROMETHEUS,
       '--preset', t.preset,

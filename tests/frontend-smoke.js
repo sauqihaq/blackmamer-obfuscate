@@ -75,6 +75,21 @@ compiled.runInContext(vm.createContext(sandbox));
   assert.equal(payload.vmMode, 'hybrid-v2');
   assert.equal(payload.blackmamerVM, true);
 
+  byId('preset').value = 'NativeV3';
+  byId('preset').handlers.change();
+  byId('antiTamper').checked = true;
+  byId('antiDebug').checked = true;
+  calls = [];
+  await byId('obfuscate').click();
+  send = calls.find(item => item.url.endsWith('/api/obfuscate'));
+  const v3 = JSON.parse(send.options.body);
+  assert.equal(v3.preset, 'NativeV3');
+  assert.equal(v3.vmMode, 'native-v3');
+  assert.equal(v3.target, 'LuaU');
+  assert.equal(v3.antiTamper, true);
+  assert.equal(v3.antiDebug, true);
+  assert.equal(byId('hybrid').disabled, true);
+
   byId('source').value = '';
   calls = [];
   await byId('obfuscate').click();

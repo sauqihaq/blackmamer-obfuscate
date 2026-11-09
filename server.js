@@ -8,6 +8,7 @@ const path = require('path');
 const { transform } = require('./blackmamer-vm');
 const { generate: compileBlackmamerVM2 } = require('./blackmamer-vm2');
 const { compile: compileBlackmamerVM3 } = require('./blackmamer-vm3');
+const { available: nativeSealerAvailable } = require('./native-sealer');
 
 const app = express();
 const execFileAsync = promisify(execFile);
@@ -32,7 +33,7 @@ const BANNER = `--[[
 `;
 
 // BLACKMAMER VM V1 is on by default; Prometheus remains the main engine.
-const PRESETS = new Set(['Weak', 'Medium', 'Strong', 'RobloxStrong', 'NativeV3']);
+const PRESETS = new Set(['Weak', 'Medium', 'Strong', 'RobloxStrong', 'NativeV3', 'NativeV4']);
 const MAX_SCRIPT_BYTES = 1024 * 1024;
 
 app.use(cors());
@@ -44,9 +45,9 @@ app.get('/', (_req, res) => {
     status: 'ok',
     service: 'blackmamer-obfuscator',
     engine: 'Prometheus',
-    vm: 'BLACKMAMER VM V1 + experimental V2 + native V3',
+    vm: 'BLACKMAMER VM V1 + experimental V2 + native V3 / V4',
     defaultTarget: 'LuaU',
-    version: '1.3.0'
+    version: '1.4.0'
   });
 });
 
@@ -100,6 +101,8 @@ app.get('/api/health', async (_req, res) => {
     dockerRequired: !cli || !luaAvailable,
     vm2Available: typeof compileBlackmamerVM2 === 'function',
     vm3Available: typeof compileBlackmamerVM3 === 'function',
+    vm4Available: typeof compileBlackmamerVM3 === 'function',
+    nativeSealerAvailable: nativeSealerAvailable(),
     defaultTarget: 'LuaU',
     message: cli && luaAvailable
       ? 'Lua and Prometheus are present'
@@ -127,24 +130,26 @@ app.post('/api/obfuscate', async (req, res) => {
   }
   if (!PRESETS.has(preset)) {
     return res.status(400).json({
-      error: 'Preset tidak valid. Gunakan Weak, Medium, Strong, RobloxStrong, atau NativeV3.'
+      error: 'Preset tidak valid. Gunakan Weak, Medium, Strong, RobloxStrong, NativeV3, atau NativeV4.'
     });
   }
 
   // V3 is a separate independent compiler and interpreter. It never falls back
   // to Prometheus: unsupported Luau must return a clear validation error.
-  if (preset === 'NativeV3' || body.vmMode === 'native-v3') {
+  const useNativeV4 = preset === 'NativeV4' || body.vmMode === 'native-v4';
+  if (preset === 'NativeV3' || body.vmMode === 'native-v3' || useNativeV4) {
     if (target !== 'LuaU') {
-      return res.status(400).json({ error: 'NativeV3 saat ini hanya mendukung target Luau.' });
+      return res.status(400).json({ error: 'Native V3/V4 saat ini hanya mendukung target Luau.' });
     }
     if (body.blackmamerVM === false) {
-      return res.status(400).json({ error: 'NativeV3 membutuhkan blackmamerVM: true.' });
+      return res.status(400).json({ error: 'Native V3/V4 membutuhkan blackmamerVM: true.' });
     }
     try {
       const result = compileBlackmamerVM3(code, {
         antiTamper: body.antiTamper !== false,
         antiDebug: body.antiDebug !== false,
-        superInstructions: body.superInstructions !== false
+        superInstructions: body.superInstructions !== false,
+        hardened: useNativeV4
       });
       return res.json({
         obfuscated: '--[[BLACKMAMER STUDIO]]' + result.code,
@@ -154,7 +159,9 @@ app.post('/api/obfuscate', async (req, res) => {
         blackmamerVM: {
           enabled: true,
           applied: true,
-          mode: 'native-v3',
+          mode: useNativeV4 ? 'native-v4' : 'native-v3',
+          nativeSealer: result.nativeSealer,
+          hardened: result.hardened,
           virtualizedFunctions: result.virtualizedFunctions,
           bytecodeLayout: result.bytecodeLayout,
           bytecodeWidths: result.bytecodeWidths,
@@ -179,10 +186,10 @@ app.post('/api/obfuscate', async (req, res) => {
         position = { line, column, offset };
       }
       const message = unsupported
-        ? 'V3 belum mendukung sintaks Luau'
+        ? (useNativeV4 ? 'V4' : 'V3') + ' belum mendukung sintaks Luau'
           + (position ? ' di baris ' + position.line + ', kolom ' + position.column : '')
           + ': ' + String(error.message).slice(0, 220)
-        : 'BLACKMAMER Native V3 gagal memproses script.';
+        : 'BLACKMAMER Native V3/V4 gagal memproses script.';
       return res.status(unsupported ? 422 : 500).json({
         error: message,
         code: error.code || 'V3_COMPILE_ERROR',

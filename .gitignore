@@ -1,0 +1,5 @@
+node_modules/
+prometheus/
+native/bm-sealer
+.env
+*.log

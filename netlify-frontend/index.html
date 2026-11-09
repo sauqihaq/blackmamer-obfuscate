@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#07121d">
   <meta name="description" content="BLACKMAMER STUDIO — Lua/Luau obfuscator dengan preset RobloxStrong dan experimental Hybrid VM V2.">
-  <title>BLACKMAMER STUDIO — Native VM V3 Luau Obfuscator</title>
+  <title>BLACKMAMER STUDIO — Native VM V4 Luau Obfuscator</title>
   <style>
     :root {
       color-scheme: dark;
@@ -163,6 +163,7 @@ print(&quot;Hello World&quot;)"></textarea>
               <option value="Strong">Strong — Legacy (berat)</option>
               <option value="RobloxStrong">RobloxStrong — Roblox VM (Prometheus)</option>
               <option value="NativeV3">Native V3 — BLACKMAMER VM Asli</option>
+              <option value="NativeV4">Native V4 — C++ Sealed • Hardened VM (Eksperimental)</option>
             </select>
             <p id="presetHint" class="help">Mode yang lebih seimbang untuk penggunaan awal.</p>
           </div>
@@ -242,16 +243,17 @@ print(&quot;Hello World&quot;)"></textarea>
         Medium: 'Preset bawaan, seimbang untuk pengujian awal.',
         Strong: 'VM Prometheus bertingkat. Berpotensi lebih berat atau tidak stabil untuk sebagian script Luau.',
         RobloxStrong: 'Full-program VM Prometheus satu lapis + proteksi konstanta; enkripsi string dan anti-tamper upstream dimatikan karena masalah kompatibilitas.',
-        NativeV3: 'Compiler dan interpreter bytecode BLACKMAMER sendiri. Eksperimental: belum mendukung seluruh sintaks Luau, tanpa fallback Prometheus.'
+        NativeV3: 'Compiler dan interpreter bytecode BLACKMAMER sendiri. Eksperimental: belum mendukung seluruh sintaks Luau, tanpa fallback Prometheus.',
+        NativeV4: 'VM native Luau dengan opcode/operand masking nonlinier, checksum berbeda per build, dan sealing C++ di backend jika tersedia. Eksperimental, tidak menjamin anti-deobfuscation.'
       };
       $('presetHint').textContent = labels[preset];
-      const isNative = preset === 'NativeV3';
+      const isNative = preset === 'NativeV3' || preset === 'NativeV4';
       $('v3Options').hidden = !isNative;
       $('hybrid').disabled = isNative;
       $('target').disabled = isNative;
       if (isNative) $('target').value = 'LuaU';
-      $('info').textContent = preset === 'NativeV3'
-        ? 'Native V3 tidak memakai Vmify Prometheus. Jika sintaks Luau belum didukung, engine akan menolak dengan error 422 agar tidak menghasilkan kode yang salah.'
+      $('info').textContent = isNative
+        ? 'Native V3/V4 menggunakan interpreter Luau sendiri, bukan Vmify Prometheus. V4 dapat menggunakan C++ hanya di backend. Sintaks tidak didukung ditolak dengan HTTP 422, dan Roblox Studio tetap harus diuji.'
         : preset === 'RobloxStrong'
         ? 'RobloxStrong memakai VM Prometheus untuk seluruh program. VM V2 BLACKMAMER hanya memvirtualisasi subset ekspresi yang didukung.'
         : 'Untuk script Roblox, gunakan target Roblox / Luau. Uji hasil di Roblox Studio sebelum dipakai publik.';
@@ -287,8 +289,8 @@ print(&quot;Hello World&quot;)"></textarea>
       feedback('', '');
       const script = source.value;
       if (!script.trim()) { feedback('Masukkan script terlebih dahulu.', 'bad'); source.focus(); return; }
-      if ($('preset').value === 'NativeV3' && bytes(script) > 128 * 1024) {
-        feedback('Native V3 saat ini mendukung script hingga 128 KB.', 'bad'); return;
+      if (['NativeV3', 'NativeV4'].includes($('preset').value) && bytes(script) > 128 * 1024) {
+        feedback('Native V3/V4 saat ini mendukung script hingga 128 KB.', 'bad'); return;
       }
       if (bytes(script) > MAX_SCRIPT_BYTES) {
         feedback('Ukuran script maksimal 1 MB untuk backend saat ini.', 'bad'); return;
@@ -298,7 +300,7 @@ print(&quot;Hello World&quot;)"></textarea>
         preset: $('preset').value,
         target: $('target').value,
         blackmamerVM: true,
-        vmMode: $('preset').value === 'NativeV3' ? 'native-v3' : ($('hybrid').checked ? 'hybrid-v2' : 'v1'),
+        vmMode: $('preset').value === 'NativeV4' ? 'native-v4' : ($('preset').value === 'NativeV3' ? 'native-v3' : ($('hybrid').checked ? 'hybrid-v2' : 'v1')),
         antiTamper: $('antiTamper').checked,
         antiDebug: $('antiDebug').checked
       };

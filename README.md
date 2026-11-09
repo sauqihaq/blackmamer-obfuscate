@@ -172,3 +172,44 @@ The website's `netlify-frontend/index.html` also sets `wrap="off"` on the output
 
 Removing whitespace does not make the VM cryptographically stronger, hide its decryption key, or make it immune to deobfuscation. It is a compact rendering format and has been tested for semantic equivalence using Luau CLI.
 
+
+
+## BLACKMAMER Native VM V4 (eksperimental) + C++17 backend
+
+Preset `NativeV4` tersedia terpisah dari `NativeV3`, `RobloxStrong`, dan preset lama. Ini **bukan** jaminan setara Luraph atau tidak bisa di-deobfuscate. Ketika kode Luau berjalan di klien, interpreter, kunci, dan data terenkripsi tetap dapat diinspeksi oleh pemilik klien. Simpan rahasia, otorisasi, dan ekonomi game di server.
+
+Peningkatan dibanding V3.4:
+
+- **Hardened VM dispatch:** setiap instruksi memakai masker opcode nonlinear dan penyesuaian operand yang berbeda menurut prototype dan program counter. Rumusnya dibuat konsisten antara compiler dan runtime Luau.
+- **Integrity polynomial per-build:** parameter checksum diacak dan literal SALT/CHECK dipecah menjadi dua bagian XOR. Ini membuat pola statis kurang seragam, tetapi **bukan HMAC/anti-bypass kriptografis**.
+- **C++17 sealing stage di backend:** bytecode dan literal dari compiler JavaScript dikirim sebagai batch ke executable native `native/bm-sealer`. Implementasinya harus byte-identik dengan fallback JS; C++ tidak dijalankan di Roblox. Native sealer memakai S-box per-build yang sama dengan VM.
+- Prototipe teracak, binary chunks, loader single-line, constant pool lazy-decoding, dan superinstructions dari V3.4 tetap tersedia.
+
+Contoh request:
+
+```json
+{
+  "script": "local total = 0\nfor i=1,5 do total+=i end\nprint(total)",
+  "preset": "NativeV4",
+  "target": "LuaU",
+  "vmMode": "native-v4",
+  "blackmamerVM": true,
+  "antiTamper": true,
+  "antiDebug": true
+}
+```
+
+Response memiliki `blackmamerVM.mode: "native-v4"`, `hardened: true` dan `nativeSealer: true/false`. `nativeSealer: true` berarti proses C++ dipakai pada build itu. Endpoint `/api/health` juga mengembalikan `nativeSealerAvailable`. Dockerfile menyusun C++17 otomatis dan mengaktifkan `BLACKMAMER_REQUIRE_NATIVE=1`; ini mencegah fallback diam-diam bila image Docker ternyata tidak menyertakan executable. Di luar Docker, jika binary belum dibangun, JavaScript fallback tetap tersedia.
+
+Pengembangan lokal (Linux):
+
+```bash
+g++ -O2 -std=c++17 -Wall -Wextra -Werror native/sealer.cpp -o native/bm-sealer
+node tests/native-sealer.js
+npm install
+node tests/vm4-api.js
+# Luau CLI resmi perlu tersedia untuk tes eksekusi:
+LUAU_BIN=luau node tests/vm4-luau.js
+```
+
+**Kompatibilitas:** V4 masih memakai parser Luau subset dari V3.4 dan menolak sintaks yang tidak didukung dengan HTTP 422 (tidak diam-diam mengirim kode asli). Ini harus diuji lebih lanjut di Roblox Studio pada Script, LocalScript, module, event/callback, dan API Roblox asli. C++ meningkatkan kinerja tahap backend pada sebagian beban dan memisahkan implementasi sealer, **tidak** membuat kode Luau yang dikirim ke klien menjadi rahasia.

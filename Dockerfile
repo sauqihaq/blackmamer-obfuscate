@@ -13,7 +13,7 @@ RUN git clone https://github.com/wcrddn/Prometheus.git /app/prometheus
 WORKDIR /app
 
 # Copy source Node.js
-COPY server.js package.json ./
+COPY server.js blackmamer-vm.js package.json ./
 
 # Install Node.js dan dependencies
 RUN apk add --no-cache nodejs npm

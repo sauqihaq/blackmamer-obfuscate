@@ -152,7 +152,9 @@ app.post('/api/obfuscate', async (req, res) => {
         hardened: useNativeV4
       });
       return res.json({
-        obfuscated: '--[[BLACKMAMER STUDIO]]' + result.code,
+        // Keep the VM payload compact, but restore the original large
+        // BLACKMAMER STUDIO ASCII-art header for both NativeV3 and NativeV4.
+        obfuscated: BANNER + result.code,
         engine: result.engine,
         target: 'LuaU',
         protection: { antiTamper: result.antiTamper, antiDebug: result.antiDebug },

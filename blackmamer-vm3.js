@@ -92,7 +92,7 @@ function lex(source) {
     }
     const word = /^[A-Za-z_][A-Za-z_0-9]*/.exec(source.slice(pos));
     if (word) { push('id', word[0], at); pos += word[0].length; continue; }
-    const symbol = ['...','..','==','~=','<=','>=','+=','-=','*=','/=','//','::','->'].find(s=>source.startsWith(s,pos));
+    const symbol = ['...','..=','//=','..','==','~=','<=','>=','+=','-=','*=','/=','%=','^=','//','::','->'].find(s=>source.startsWith(s,pos));
     if (symbol) { push('sym',symbol,at); pos += symbol.length; continue; }
     if ('+-*/%^#=~<>(){}[];:, .'.includes(c) && c !== ' ') {
       push('sym',c,at); pos++; continue;
@@ -200,7 +200,15 @@ class Parser {
       return {t:'return',value};
     }
     if (this.take('break')) return {t:'break'};
+    if (this.take('continue')) return {t:'continue'};
     const lhs=this.expr(10);
+    const assignOps=new Set(['+=','-=','*=','/=','//=','%=','^=','..=']);
+    if(assignOps.has(this.peek())){
+      if(!['var','index'].includes(lhs.t))
+        throw new SyntaxErrorV3('Compound assignment target must be name or index');
+      const op=this.tok().value;this.i++;
+      return {t:'compound',target:lhs,op,value:this.expr()};
+    }
     if(this.take('=')) {
       if(!['var','index'].includes(lhs.t)) throw new SyntaxErrorV3('Assignment target must be name or index');
       return {t:'assign',target:lhs,value:this.expr()};
@@ -249,7 +257,7 @@ class Parser {
       if(op==='[' && 10>=min){this.i++;const key=this.expr();this.must(']');node={t:'index',obj:node,key};continue;}
       if(op==='(' && 10>=min){const args=this.args();node={t:'call',fn:node,args};continue;}
       if(op===':' && 10>=min){this.i++;const method=this.name();const args=this.args();node={t:'method',obj:node,name:method,args};continue;}
-      const precedence={or:1,and:2,'<':3,'>':3,'<=':3,'>=':3,'==':3,'~=':3,'..':4,'+':5,'-':5,'*':6,'/':6,'%':6,'^':8};
+      const precedence={or:1,and:2,'<':3,'>':3,'<=':3,'>=':3,'==':3,'~=':3,'..':4,'+':5,'-':5,'*':6,'/':6,'//':6,'%':6,'^':8};
       const p=precedence[op];
       if(p===undefined || p<min) break;
       this.i++;
@@ -267,9 +275,16 @@ class Parser {
     if(!this.take(')')){do{args.push(this.expr());}while(this.take(','));this.must(')');}
     return args;
   }
-  parse(){const body=this.block(new Set());this.must('<eof>');return body;}
+  parse(){
+    try{const body=this.block(new Set());this.must('<eof>');return body;}
+    catch(error){
+      if(error.code==='V3_UNSUPPORTED_SYNTAX'&&!Number.isInteger(error.offset))
+        error.offset=this.tok().at;
+      throw error;
+    }
+  }
 }
-const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT'];
+const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV'];
 function compile(source, options={}) {
   if(typeof source!=='string') throw new TypeError('Expected Luau source string');
   if(Buffer.byteLength(source)>128*1024) throw new SyntaxErrorV3('V3 source limit: 128 KB');
@@ -333,7 +348,7 @@ function compile(source, options={}) {
           return dst;
         }
         const b=expr(n.right);
-        const map={'+':'ADD','-':'SUB','*':'MUL','/':'DIV','%':'MOD','^':'POW','..':'CAT','<':'LT','<=':'LE','>':'GT','>=':'GE','==':'EQ','~=':'NE'};
+        const map={'+':'ADD','-':'SUB','*':'MUL','/':'DIV','//':'IDIV','%':'MOD','^':'POW','..':'CAT','<':'LT','<=':'LE','>':'GT','>=':'GE','==':'EQ','~=':'NE'};
         emit(map[n.op],dst,a,b);return dst;
       }
       throw new SyntaxErrorV3('Unknown AST expression '+n.t);
@@ -342,6 +357,23 @@ function compile(source, options={}) {
       const valueReg=expr(value);
       if(target.t==='var')emit('SET',key(target.name),valueReg);
       else{const objectReg=expr(target.obj),indexReg=expr(target.key);emit('PUT',objectReg,indexReg,valueReg);}
+    };
+    const compound=(n)=>{
+      const map={'+=':'ADD','-=':'SUB','*=':'MUL','/=':'DIV',
+        '//=':'IDIV','%=':'MOD','^=':'POW','..=':'CAT'};
+      const op=map[n.op];
+      if(!op)throw new SyntaxErrorV3('Unsupported compound operator '+n.op);
+      let obj,idx,left;
+      if(n.target.t==='var'){
+        left=reg();emit('GET',left,key(n.target.name));
+      } else {
+        obj=expr(n.target.obj);idx=expr(n.target.key);
+        left=reg();emit('INDEX',left,obj,idx);
+      }
+      const right=expr(n.value),dst=reg();
+      emit(op,dst,left,right);
+      if(n.target.t==='var')emit('SET',key(n.target.name),dst);
+      else emit('PUT',obj,idx,dst);
     };
     const statements=(body)=>{
       for(const n of body){
@@ -373,6 +405,7 @@ function compile(source, options={}) {
             const r=expr(n.fun);emit('SET',key(n.name),r);break;
           }
           case 'assign':write(n.target,n.value);break;
+          case 'compound':compound(n);break;
           case 'callstmt':expr(n.value);break;
           case 'do':scope(n.body);break;
           case 'if':{
@@ -413,11 +446,13 @@ function compile(source, options={}) {
             const start=builder.ins.length+1;
             emit('ITERNEXT',iteratorArgs);
             const exit=emit('JF',condition,0);
-            const loop={breaks:[],depth:builder.depth};builder.loops.push(loop);
+            const loop={breaks:[],continues:[],depth:builder.depth};builder.loops.push(loop);
             emit('ENTER');builder.depth++;
             for(let j=0;j<n.names.length;j++)emit('DECL',key(n.names[j]),itemRegs[j]);
             statements(n.body);
             builder.depth--;emit('EXIT');
+            const continuePc=builder.ins.length+1;
+            for(const j of loop.continues)builder.ins[j-1][1]=continuePc;
             emit('JUMP',start);
             const end=builder.ins.length+1;
             builder.ins[exit-1][2]=end;
@@ -434,11 +469,13 @@ function compile(source, options={}) {
             const curr=expr({t:'var',name:hidden}),test=reg();
             emit('FORCONT',argSets.push([test,curr,limitR,stepR]));
             const exit=emit('JF',test,0);
-            const loop={breaks:[],depth:builder.depth};builder.loops.push(loop);
+            const loop={breaks:[],continues:[],depth:builder.depth};builder.loops.push(loop);
             emit('ENTER');builder.depth++;
             const current=expr({t:'var',name:hidden});emit('DECL',key(n.name),current);
             statements(n.body);
             builder.depth--;emit('EXIT');
+            const continuePc=builder.ins.length+1;
+            for(const j of loop.continues)builder.ins[j-1][1]=continuePc;
             const next=reg();emit('ADD',next,curr,stepR);emit('SET',key(hidden),next);
             emit('JUMP',start);
             const end=builder.ins.length+1;
@@ -448,9 +485,11 @@ function compile(source, options={}) {
           }
           case 'repeat':{
             const start=builder.ins.length+1;
-            const loop={breaks:[],depth:builder.depth};builder.loops.push(loop);
+            const loop={breaks:[],continues:[],repeat:true,depth:builder.depth};builder.loops.push(loop);
             emit('ENTER');builder.depth++;
             statements(n.body);
+            const continuePc=builder.ins.length+1;
+            for(const j of loop.continues)builder.ins[j-1][1]=continuePc;
             const test=expr(n.condition);
             builder.depth--;emit('EXIT');emit('JF',test,start);
             const end=builder.ins.length+1;
@@ -460,8 +499,10 @@ function compile(source, options={}) {
           case 'while':{
             const start=builder.ins.length+1;
             const r=expr(n.condition),exit=emit('JF',r,0);
-            const loop={breaks:[],depth:builder.depth};builder.loops.push(loop);
-            scope(n.body);emit('JUMP',start);
+            const loop={breaks:[],continues:[],depth:builder.depth};builder.loops.push(loop);
+            scope(n.body);
+            for(const j of loop.continues)builder.ins[j-1][1]=start;
+            emit('JUMP',start);
             const end=builder.ins.length+1;
             builder.ins[exit-1][2]=end;
             for(const j of loop.breaks)builder.ins[j-1][1]=end;
@@ -472,6 +513,13 @@ function compile(source, options={}) {
             if(!loop)throw new SyntaxErrorV3('break outside while');
             for(let i=builder.depth;i>loop.depth;i--)emit('EXIT');
             loop.breaks.push(emit('JUMP',0));break;
+          }
+          case 'continue':{
+            const loop=builder.loops[builder.loops.length-1];
+            if(!loop)throw new SyntaxErrorV3('continue outside a loop');
+            const retain=loop.repeat ? loop.depth+1 : loop.depth;
+            for(let i=builder.depth;i>retain;i--)emit('EXIT');
+            loop.continues.push(emit('JUMP',0));break;
           }
           case 'return':emit('RET',expr(n.value));break;
           default:throw new SyntaxErrorV3('Unsupported statement type '+n.t);
@@ -744,6 +792,7 @@ function compile(source, options={}) {
     '      elseif op==O.SUB then R[a]=R[b]-R[c]',
     '      elseif op==O.MUL then R[a]=R[b]*R[c]',
     '      elseif op==O.DIV then R[a]=R[b]/R[c]',
+    '      elseif op==O.IDIV then R[a]=math.floor(R[b]/R[c])',
     '      elseif op==O.MOD then R[a]=R[b]%R[c]',
     '      elseif op==O.POW then R[a]=R[b]^R[c]',
     '      elseif op==O.CAT then R[a]=R[b]..R[c]',

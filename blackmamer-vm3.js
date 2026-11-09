@@ -282,7 +282,7 @@ class Parser {
     }
   }
 }
-const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','RET0','RETM','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV'];
+const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','RETVOID','RETM','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV'];
 function compile(source, options={}) {
   if(typeof source!=='string') throw new TypeError('Expected Luau source string');
   if(Buffer.byteLength(source)>128*1024) throw new SyntaxErrorV3('V3 source limit: 128 KB');
@@ -521,7 +521,7 @@ function compile(source, options={}) {
           }
           case 'return':{
             const values=n.values;
-            if(values.length===0){emit('RET0');break;}
+            if(values.length===0){emit('RETVOID');break;}
             const tail=values[values.length-1];
             const expand=['call','method'].includes(tail.t);
             if(values.length===1&&!expand){
@@ -538,7 +538,7 @@ function compile(source, options={}) {
         if(builder.ins.length>12000)throw new SyntaxErrorV3('V3 instruction limit exceeded');
       }
     };
-    statements(ast);emit('RET0');
+    statements(ast);emit('RETVOID');
     funcs[id-1]={p:params.map(key),ins:builder.ins};
     return id;
   };
@@ -794,7 +794,7 @@ function compile(source, options={}) {
     '        for j=5,#list do R[list[j]]=args[j-4] end',
     '      elseif op==O.CLOSURE then local capture=env;R[a]=function(...)return exec(b,{...},capture)end',
     '      elseif op==O.RET then return a==0 and nil or R[a]',
-    '      elseif op==O.RET0 then return',
+    '      elseif op==O.RETVOID then return',
     '      elseif op==O.RETM then local regs=A[a];local vals={};local count=0',
     '        for j=1,#regs do',
     '          if j==#regs and b==1 then',

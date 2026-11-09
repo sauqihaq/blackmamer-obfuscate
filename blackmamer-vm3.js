@@ -663,9 +663,51 @@ function compile(source, options={}) {
     const seed=rand(60000)+1000;
     return [typ,seed,seal(raw,seed)];
   });
-  const luaBytes=bytes=>'"'+bytes.map(v=>'\\'+String(v).padStart(3,'0')).join('')+'"';
-  const luaFunctions='{'+sealedFunctions.map(([seed,bytes])=>'{'+seed+','+luaBytes(bytes)+'}').join(',')+'}';
-  const luaConstants='{'+sealedConstants.map(([typ,seed,bytes])=>'{'+typ+','+seed+','+luaBytes(bytes)+'}').join(',')+'}';
+  // NativeV3 payload layout v2: a per-build shuffled 64-symbol alphabet,
+  // sealed binary -> radix-64 strings, then small interleaved and reordered
+  // segments. The VM data is never written as obvious \ddd Lua escapes.
+  // This adds static analysis friction; the client-side decoder is reversible.
+  const symbolSet=[...'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'];
+  for(let i=symbolSet.length-1;i>0;i--){
+    const j=rand(i+1);[symbolSet[i],symbolSet[j]]=[symbolSet[j],symbolSet[i]];
+  }
+  const alphabet=symbolSet.join('');
+  const asRadix64=bytes=>{
+    let out='';
+    for(let i=0;i<bytes.length;i+=3){
+      const a=bytes[i],b=bytes[i+1]||0,c=bytes[i+2]||0;
+      const v=a*65536+b*256+c;
+      out+=alphabet[Math.floor(v/262144)];
+      out+=alphabet[Math.floor(v/4096)%64];
+      if(i+1<bytes.length)out+=alphabet[Math.floor(v/64)%64];
+      if(i+2<bytes.length)out+=alphabet[v%64];
+    }
+    return out;
+  };
+  const fragments=[];
+  const segment=bytes=>{
+    const encoded=asRadix64(bytes),parts=[];
+    for(let at=0;at<encoded.length;){
+      const len=Math.min(encoded.length-at,37+rand(61));
+      parts.push(fragments.length);
+      fragments.push(encoded.slice(at,at+len));
+      at+=len;
+    }
+    return parts;
+  };
+  const sealedFunctionRefs=sealedFunctions.map(([seed,bytes])=>[seed,segment(bytes)]);
+  const sealedConstantRefs=sealedConstants.map(([typ,seed,bytes])=>[typ,seed,segment(bytes)]);
+  const segmentOrder=Array.from({length:fragments.length},(_,i)=>i);
+  for(let i=segmentOrder.length-1;i>0;i--){
+    const j=rand(i+1);[segmentOrder[i],segmentOrder[j]]=[segmentOrder[j],segmentOrder[i]];
+  }
+  const positions=new Map(segmentOrder.map((old,i)=>[old,i+1]));
+  const refs=parts=>'{'+parts.map(id=>positions.get(id)).join(',')+'}';
+  const luaFragments='{'+segmentOrder.map(id=>JSON.stringify(fragments[id])).join(',')+'}';
+  const luaFunctions='{'+sealedFunctionRefs.map(([seed,parts])=>'{'+seed+','+refs(parts)+'}').join(',')+'}';
+  const luaConstants='{'+sealedConstantRefs.map(([typ,seed,parts])=>'{'+typ+','+seed+','+refs(parts)+'}').join(',')+'}';
+  const randomName=()=>('_'+Array.from({length:7},()=>String.fromCharCode(97+rand(26))).join(''));
+  const blobName=randomName(),alphabetName=randomName(),mapName=randomName(),unpackName=randomName();
   const luaArgs=JSON.stringify(argSets).replace(/\[/g,'{').replace(/\]/g,'}');
   let digest=17;
   const mix=(n)=>{digest=(digest*131+n+1)%hashMod;};
@@ -675,6 +717,8 @@ function compile(source, options={}) {
   const lines=[
     '-- BLACKMAMER VM V3.4',
     'return (function(...)',
+    '  local '+blobName+'='+luaFragments,
+    '  local '+alphabetName+'='+JSON.stringify(alphabet),
     '  local E=' + luaFunctions,
     '  local Q=' + luaConstants,
     '  local A=' + luaArgs,
@@ -686,6 +730,34 @@ function compile(source, options={}) {
     '  local nativeType=type; local nativePcall=pcall; local nativeError=error',
     '  local dbg=debug; local globals=(getfenv and getfenv()) or _ENV or _G',
     '  if nativeType(bxor)~="function" then nativeError("BLACKMAMER V3 requires Luau bit32") end',
+    '  local '+mapName+'={}',
+    '  for i=1,#'+alphabetName+' do '+mapName+'[nativeByte('+alphabetName+',i)]=i-1 end',
+    '  local function '+unpackName+'(ids)',
+    '    local parts={};for i,id in ipairs(ids)do parts[i]='+blobName+'[id] end',
+    '    local data=nativeConcat(parts);local result={};local at=1;local n=#data',
+    '    while at<=n do',
+    '      local c1='+mapName+'[nativeByte(data,at)]',
+    '      local c2='+mapName+'[nativeByte(data,at+1)]',
+    '      if c1==nil or c2==nil then nativeError("BLACKMAMER V3 malformed block") end',
+    '      local v=c1*262144+c2*4096',
+    '      local has3=(at+2<=n)',
+    '      if has3 then local c3='+mapName+'[nativeByte(data,at+2)]',
+    '        if c3==nil then nativeError("BLACKMAMER V3 invalid encoded block") end',
+    '        v=v+c3*64 end',
+    '      local has4=(at+3<=n)',
+    '      if has4 then local c4='+mapName+'[nativeByte(data,at+3)]',
+    '        if c4==nil then nativeError("BLACKMAMER V3 invalid encoded block") end',
+    '        v=v+c4 end',
+    '      result[#result+1]=nativeChar(math.floor(v/65536)%256)',
+    '      if has3 then result[#result+1]=nativeChar(math.floor(v/256)%256) end',
+    '      if has4 then result[#result+1]=nativeChar(v%256) end',
+    '      at=at+4',
+    '    end',
+    '    return nativeConcat(result)',
+    '  end',
+    '  for _,b in ipairs(E)do b[2]='+unpackName+'(b[2])end',
+    '  for _,b in ipairs(Q)do b[3]='+unpackName+'(b[3])end',
+    '  '+blobName+'=nil;'+alphabetName+'=nil;'+mapName+'=nil',
     '  local function verify()',
     '    local h=17;local function mix(v)h=(h*131+v+1)%hmod end',
     '    for _,f in ipairs(E)do mix(f[1]);mix(#f[2]);for j=1,#f[2]do mix(nativeByte(f[2],j))end end',

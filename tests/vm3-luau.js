@@ -91,9 +91,13 @@ try {
   fs.writeFileSync(t,damaged,'utf8');
   const bad=spawnSync(LUAU,[t],{encoding:'utf8',timeout:10000});
   assert.ok(bad.status!==0,'Edited bytecode must fail integrity verification');
-  const changedBlob=first.code.replace(/(local E=\{\{\d+,"\\)(\d{3})/,
-    (_match,prefix,byte)=>prefix+String((Number(byte)+1)%256).padStart(3,'0'));
-  assert.notEqual(changedBlob,first.code,'Sealed bytecode must have an editable test byte');
+  assert.match(first.code,/local _[a-z]{7}=\{"[A-Za-z0-9_-]+"/,
+    'Encoded data should start with printable shuffled shards');
+  assert.doesNotMatch(first.code,/\\[0-9]{3}/,
+    'VM binary must not be emitted as decimal escaped byte strings');
+  const changedBlob=first.code.replace(/(local _[a-z]{7}=\{")([A-Za-z0-9_-])/,
+    (_match,prefix,glyph)=>prefix+(glyph==='A'?'B':'A'));
+  assert.notEqual(changedBlob,first.code,'Encoded shard must have an editable test byte');
   fs.writeFileSync(path.join(dir,'tampered-blob.luau'),changedBlob,'utf8');
   const tampered=spawnSync(LUAU,[path.join(dir,'tampered-blob.luau')],{encoding:'utf8',timeout:10000});
   assert.ok(tampered.status!==0,'Edited encoded bytecode must fail integrity verification');

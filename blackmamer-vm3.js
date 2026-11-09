@@ -3,6 +3,7 @@
 // No Prometheus/Vmify step in this engine. Unsupported syntax fails closed.
 const crypto = require('node:crypto');
 const {compactLuau} = require('./lua-output-compact');
+const {sealBatch} = require('./native-sealer');
 const rand = max => crypto.randomInt(max);
 
 class SyntaxErrorV3 extends Error {
@@ -631,8 +632,14 @@ function compile(source, options={}) {
   const packed=funcs.map(f=>{
     const opSeed=rand(255)+1;
     const ins=f.ins.map((row,idx)=>row.map((n,j)=>{
-      const masked=j===0 ? (n ^ ((opSeed+(idx+1)*41)%256)) : n;
-      return (masked+salt+5*(j+1)+modulus)%modulus;
+      const pc=idx+1;
+      const opcodeMask=options.hardened
+        ? (opSeed+pc*41+(pc*pc%251)*17)%256
+        : (opSeed+pc*41)%256;
+      const instructionTweak=options.hardened
+        ? (opSeed*97+(pc*(pc%131))*31)%modulus : 0;
+      const masked=j===0 ? (n ^ opcodeMask) : n;
+      return (masked+salt+instructionTweak+5*(j+1)+modulus)%modulus;
     }));
     return {p:f.p,ins,opSeed};
   });
@@ -673,7 +680,7 @@ function compile(source, options={}) {
       throw new SyntaxErrorV3('Compact operand value out of range');
     bytes.push(int&255,(int>>>8)&255,(int>>>16)&255);
   }
-  const sealedFunctions=packed.map(f=>{
+  const rawFunctions=packed.map(f=>{
     const raw=[];
     const width=options.bytecodeWidth==='compact'?3:
       options.bytecodeWidth==='wide'?4:(rand(2)===0?3:4);
@@ -693,14 +700,24 @@ function compile(source, options={}) {
       }
     }
     const seed=rand(60000)+1000;
-    return [seed,seal(raw,seed),width];
+    return [seed,raw,width];
   });
-  const sealedConstants=consts.map(value=>{
+  const rawConstants=consts.map(value=>{
     const typ=value===null?5:typeof value==='string'?1:typeof value==='number'?2:value===true?3:4;
     const raw=(typ===1||typ===2)?[...Buffer.from(String(value),'utf8')]:[];
     const seed=rand(60000)+1000;
-    return [typ,seed,seal(raw,seed)];
+    return [typ,seed,raw];
   });
+  // C++17 sealer handles complete batches when available. A byte-for-byte
+  // equivalent JS fallback keeps local development and old deployments working.
+  const sealedBatch=sealBatch([
+    ...rawFunctions.map(([seed,raw])=>[seed,raw]),
+    ...rawConstants.map(([,seed,raw])=>[seed,raw])
+  ],sbox,seal);
+  const sealedFunctions=rawFunctions.map(([seed,,width],i)=>
+    [seed,sealedBatch.sealed[i],width]);
+  const sealedConstants=rawConstants.map(([typ,seed],i)=>
+    [typ,seed,sealedBatch.sealed[rawFunctions.length+i]]);
   // NativeV3 payload layout v2: a per-build shuffled 64-symbol alphabet,
   // sealed binary -> radix-64 strings, then small interleaved and reordered
   // segments. The VM data is never written as obvious \ddd Lua escapes.
@@ -753,8 +770,13 @@ function compile(source, options={}) {
   const inverseName=randomName(),inverseRefsName=randomName();
   const sboxMaskScrambled=sboxMask^(salt%256);
   const luaArgs=JSON.stringify(argSets).replace(/\[/g,'{').replace(/\]/g,'}');
-  let digest=17;
-  const mix=(n)=>{digest=(digest*131+n+1)%hashMod;};
+  // V4 varies the integrity polynomial by build rather than publishing a
+  // universal digest recipe. This is tamper evidence, NOT a MAC or a secret.
+  const hashSeed=options.hardened?rand(1000000000):17;
+  const hashMul=options.hardened?257+rand(500):131;
+  const hashAdd=options.hardened?1+rand(8191):1;
+  let digest=hashSeed;
+  const mix=(n)=>{digest=(digest*hashMul+n+hashAdd)%hashMod;};
   for(const [seed,bytes] of sealedFunctionRefs.map(([seed],i)=>[seed,sealedFunctions[i][1]])){
     mix(seed);mix(bytes.length);bytes.forEach(mix);
   }
@@ -764,8 +786,17 @@ function compile(source, options={}) {
   mix(maskedInverse.length);maskedInverse.forEach(mix);
   mix(salt);mix(sboxMask);
   for(const args of argSets){mix(args.length);args.forEach(mix);}
+  const saltShare=rand(1<<30), checkShare=rand(1<<30);
+  const runtimeSaltCheck=options.hardened
+    ? '  local SALT=bit32.bxor('+saltShare+','+(salt^saltShare)+'); local CHECK=bit32.bxor('+checkShare+','+(digest^checkShare)+')'
+    : '  local SALT='+salt+'; local CHECK='+digest;
+  const runtimeTweak=options.hardened
+    ? '((spec[3]*97+(pc*(pc%131))*31)%modulus)' : '0';
+  const runtimeOpcodeMask=options.hardened
+    ? '((spec[3]+pc*41+(pc*pc%251)*17)%256)'
+    : '((spec[3]+pc*41)%256)';
   const lines=[
-    '-- BLACKMAMER VM V3.4',
+    options.hardened?'-- BLACKMAMER VM V4.0':'-- BLACKMAMER VM V3.4',
     'return (function(...)',
     '  local '+blobName+'='+luaFragments,
     '  local '+alphabetName+'='+JSON.stringify(alphabet),
@@ -773,9 +804,9 @@ function compile(source, options={}) {
     '  local Q=' + luaConstants,
     '  local A=' + luaArgs,
     '  local '+inverseRefsName+'='+luaInverse,
-    '  local SALT=' + salt + '; local CHECK=' + digest,
+    runtimeSaltCheck,
     '  local SBOX_MASK=bit32.bxor(SALT%256,'+sboxMaskScrambled+')',
-    '  local modulus=' + modulus + '; local hmod=' + hashMod,
+    '  local modulus=' + modulus + '; local hmod=' + hashMod + '; local hseed=' + hashSeed + '; local hmul=' + hashMul + '; local hadd=' + hashAdd,
     '  local nativeByte=string.byte; local nativeChar=string.char; local nativeConcat=table.concat',
     '  local nativeUnpack=table.unpack or unpack; local bxor=bit32 and bit32.bxor',
     '  local nativePack=table.pack or function(...)return {n=select("#",...),...}end',
@@ -812,7 +843,7 @@ function compile(source, options={}) {
     '  local '+inverseName+'='+unpackName+'('+inverseRefsName+')',
     '  '+blobName+'=nil;'+alphabetName+'=nil;'+mapName+'=nil;'+inverseRefsName+'=nil',
     '  local function verify()',
-    '    local h=17;local function mix(v)h=(h*131+v+1)%hmod end',
+    '    local h=hseed;local function mix(v)h=(h*hmul+v+hadd)%hmod end',
     '    for _,f in ipairs(E)do mix(f[1]);mix(#f[2]);for j=1,#f[2]do mix(nativeByte(f[2],j))end end',
     '    for _,v in ipairs(Q)do mix(v[1]);mix(v[2]);mix(#v[3]);for j=1,#v[3]do mix(nativeByte(v[3],j))end end',
     '    mix(#'+inverseName+');for j=1,#'+inverseName+' do mix(nativeByte('+inverseName+',j)) end',
@@ -921,10 +952,11 @@ function compile(source, options={}) {
     '      ticks=ticks+1; if ticks>1000000 then nativeError("BLACKMAMER V3 instruction limit") end',
     '      if pc<1 or pc>length then nativeError("BLACKMAMER V3 bad PC") end',
     '      local at=off+(pc-1)*4*width',
-    '      local op=bxor((field(at,1)-SALT-5)%modulus,(spec[3]+pc*41)%256)',
-    '      local a=((field(at,2)-SALT-10)%modulus);if a>modulus/2 then a=a-modulus end',
-    '      local b=((field(at,3)-SALT-15)%modulus);if b>modulus/2 then b=b-modulus end',
-    '      local c=((field(at,4)-SALT-20)%modulus);if c>modulus/2 then c=c-modulus end',
+    '      local tweak='+runtimeTweak,
+    '      local op=bxor((field(at,1)-SALT-tweak-5)%modulus,'+runtimeOpcodeMask+')',
+    '      local a=((field(at,2)-SALT-tweak-10)%modulus);if a>modulus/2 then a=a-modulus end',
+    '      local b=((field(at,3)-SALT-tweak-15)%modulus);if b>modulus/2 then b=b-modulus end',
+    '      local c=((field(at,4)-SALT-tweak-20)%modulus);if c>modulus/2 then c=c-modulus end',
     '      local nextpc=pc+1',
     '      if op==O.K then R[a]=K(b)',
     '      elseif op==O.GET then R[a]=get(K(b))',
@@ -1114,8 +1146,10 @@ function compile(source, options={}) {
   // Deliberately publish the runtime as a dense single-line Luau chunk.
   // Retain a compact block-comment identifier so newline comments never
   // accidentally consume live code after minification.
-  const code='--[[BLACKMAMER VM V3.4]]'+compactLuau(expanded);
-  return {code,engine:'BLACKMAMER V3 Native VM',virtualizedFunctions:funcs.length,
+  const code='--[[BLACKMAMER VM '+(options.hardened?'V4.0':'V3.4')+']]'+compactLuau(expanded);
+  return {code,engine:options.hardened?'BLACKMAMER V4 Native VM':'BLACKMAMER V3 Native VM',
+    hardened:options.hardened===true,nativeSealer:sealedBatch.nativeUsed,
+    virtualizedFunctions:funcs.length,
     bytecodeLayout:'per-prototype-shuffled-12-or-16',
     bytecodeWidths:{compact:sealedFunctions.filter(f=>f[2]===3).length,
       wide:sealedFunctions.filter(f=>f[2]===4).length},

@@ -528,7 +528,7 @@ function compile(source, options={}) {
     '      elseif op==O.LEN then R[a]=#R[b]',
     '      elseif op==O.NONZERO then if R[a]==0 then nativeError("BLACKMAMER V3: for step is zero") end',
     '      elseif op==O.FORCONT then local list=A[a];local i=R[list[2]];local limit=R[list[3]];local step=R[list[4]]',
-    '        R[list[1]]=(step>=0 and i<=limit) or (step<0 and i>=limit)'
+    '        R[list[1]]=(step>=0 and i<=limit) or (step<0 and i>=limit)',
     '      else nativeError("BLACKMAMER V3 invalid opcode") end',
     '      pc=nextpc',
     '    end',

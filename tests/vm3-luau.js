@@ -59,7 +59,10 @@ try {
       assert.match(result.code, /local function prototype\(fid\)/, 'Prototype decoder must be callable on demand');
       assert.match(result.code, /local function K\(index\)/, 'Constants should decode lazily on access');
       assert.doesNotMatch(result.code, /for k,entry in ipairs\(Q\)/, 'Constants must not unseal during VM startup');
-      assert.match(result.code, /off\+\(pc-1\)\*16/, 'PC must address packed instruction words');
+      assert.match(result.code, /off\+\(pc-1\)\*4\*width/, 'PC must use prototype-specific operand width');
+      assert.match(result.code, /local SBOX_MASK=bit32\.bxor/, 'Per-build substitution mask must be reconstructed');
+      assert.match(result.code, /local width=bufRead\(packed,5\)/, 'Prototype header must carry layout width');
+      assert.match(result.code, /local function field\(at,logical\)/, 'VM operands need mapped reads');
       assert.doesNotMatch(result.code, /instructions\[j\]=\{/, 'No eager instruction array allowed');
 
       assert.ok(['shard','tree'].includes(result.dispatchStructure),'Expected polymorphic VM dispatch');
@@ -84,6 +87,24 @@ try {
   }
   assert.ok(roots.size>=2,'Multiple function inputs should randomize the root prototype ID');
 
+  const hybridSample='local function combo(x) return x+3,nil,x*4 end\nlocal a,b,c=combo(7)\nprint(a,b==nil,c)';
+  const expectedHybrid=execute(hybridSample,'hybrid-source');
+  for(const width of ['compact','wide']){
+    for(const dispatcher of ['tree','shard']){
+      for(let trial=0;trial<2;trial++){
+        const built=compile(hybridSample,{bytecodeWidth:width,
+          dispatchMode:dispatcher,antiTamper:true,antiDebug:true});
+        assert.equal(built.bytecodeLayout,'per-prototype-shuffled-12-or-16');
+        assert.equal(built.bytecodeWidths[width],built.virtualizedFunctions,
+          'Forced prototype width must apply to every VM function');
+        assert.equal(built.bytecodeWidths[width==='compact'?'wide':'compact'],0);
+        const actualHybrid=execute(built.code,'hybrid-'+width+'-'+dispatcher+'-'+trial);
+        assert.equal(actualHybrid,expectedHybrid,
+          'Hybrid S-Box and '+width+' layout changed original Luau output');
+      }
+    }
+  }
+
   const first=compile('print("Hello World")');
   const second=compile('print("Hello World")');
   assert.notEqual(first.code,second.code,'VM output must mutate between builds');
@@ -100,6 +121,14 @@ try {
     'Encoded data should start with printable shuffled shards');
   assert.doesNotMatch(first.code,/\\[0-9]{3}/,
     'VM binary must not be emitted as decimal escaped byte strings');
+  const damagedSBox=first.code.replace(/(local SBOX_MASK=bit32\.bxor\(SALT%256,)(\d+)/,
+    (_match,prefix,value)=>prefix+String(Number(value)^1));
+  assert.notEqual(damagedSBox,first.code,'S-Box masking input must be mutable for integrity test');
+  const sboxTest=path.join(dir,'tampered-sbox.luau');
+  fs.writeFileSync(sboxTest,damagedSBox,'utf8');
+  const corruptedSBox=spawnSync(LUAU,[sboxTest],{encoding:'utf8',timeout:10000});
+  assert.ok(corruptedSBox.status!==0,'Altered S-Box mask must fail integrity verification');
+
   const changedBlob=first.code.replace(/(local _[a-z]{7}=\{")([A-Za-z0-9_-])/,
     (_match,prefix,glyph)=>prefix+(glyph==='A'?'B':'A'));
   assert.notEqual(changedBlob,first.code,'Encoded shard must have an editable test byte');

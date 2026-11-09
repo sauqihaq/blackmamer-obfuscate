@@ -635,13 +635,26 @@ function compile(source, options={}) {
     }));
     return {p:f.p,ins,opSeed};
   });
+  // Independent S-Box per build; a full inverse table travels with standalone
+  // output, so this adds static-analysis work, not secret key confidentiality.
+  const sbox=Array.from({length:256},(_,i)=>i);
+  for(let i=255;i>0;i--){
+    const j=rand(i+1);[sbox[i],sbox[j]]=[sbox[j],sbox[i]];
+  }
+  const inverse=Array(256);
+  for(let i=0;i<256;i++)inverse[sbox[i]]=i;
+  const sboxMask=rand(256);
+  const maskedInverse=inverse.map((value,index)=>
+    value^((sboxMask+index*17)%256));
+  const seedMask=(kind,index)=>
+    ((salt+(kind+3)*7919+index*1543)%65536);
   function seal(bytes,seed) {
     let state=seed,prev=0;
     return bytes.map((plain,i)=>{
       const j=i+1;
       state=(state*73+41+(j%251))%65521;
       const mask=(state%256) ^ ((state>>>8)%256);
-      const encoded=(plain ^ mask ^ prev)&255;
+      const encoded=(sbox[plain] ^ mask ^ prev)&255;
       prev=encoded;
       return encoded;
     });
@@ -654,15 +667,32 @@ function compile(source, options={}) {
     if(!Number.isSafeInteger(int)||int<0||int>0xffff)throw new SyntaxErrorV3('Too many registers or instructions');
     bytes.push(int&255,(int>>>8)&255);
   }
+  function pack24(int,bytes) {
+    if(!Number.isSafeInteger(int)||int<0||int>0xffffff)
+      throw new SyntaxErrorV3('Compact operand value out of range');
+    bytes.push(int&255,(int>>>8)&255,(int>>>16)&255);
+  }
   const sealedFunctions=packed.map(f=>{
     const raw=[];
+    const width=options.bytecodeWidth==='compact'?3:
+      options.bytecodeWidth==='wide'?4:(rand(2)===0?3:4);
+    const slots=[0,1,2,3];
+    for(let i=slots.length-1;i>0;i--){
+      const j=rand(i+1);[slots[i],slots[j]]=[slots[j],slots[i]];
+    }
+    const offsets=slots.map((_,logical)=>slots.indexOf(logical));
     pack16(f.p.length,raw);
     pack16(f.ins.length,raw);
-    raw.push(f.opSeed);
-    for(const v of f.p) pack32(v,raw);
-    for(const row of f.ins) for(const v of row)pack32(v,raw);
+    raw.push(f.opSeed,width,...offsets);
+    for(const v of f.p)pack32(v,raw);
+    for(const row of f.ins){
+      for(const slot of slots){
+        if(width===3)pack24(row[slot],raw);
+        else pack32(row[slot],raw);
+      }
+    }
     const seed=rand(60000)+1000;
-    return [seed,seal(raw,seed)];
+    return [seed,seal(raw,seed),width];
   });
   const sealedConstants=consts.map(value=>{
     const typ=value===null?5:typeof value==='string'?1:typeof value==='number'?2:value===true?3:4;
@@ -702,8 +732,11 @@ function compile(source, options={}) {
     }
     return parts;
   };
-  const sealedFunctionRefs=sealedFunctions.map(([seed,bytes])=>[seed,segment(bytes)]);
-  const sealedConstantRefs=sealedConstants.map(([typ,seed,bytes])=>[typ,seed,segment(bytes)]);
+  const sealedFunctionRefs=sealedFunctions.map(([seed,bytes],i)=>
+    [seed^seedMask(1,i+1),segment(bytes)]);
+  const sealedConstantRefs=sealedConstants.map(([typ,seed,bytes],i)=>
+    [typ,seed^seedMask(2,i+1),segment(bytes)]);
+  const inverseParts=segment(maskedInverse);
   const segmentOrder=Array.from({length:fragments.length},(_,i)=>i);
   for(let i=segmentOrder.length-1;i>0;i--){
     const j=rand(i+1);[segmentOrder[i],segmentOrder[j]]=[segmentOrder[j],segmentOrder[i]];
@@ -713,13 +746,22 @@ function compile(source, options={}) {
   const luaFragments='{'+segmentOrder.map(id=>JSON.stringify(fragments[id])).join(',')+'}';
   const luaFunctions='{'+sealedFunctionRefs.map(([seed,parts])=>'{'+seed+','+refs(parts)+'}').join(',')+'}';
   const luaConstants='{'+sealedConstantRefs.map(([typ,seed,parts])=>'{'+typ+','+seed+','+refs(parts)+'}').join(',')+'}';
+  const luaInverse=refs(inverseParts);
   const randomName=()=>('_'+Array.from({length:7},()=>String.fromCharCode(97+rand(26))).join(''));
   const blobName=randomName(),alphabetName=randomName(),mapName=randomName(),unpackName=randomName();
+  const inverseName=randomName(),inverseRefsName=randomName();
+  const sboxMaskScrambled=sboxMask^(salt%256);
   const luaArgs=JSON.stringify(argSets).replace(/\[/g,'{').replace(/\]/g,'}');
   let digest=17;
   const mix=(n)=>{digest=(digest*131+n+1)%hashMod;};
-  for(const [seed,bytes] of sealedFunctions){mix(seed);mix(bytes.length);bytes.forEach(mix);}
-  for(const [typ,seed,bytes] of sealedConstants){mix(typ);mix(seed);mix(bytes.length);bytes.forEach(mix);}
+  for(const [seed,bytes] of sealedFunctionRefs.map(([seed],i)=>[seed,sealedFunctions[i][1]])){
+    mix(seed);mix(bytes.length);bytes.forEach(mix);
+  }
+  for(const [typ,seed,bytes] of sealedConstantRefs.map(([typ,seed],i)=>[typ,seed,sealedConstants[i][2]])){
+    mix(typ);mix(seed);mix(bytes.length);bytes.forEach(mix);
+  }
+  mix(maskedInverse.length);maskedInverse.forEach(mix);
+  mix(salt);mix(sboxMask);
   for(const args of argSets){mix(args.length);args.forEach(mix);}
   const lines=[
     '-- BLACKMAMER VM V3.4',
@@ -729,7 +771,9 @@ function compile(source, options={}) {
     '  local E=' + luaFunctions,
     '  local Q=' + luaConstants,
     '  local A=' + luaArgs,
+    '  local '+inverseRefsName+'='+luaInverse,
     '  local SALT=' + salt + '; local CHECK=' + digest,
+    '  local SBOX_MASK=bit32.bxor(SALT%256,'+sboxMaskScrambled+')',
     '  local modulus=' + modulus + '; local hmod=' + hashMod,
     '  local nativeByte=string.byte; local nativeChar=string.char; local nativeConcat=table.concat',
     '  local nativeUnpack=table.unpack or unpack; local bxor=bit32 and bit32.bxor',
@@ -764,11 +808,14 @@ function compile(source, options={}) {
     '  end',
     '  for _,b in ipairs(E)do b[2]='+unpackName+'(b[2])end',
     '  for _,b in ipairs(Q)do b[3]='+unpackName+'(b[3])end',
-    '  '+blobName+'=nil;'+alphabetName+'=nil;'+mapName+'=nil',
+    '  local '+inverseName+'='+unpackName+'('+inverseRefsName+')',
+    '  '+blobName+'=nil;'+alphabetName+'=nil;'+mapName+'=nil;'+inverseRefsName+'=nil',
     '  local function verify()',
     '    local h=17;local function mix(v)h=(h*131+v+1)%hmod end',
     '    for _,f in ipairs(E)do mix(f[1]);mix(#f[2]);for j=1,#f[2]do mix(nativeByte(f[2],j))end end',
     '    for _,v in ipairs(Q)do mix(v[1]);mix(v[2]);mix(#v[3]);for j=1,#v[3]do mix(nativeByte(v[3],j))end end',
+    '    mix(#'+inverseName+');for j=1,#'+inverseName+' do mix(nativeByte('+inverseName+',j)) end',
+    '    mix(SALT);mix(SBOX_MASK)',
     '    for _,ar in ipairs(A)do mix(#ar);for _,v in ipairs(ar)do mix(v)end end',
     '    if '+(options.antiTamper===false?'false':'true')+' and h~=CHECK then nativeError("BLACKMAMER V3: bytecode integrity failed") end',
     '    if '+(options.antiDebug===false?'false':'true')+' then',
@@ -790,7 +837,9 @@ function compile(source, options={}) {
     '      state=(state*73+41+(j%251))%65521',
     '      local mask=bxor(state%256,math.floor(state/256)%256)',
     '      local cipher=nativeByte(blob,j)',
-    '      out[j]=bxor(cipher,mask,prev);prev=cipher',
+    '      local substituted=bxor(cipher,mask,prev)',
+    '      out[j]=bxor(nativeByte('+inverseName+',substituted+1),(SBOX_MASK+substituted*17)%256)',
+    '      prev=cipher',
     '    end',
     '    return out',
     '  end',
@@ -804,16 +853,24 @@ function compile(source, options={}) {
     '  local function prototype(fid)',
     '    local cached=P[fid];if cached then return cached end',
     '    local bundle=E[fid];if not bundle then nativeError("BLACKMAMER V3 invalid function")end',
-    '    local raw=unseal(bundle[2],bundle[1]);local chars={}',
+    '    local realSeed=bxor(bundle[1],(SALT+(1+3)*7919+fid*1543)%65536)',
+    '    local raw=unseal(bundle[2],realSeed);local chars={}',
     '    for j,b in ipairs(raw)do chars[j]=nativeChar(b)end',
     '    local packed=bufFrom(nativeConcat(chars))',
     '    local pn=bufRead(packed,0)+256*bufRead(packed,1)',
     '    local count=bufRead(packed,2)+256*bufRead(packed,3)',
-    '    local opSeed=bufRead(packed,4);local off=5',
+    '    local opSeed=bufRead(packed,4);local width=bufRead(packed,5);local off=10',
+    '    if width~=3 and width~=4 then nativeError("BLACKMAMER V3 invalid instruction width") end',
+    '    local offsets={}',
+    '    for j=1,4 do offsets[j]=bufRead(packed,5+j) end',
+    '    local seen={};for j=1,4 do',
+    '      if offsets[j]>3 or seen[offsets[j]] then nativeError("BLACKMAMER V3 invalid operand map") end',
+    '      seen[offsets[j]]=true',
+    '    end',
     '    local params={}',
     '    for j=1,pn do params[j]=bufRead32(packed,off);off=off+4 end',
-    '    -- Store one byte buffer for each prototype, never an open P[pc] instruction table.',
-    '    local spec={params,packed,opSeed,off,count}',
+    '    -- Each prototype independently chooses compact/wide and operand order.',
+    '    local spec={params,packed,opSeed,off,count,width,offsets}',
     '    P[fid]=spec;return spec',
     '  end',
     '  -- A constant stays sealed until the executing function first references it.',
@@ -829,7 +886,8 @@ function compile(source, options={}) {
     '    if not entry then nativeError("BLACKMAMER V3 invalid constant") end',
     '    local typ=entry[1];local value',
     '    if typ==5 then value=nil elseif typ==3 then value=true elseif typ==4 then value=false',
-    '    else local bytes=unseal(entry[3],entry[2]);local output={}',
+    '    else local seed=bxor(entry[2],(SALT+(2+3)*7919+index*1543)%65536)',
+    '      local bytes=unseal(entry[3],seed);local output={}',
     '      for j,b in ipairs(bytes) do output[j]=nativeChar(b) end',
     '      local str=nativeConcat(output);value=(typ==2) and tonumber(str) or str end',
     '    constantCache[index]=value==nil and constantNil or value',
@@ -842,6 +900,12 @@ function compile(source, options={}) {
     '    local env={vars={},parent=captured}',
     '    for j,k in ipairs(spec[1])do local v=passed[j];env.vars[K(k)]=v==nil and NIL or v end',
     '    local R={};local pc=1;local ticks=0;local stream=spec[2];local off=spec[4];local length=spec[5]',
+    '    local width=spec[6];local offsets=spec[7]',
+    '    local function field(at,logical)',
+    '      local p=at+offsets[logical]*width',
+    '      if width==4 then return bufRead32(stream,p) end',
+    '      return bufRead(stream,p)+bufRead(stream,p+1)*256+bufRead(stream,p+2)*65536',
+    '    end',
     '    local function get(n)',
     '      local frame=env',
     '      while frame do local v=rawget(frame.vars,n);if v~=nil then return nonil(v)end;frame=frame.parent end',
@@ -855,11 +919,11 @@ function compile(source, options={}) {
     '    while true do',
     '      ticks=ticks+1; if ticks>1000000 then nativeError("BLACKMAMER V3 instruction limit") end',
     '      if pc<1 or pc>length then nativeError("BLACKMAMER V3 bad PC") end',
-    '      local at=off+(pc-1)*16',
-    '      local op=bxor((bufRead32(stream,at)-SALT-5)%modulus,(spec[3]+pc*41)%256)',
-    '      local a=((bufRead32(stream,at+4)-SALT-10)%modulus);if a>modulus/2 then a=a-modulus end',
-    '      local b=((bufRead32(stream,at+8)-SALT-15)%modulus);if b>modulus/2 then b=b-modulus end',
-    '      local c=((bufRead32(stream,at+12)-SALT-20)%modulus);if c>modulus/2 then c=c-modulus end',
+    '      local at=off+(pc-1)*4*width',
+    '      local op=bxor((field(at,1)-SALT-5)%modulus,(spec[3]+pc*41)%256)',
+    '      local a=((field(at,2)-SALT-10)%modulus);if a>modulus/2 then a=a-modulus end',
+    '      local b=((field(at,3)-SALT-15)%modulus);if b>modulus/2 then b=b-modulus end',
+    '      local c=((field(at,4)-SALT-20)%modulus);if c>modulus/2 then c=c-modulus end',
     '      local nextpc=pc+1',
     '      if op==O.K then R[a]=K(b)',
     '      elseif op==O.GET then R[a]=get(K(b))',
@@ -1047,6 +1111,9 @@ function compile(source, options={}) {
     return String(codes[name]);
   });
   return {code,engine:'BLACKMAMER V3 Native VM',virtualizedFunctions:funcs.length,
+    bytecodeLayout:'per-prototype-shuffled-12-or-16',
+    bytecodeWidths:{compact:sealedFunctions.filter(f=>f[2]===3).length,
+      wide:sealedFunctions.filter(f=>f[2]===4).length},
     dispatchStructure,
     fusedInstructions:fusionTotal,superInstructionKinds:fusionCounts,
     vmInstructions:funcs.reduce((n,f)=>n+f.ins.length,0),

@@ -32,6 +32,11 @@ async function main(){
   assert.equal(good.data.blackmamerVM.mode,'native-v3');
   assert.equal(good.data.blackmamerVM.applied,true);
   assert.equal(good.data.blackmamerVM.fallback,false);
+  assert.equal(good.data.blackmamerVM.bytecodeLayout,'per-prototype-shuffled-12-or-16');
+  assert.equal(good.data.blackmamerVM.bytecodeWidths.compact+
+    good.data.blackmamerVM.bytecodeWidths.wide,
+    good.data.blackmamerVM.virtualizedFunctions);
+  assert.match(good.data.obfuscated,/local SBOX_MASK=bit32\.bxor/);
   assert.ok(Number.isInteger(good.data.blackmamerVM.fusedInstructions));
   assert.equal(good.data.protection.antiTamper,true);
   assert.equal(good.data.protection.antiDebug,true);

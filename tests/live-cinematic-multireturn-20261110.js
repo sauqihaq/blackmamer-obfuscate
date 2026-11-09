@@ -25,6 +25,7 @@ async function check(){
  console.log(JSON.stringify({
    test:'Exact user Donation Cinematic over public Render',
    status:resp.status,elapsedMs:Date.now()-started,scriptCharacters:script.length,
+   firstChars:output.slice(0,100),lineCount:output.split('\n').length,
    outputBytes:Buffer.byteLength(output),engine:data.engine||null,
    mode:vm.mode||null,fallback:vm.fallback??null,instructions:vm.vmInstructions??null,
    fused:vm.fusedInstructions??null,layout:vm.bytecodeLayout??null,layoutWidths:vm.bytecodeWidths??null,

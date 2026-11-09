@@ -13,7 +13,7 @@ RUN git clone https://github.com/wcrddn/Prometheus.git /app/prometheus
 WORKDIR /app
 
 # Copy source Node.js
-COPY server.js blackmamer-vm.js blackmamer-vm2.js package.json roblox-strong.lua ./
+COPY server.js blackmamer-vm.js blackmamer-vm2.js blackmamer-vm3.js package.json roblox-strong.lua ./
 
 # Install Node.js dan dependencies
 RUN apk add --no-cache nodejs npm

@@ -59,7 +59,10 @@ try {
       assert.match(result.code, /local function prototype\(fid\)/, 'Prototype decoder must be callable on demand');
       assert.match(result.code, /local function K\(index\)/, 'Constants should decode lazily on access');
       assert.doesNotMatch(result.code, /for k,entry in ipairs\(Q\)/, 'Constants must not unseal during VM startup');
-      assert.match(result.code, /off\+\(pc-1\)\*16/, 'PC must address packed instruction words');
+      assert.match(result.code, /off\+\(pc-1\)\*4\*width/, 'PC must use prototype-specific operand width');
+      assert.match(result.code, /local SBOX_MASK=bit32\.bxor/, 'Per-build substitution mask must be reconstructed');
+      assert.match(result.code, /local width=bufRead\(packed,5\)/, 'Prototype header must carry layout width');
+      assert.match(result.code, /local function field\(at,logical\)/, 'VM operands need mapped reads');
       assert.doesNotMatch(result.code, /instructions\[j\]=\{/, 'No eager instruction array allowed');
 
       assert.ok(['shard','tree'].includes(result.dispatchStructure),'Expected polymorphic VM dispatch');

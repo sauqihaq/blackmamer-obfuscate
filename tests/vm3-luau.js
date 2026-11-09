@@ -49,6 +49,11 @@ try {
       assert.equal(result.engine,'BLACKMAMER V3 Native VM');
       assert.ok(result.vmInstructions>0);
       assert.ok(!result.code.includes('Vmify'), 'Standalone runtime should not contain Vmify');
+      assert.match(result.code, /local E=\{\{/, 'Bytecode should be sealed in blob entries');
+      assert.doesNotMatch(result.code, /local O=\{/, 'No cleartext opcode map');
+      assert.doesNotMatch(result.code, /\bO\.(GET|K|CALL|RET|JUMP)\b/, 'No named opcode symbols');
+      assert.doesNotMatch(result.code, /local P=\{\{\d/, 'P must be decoded on demand');
+
       const actual=execute(result.code,label+'-v3-'+attempt);
       assert.equal(actual,original,label+' changed output on build '+attempt);
       ok++;
@@ -67,6 +72,13 @@ try {
   fs.writeFileSync(t,damaged,'utf8');
   const bad=spawnSync(LUAU,[t],{encoding:'utf8',timeout:10000});
   assert.ok(bad.status!==0,'Edited bytecode must fail integrity verification');
+  const changedBlob=first.code.replace(/(local E=\{\{\d+,"\\)(\d{3})/,
+    (_match,prefix,byte)=>prefix+String((Number(byte)+1)%256).padStart(3,'0'));
+  assert.notEqual(changedBlob,first.code,'Sealed bytecode must have an editable test byte');
+  fs.writeFileSync(path.join(dir,'tampered-blob.luau'),changedBlob,'utf8');
+  const tampered=spawnSync(LUAU,[path.join(dir,'tampered-blob.luau')],{encoding:'utf8',timeout:10000});
+  assert.ok(tampered.status!==0,'Edited encoded bytecode must fail integrity verification');
+
   console.log('BLACKMAMER Native V3 Luau: '+ok+'/'+ok+' run comparisons passed; mutation, unsupported syntax, tamper tested');
 } finally {
   fs.rmSync(dir,{recursive:true,force:true});

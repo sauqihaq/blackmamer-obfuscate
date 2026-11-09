@@ -407,34 +407,62 @@ function compile(source, options={}) {
     return id;
   };
   const entry=makeBuilder(parsed,[]);
-  const salt=crypto.randomInt(2000,100000), xkey=rand(255)+1;
+  // Each function becomes a compact, per-build sealed binary bytecode blob.
+  // It raises the cost of casual inspection, NOT the cryptographic secrecy of
+  // client-side code: the decoder and its seeds must travel with the output.
+  const salt=crypto.randomInt(2000,100000);
   const modulus=10000019, hashMod=1000000007;
   const packed=funcs.map(f=>({p:f.p,ins:f.ins.map(ins=>ins.map((n,j)=>(n+salt+5*(j+1)+modulus)%modulus))}));
-  const encodeConst=(value,at)=>{
+  function seal(bytes,seed) {
+    let state=seed,prev=0;
+    return bytes.map((plain,i)=>{
+      const j=i+1;
+      state=(state*73+41+(j%251))%65521;
+      const mask=(state%256) ^ ((state>>>8)%256);
+      const encoded=(plain ^ mask ^ prev)&255;
+      prev=encoded;
+      return encoded;
+    });
+  }
+  function pack24(int,bytes) {
+    if(!Number.isSafeInteger(int)||int<0||int>0xffffff)throw new SyntaxErrorV3('Bytecode integer out of range');
+    bytes.push(int&255,(int>>>8)&255,(int>>>16)&255);
+  }
+  function pack16(int,bytes) {
+    if(!Number.isSafeInteger(int)||int<0||int>0xffff)throw new SyntaxErrorV3('Too many registers or instructions');
+    bytes.push(int&255,(int>>>8)&255);
+  }
+  const sealedFunctions=packed.map(f=>{
+    const raw=[];
+    pack16(f.p.length,raw);
+    pack16(f.ins.length,raw);
+    for(const v of f.p) pack24(v,raw);
+    for(const row of f.ins) for(const v of row)pack24(v,raw);
+    const seed=rand(60000)+1000;
+    return [seed,seal(raw,seed)];
+  });
+  const sealedConstants=consts.map(value=>{
     const typ=value===null?5:typeof value==='string'?1:typeof value==='number'?2:value===true?3:4;
-    const bytes=(typ===1||typ===2)?Buffer.from(String(value),'utf8'):[];
-    return [typ,[...bytes].map((v,i)=>(v ^ ((xkey+(i+1)*17+at*13)%256)))];
-  };
-  const pool=consts.map((v,i)=>encodeConst(v,i+1));
-  const data={
-    f:packed.map(f=>[f.p,f.ins]),
-    p:pool,
-    a:argSets,
-  };
+    const raw=(typ===1||typ===2)?[...Buffer.from(String(value),'utf8')]:[];
+    const seed=rand(60000)+1000;
+    return [typ,seed,seal(raw,seed)];
+  });
+  const luaBytes=bytes=>'"'+bytes.map(v=>'\\'+String(v).padStart(3,'0')).join('')+'"';
+  const luaFunctions='{'+sealedFunctions.map(([seed,bytes])=>'{'+seed+','+luaBytes(bytes)+'}').join(',')+'}';
+  const luaConstants='{'+sealedConstants.map(([typ,seed,bytes])=>'{'+typ+','+seed+','+luaBytes(bytes)+'}').join(',')+'}';
+  const luaArgs=JSON.stringify(argSets).replace(/\[/g,'{').replace(/\]/g,'}');
   let digest=17;
   const mix=(n)=>{digest=(digest*131+n+1)%hashMod;};
-  for(const [p,ins] of data.f){mix(p.length);p.forEach(mix);mix(ins.length);for(const row of ins)row.forEach(mix);}
-  for(const [typ,b] of data.p){mix(typ);mix(b.length);b.forEach(mix);}
-  for(const args of data.a){mix(args.length);args.forEach(mix);}
-  const opsAsLua=OPS.map(o=>o+'='+codes[o]).join(',');
-  const code=[
-    '-- BLACKMAMER VM V3 / Independent native Luau bytecode dispatcher',
+  for(const [seed,bytes] of sealedFunctions){mix(seed);mix(bytes.length);bytes.forEach(mix);}
+  for(const [typ,seed,bytes] of sealedConstants){mix(typ);mix(seed);mix(bytes.length);bytes.forEach(mix);}
+  for(const args of argSets){mix(args.length);args.forEach(mix);}
+  const lines=[
+    '-- BLACKMAMER VM V3.1',
     'return (function(...)',
-    '  local P=' + JSON.stringify(data.f).replace(/\[/g,'{').replace(/\]/g,'}'),
-    '  local Q=' + JSON.stringify(data.p).replace(/\[/g,'{').replace(/\]/g,'}'),
-    '  local A=' + JSON.stringify(data.a).replace(/\[/g,'{').replace(/\]/g,'}'),
-    '  local O={' + opsAsLua + '}',
-    '  local SALT=' + salt + '; local XKEY=' + xkey + '; local CHECK=' + digest,
+    '  local E=' + luaFunctions,
+    '  local Q=' + luaConstants,
+    '  local A=' + luaArgs,
+    '  local SALT=' + salt + '; local CHECK=' + digest,
     '  local modulus=' + modulus + '; local hmod=' + hashMod,
     '  local nativeByte=string.byte; local nativeChar=string.char; local nativeConcat=table.concat',
     '  local nativeUnpack=table.unpack or unpack; local bxor=bit32 and bit32.bxor',
@@ -443,9 +471,8 @@ function compile(source, options={}) {
     '  if nativeType(bxor)~="function" then nativeError("BLACKMAMER V3 requires Luau bit32") end',
     '  local function verify()',
     '    local h=17;local function mix(v)h=(h*131+v+1)%hmod end',
-    '    for _,f in ipairs(P) do mix(#f[1]);for _,v in ipairs(f[1])do mix(v)end',
-    '      mix(#f[2]);for _,ins in ipairs(f[2])do for j=1,4 do mix(ins[j])end end end',
-    '    for _,v in ipairs(Q)do mix(v[1]);mix(#v[2]);for _,b in ipairs(v[2])do mix(b)end end',
+    '    for _,f in ipairs(E)do mix(f[1]);mix(#f[2]);for j=1,#f[2]do mix(nativeByte(f[2],j))end end',
+    '    for _,v in ipairs(Q)do mix(v[1]);mix(v[2]);mix(#v[3]);for j=1,#v[3]do mix(nativeByte(v[3],j))end end',
     '    for _,ar in ipairs(A)do mix(#ar);for _,v in ipairs(ar)do mix(v)end end',
     '    if '+(options.antiTamper===false?'false':'true')+' and h~=CHECK then nativeError("BLACKMAMER V3: bytecode integrity failed") end',
     '    if '+(options.antiDebug===false?'false':'true')+' then',
@@ -461,11 +488,31 @@ function compile(source, options={}) {
     '    end',
     '  end',
     '  verify()',
+    '  local function unseal(blob,seed)',
+    '    local state=seed;local prev=0;local out={}',
+    '    for j=1,#blob do',
+    '      state=(state*73+41+(j%251))%65521',
+    '      local mask=bxor(state%256,math.floor(state/256)%256)',
+    '      local cipher=nativeByte(blob,j)',
+    '      out[j]=bxor(cipher,mask,prev);prev=cipher',
+    '    end',
+    '    return out',
+    '  end',
+    '  local P={}',
+    '  for id,bundle in ipairs(E) do',
+    '    local bytes=unseal(bundle[2],bundle[1]);local at=1',
+    '    local function two()local n=bytes[at]+256*bytes[at+1];at=at+2;return n end',
+    '    local function three()local n=bytes[at]+256*bytes[at+1]+65536*bytes[at+2];at=at+3;return n end',
+    '    local pn=two();local inum=two();local params={};local instructions={}',
+    '    for j=1,pn do params[j]=three() end',
+    '    for j=1,inum do instructions[j]={three(),three(),three(),three()}end',
+    '    P[id]={params,instructions}',
+    '  end',
     '  local K={}',
     '  for k,entry in ipairs(Q) do',
-    '    local typ=entry[1];local bytes=entry[2]',
+    '    local typ=entry[1];local bytes=unseal(entry[3],entry[2])',
     '    if typ==5 then K[k]=nil elseif typ==3 then K[k]=true elseif typ==4 then K[k]=false',
-    '    else local output={} for j,b in ipairs(bytes) do output[j]=nativeChar(bxor(b,(XKEY+j*17+k*13)%256)) end',
+    '    else local output={} for j,b in ipairs(bytes) do output[j]=nativeChar(b) end',
     '      local str=nativeConcat(output);K[k]=(typ==2) and tonumber(str) or str end',
     '  end',
     '  local NIL={};local function nonil(v)if v==NIL then return nil else return v end end',
@@ -535,7 +582,38 @@ function compile(source, options={}) {
     '  end',
     '  return exec('+entry+',{},nil)',
     'end)(...)'
-  ].join('\n');
+  ];
+  // Per-build permutation of handler layout, and bake randomized opcode values
+  // directly into each branch (no cleartext O.GET / O.CALL / O.RET mapping).
+  const dispatchStart=lines.findIndex(line=>/^\s*if op==O\./.test(line));
+  const dispatchEnd=lines.findIndex(line=>line.includes('else nativeError("BLACKMAMER V3 invalid opcode") end'));
+  if(dispatchStart<0||dispatchEnd<dispatchStart)throw new Error('VM dispatcher template missing');
+  const handlers=[];
+  let block=null;
+  for(let i=dispatchStart;i<dispatchEnd;i++){
+    const line=lines[i];
+    if(/^\s*(?:if|elseif) op==O\./.test(line)){
+      if(block)handlers.push(block);
+      block=[line];
+    } else {
+      if(!block)throw new Error('Invalid handler template');
+      block.push(line);
+    }
+  }
+  if(block)handlers.push(block);
+  for(let i=handlers.length-1;i>0;i--){
+    const j=rand(i+1);
+    [handlers[i],handlers[j]]=[handlers[j],handlers[i]];
+  }
+  const permuted=handlers.flatMap((part,i)=>{
+    const first=part[0].replace(/^(\s*)(?:if|elseif)(?= op==O\.)/, '$1'+(i===0?'if':'elseif'));
+    return [first,...part.slice(1)];
+  });
+  lines.splice(dispatchStart,dispatchEnd-dispatchStart,...permuted);
+  const code=lines.join('\n').replace(/\bO\.([A-Z]+)\b/g,(_,name)=>{
+    if(!Object.hasOwn(codes,name)) throw new Error('Unknown VM opcode '+name);
+    return String(codes[name]);
+  });
   return {code,engine:'BLACKMAMER V3 Native VM',virtualizedFunctions:funcs.length,
     vmInstructions:funcs.reduce((n,f)=>n+f.ins.length,0),
     antiTamper: options.antiTamper!==false, antiDebug: options.antiDebug!==false};

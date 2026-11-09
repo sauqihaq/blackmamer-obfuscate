@@ -78,3 +78,13 @@ Run the official Luau CLI test suite with `LUAU_BIN=./path/to/luau node tests/vm
 Before enabling for production Roblox games, test actual Script/LocalScript/ModuleScript behaviors and measure overhead in Roblox Studio. Luau CLI compatibility tests do **not** prove complete Roblox Studio compatibility, or resistance matching Luraph. If V3 rejects a script, use an older preset as an explicit user choice rather than automatic fallback.
 
 The Netlify frontend source (`netlify-frontend/index.html`) now has a Native V3 option and toggles. For manually uploaded Netlify sites, download and replace the `index.html` in the existing site's deploy; changes in GitHub alone do not update a manual Netlify deployment.
+
+## BLACKMAMER Native VM V3.1 — opaque bytecode packaging (experimental)
+
+The V3.1 compiler keeps the **independent** V3 bytecode VM and removes the easily-readable `O.GET`, `O.CALL`, `O.RET` opcode map from generated code. Its opcode identifiers are randomized per build **and the handler layout is independently permuted**. Full-program instructions are serialized into packed binary streams instead of openly displayed `P[1] = {{opcode, a, b, c}, ...}` tables. The constant pool uses separately seeded, feedback-based byte transforms rather than the previous linear `XKEY + j*17 + k*13` expression.
+
+The integrity check covers the **sealed bytecode**, sealed constants, and argument-register lists. These transforms add work for casual static inspection; **they are not cryptographic encryption or tamper-proof authentication**. The runtime decoder and all parameters remain client-side, can be captured or emulated, and checks can be patched out. A four-instruction `print("Hello World")` example still has trivial underlying logic; bytecode packaging cannot make such a program secret. For Roblox secrets and authoritative decisions, use server-side scripts, not a client obfuscator.
+
+The V3.1 regression suite runs the full 20-case Luau sample corpus under the official Luau CLI, three randomized builds per case. An additional test edits a byte of the sealed bytecode and asserts failure. Roblox Studio runtime still needs its own test.
+
+This change does **not** alter the API contract: choose `"preset":"NativeV3"`, `"target":"LuaU"`, `"vmMode":"native-v3"`. Legacy Prometheus presets are unaffected.

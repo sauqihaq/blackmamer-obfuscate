@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/blackmamer-native-vm-v3
+      - feature/vm3-opaque-bytecode-v31
       - main
     paths:
       - 'blackmamer-vm3.js'

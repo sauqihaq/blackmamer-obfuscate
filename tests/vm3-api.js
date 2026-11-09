@@ -40,6 +40,13 @@ async function main(){
   const unsupported=await post({script:'type ObfuscatorTest = number',preset:'NativeV3',target:'LuaU'});
   assert.equal(unsupported.status,422);
   assert.equal(unsupported.data.code,'V3_UNSUPPORTED_SYNTAX');
+  assert.equal(unsupported.data.position?.line,1,'Backend should report the parser line');
+  assert.equal(unsupported.data.position?.column,1,'Backend should report parser column');
+  assert.match(unsupported.data.error,/baris 1, kolom 1/);
+  assert.match(unsupported.data.detail,/Identifier expected|Unsupported/);
+  const cinematic=await post({script:'local x=0\nwhile x<3 do x+=1;if x==2 then continue end end\nprint(x)',
+    preset:'NativeV3',target:'LuaU'});
+  assert.equal(cinematic.status,200,JSON.stringify(cinematic.data).slice(0,800));
   const rejected=await post({script,preset:'NativeV3',target:'Lua51'});
   assert.equal(rejected.status,400);
   const noProtection=await post({script,preset:'NativeV3',antiTamper:false,antiDebug:false});

@@ -72,6 +72,29 @@ async function runPrometheus(source, preset) {
   }
 }
 
+// Runtime diagnostic: a live Node process does not guarantee Lua/Prometheus are available.
+app.get('/api/health', async (_req, res) => {
+  const cli = fs.existsSync(PROMETHEUS_CLI);
+  let luaAvailable = false;
+  try {
+    await execFileAsync('lua', ['-v'], { timeout: 3000 });
+    luaAvailable = true;
+  } catch (_error) {
+    luaAvailable = false;
+  }
+
+  res.status(200).json({
+    status: cli && luaAvailable ? 'ready' : 'runtime_not_ready',
+    node: true,
+    luaAvailable,
+    prometheusInstalled: cli,
+    dockerRequired: !cli || !luaAvailable,
+    message: cli && luaAvailable
+      ? 'Lua and Prometheus are present'
+      : 'Render must deploy with the Docker runtime to use the bundled Lua and Prometheus'
+  });
+});
+
 app.post('/api/obfuscate', async (req, res) => {
   const body = req.body || {};
   const code = body.script;

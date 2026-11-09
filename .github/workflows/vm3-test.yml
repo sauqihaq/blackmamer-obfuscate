@@ -8,11 +8,13 @@ on:
       - feature/vm3-opaque-bytecode-v31
       - fix/vm3-shard-dispatch-degenerate
       - feature/vm3-buffer-prototypes-v33
+      - feature/vm3-superinstructions-v34
       - main
     paths:
       - 'blackmamer-vm3.js'
       - 'tests/vm3-luau.js'
       - 'tests/vm3-dispatch.js'
+      - 'tests/vm3-superinstructions.js'
       - '.github/workflows/vm3-test.yml'
       - 'server.js'
       - 'tests/vm3-api.js'
@@ -38,6 +40,8 @@ jobs:
         run: node tests/vm3-api.js
       - name: Verify nondegenerate opcode dispatcher across 160 builds
         run: node tests/vm3-dispatch.js
+      - name: Verify fused opcode compiler across 630 randomized builds
+        run: node tests/vm3-superinstructions.js
   native-vm-luau:
     runs-on: ubuntu-latest
     timeout-minutes: 25

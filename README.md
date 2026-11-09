@@ -115,3 +115,14 @@ The user supplied a Luraph-style 284 KB Loader(2).luau and a 4-stage deobfuscati
 Similarity of architecture is not equivalent resistance against reversing. All decryption parameters and interpreter code must travel with Roblox client code, so runtime instrumentation can still extract bytecode and values. A checksum is bypassable. Never embed API keys, server-side authority or secrets in a LocalScript.
 
 V3.3 supports a Luau syntax subset. It explicitly returns HTTP 422 for unsupported code rather than silently falling back. It requires Roblox Luau buffer; it is not supported in ordinary Lua 5.1. Compatibility CI uses official Luau CLI, not Roblox Studio. Test native execution, performance and resistance separately before calling this production ready.
+
+
+## BLACKMAMER Native VM V3.4 — instruction fusion experiment
+
+V3.4 adds a compiler pass that lowers selected adjacent VM operations into new **superinstructions**: GETK, KGET, KK and KDECL. Each compound operation executes the same work as two native instructions; the compiler updates branch destinations to preserve Luau control flow. The decision to fuse eligible pairs is randomized on each build.
+
+For example, the simplest `print("Hello World")` program may compile `GET print + K string` as one GETK operation. This prevents a universal naive 1:1 lift of every runtime operation, but the semantics are still observable and reversible. Merely merging two opcodes is not Luraph-level security.
+
+API stays `preset: NativeV3`, `vmMode: native-v3`. To compare debugging output, pass `superInstructions: false`; default is enabled. Results include `blackmamerVM.fusedInstructions` and per-opcode fusion counts. Existing RobloxStrong/Prometheus modes remain unchanged.
+
+CI exercises 630 randomized compiler builds, 63 native Luau runtime comparisons and compatibility checks. These tests establish behavioral correctness for selected examples, **not** full Roblox Studio compatibility or resistance against reverse engineering.

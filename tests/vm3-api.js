@@ -37,7 +37,7 @@ async function main(){
   assert.equal(good.data.protection.antiDebug,true);
   assert.ok(good.data.obfuscated.includes('BLACKMAMER VM V3'));
   assert.ok(!good.data.obfuscated.includes('Hello World'));
-  const unsupported=await post({script:'continue',preset:'NativeV3',target:'LuaU'});
+  const unsupported=await post({script:'type ObfuscatorTest = number',preset:'NativeV3',target:'LuaU'});
   assert.equal(unsupported.status,422);
   assert.equal(unsupported.data.code,'V3_UNSUPPORTED_SYNTAX');
   const rejected=await post({script,preset:'NativeV3',target:'Lua51'});

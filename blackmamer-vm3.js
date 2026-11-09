@@ -468,7 +468,7 @@ function compile(source, options={}) {
   for(const [typ,seed,bytes] of sealedConstants){mix(typ);mix(seed);mix(bytes.length);bytes.forEach(mix);}
   for(const args of argSets){mix(args.length);args.forEach(mix);}
   const lines=[
-    '-- BLACKMAMER VM V3.1',
+    '-- BLACKMAMER VM V3.2',
     'return (function(...)',
     '  local E=' + luaFunctions,
     '  local Q=' + luaConstants,

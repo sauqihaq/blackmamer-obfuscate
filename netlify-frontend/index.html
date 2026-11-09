@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#07121d">
   <meta name="description" content="BLACKMAMER STUDIO — Lua/Luau obfuscator dengan preset RobloxStrong dan experimental Hybrid VM V2.">
-  <title>BLACKMAMER STUDIO — Roblox Luau Obfuscator</title>
+  <title>BLACKMAMER STUDIO — Native VM V3 Luau Obfuscator</title>
   <style>
     :root {
       color-scheme: dark;
@@ -160,7 +160,8 @@ print(&quot;Hello World&quot;)"></textarea>
               <option value="Weak">Weak — Ringan</option>
               <option value="Medium" selected>Medium — Balanced</option>
               <option value="Strong">Strong — Legacy (berat)</option>
-              <option value="RobloxStrong">RobloxStrong — Roblox VM</option>
+              <option value="RobloxStrong">RobloxStrong — Roblox VM (Prometheus)</option>
+              <option value="NativeV3">Native V3 — BLACKMAMER VM Asli</option>
             </select>
             <p id="presetHint" class="help">Mode yang lebih seimbang untuk penggunaan awal.</p>
           </div>
@@ -175,6 +176,12 @@ print(&quot;Hello World&quot;)"></textarea>
             <input id="hybrid" type="checkbox">
             <span><strong>BLACKMAMER Hybrid VM V2</strong><span>Virtualisasi ekspresi tertentu dan opcode acak setiap build. Belum full-function VM.</span></span>
           </label>
+          <div id="v3Options" hidden>
+            <hr class="rule">
+            <label class="toggle" for="antiTamper"><input id="antiTamper" type="checkbox" checked><span><strong>Anti-Tamper</strong><span>Validasi checksum bytecode saat script dijalankan.</span></span></label>
+            <div style="height:9px"></div>
+            <label class="toggle" for="antiDebug"><input id="antiDebug" type="checkbox" checked><span><strong>Anti-Debug / Anti-Hook</strong><span>Periksa modifikasi fungsi runtime dan metadata debug; bukan jaminan melawan semua debugger.</span></span></label>
+          </div>
           <hr class="rule">
           <div class="presets" id="info">
             <strong>Catatan kompatibilitas</strong><br>Mode <b>RobloxStrong</b> memakai VM penuh Prometheus. Lapisan BLACKMAMER V2 bersifat tambahan, bukan pengganti VM penuh tersebut.
@@ -233,10 +240,18 @@ print(&quot;Hello World&quot;)"></textarea>
         Weak: 'Proteksi lebih ringan, lebih cepat.',
         Medium: 'Preset bawaan, seimbang untuk pengujian awal.',
         Strong: 'VM Prometheus bertingkat. Berpotensi lebih berat atau tidak stabil untuk sebagian script Luau.',
-        RobloxStrong: 'Full-program VM Prometheus satu lapis + proteksi konstanta; enkripsi string dan anti-tamper upstream dimatikan karena masalah kompatibilitas.'
+        RobloxStrong: 'Full-program VM Prometheus satu lapis + proteksi konstanta; enkripsi string dan anti-tamper upstream dimatikan karena masalah kompatibilitas.',
+        NativeV3: 'Compiler dan interpreter bytecode BLACKMAMER sendiri. Eksperimental: belum mendukung seluruh sintaks Luau, tanpa fallback Prometheus.'
       };
       $('presetHint').textContent = labels[preset];
-      $('info').textContent = preset === 'RobloxStrong'
+      const isNative = preset === 'NativeV3';
+      $('v3Options').hidden = !isNative;
+      $('hybrid').disabled = isNative;
+      $('target').disabled = isNative;
+      if (isNative) $('target').value = 'LuaU';
+      $('info').textContent = preset === 'NativeV3'
+        ? 'Native V3 tidak memakai Vmify Prometheus. Jika sintaks Luau belum didukung, engine akan menolak dengan error 422 agar tidak menghasilkan kode yang salah.'
+        : preset === 'RobloxStrong'
         ? 'RobloxStrong memakai VM Prometheus untuk seluruh program. VM V2 BLACKMAMER hanya memvirtualisasi subset ekspresi yang didukung.'
         : 'Untuk script Roblox, gunakan target Roblox / Luau. Uji hasil di Roblox Studio sebelum dipakai publik.';
     }
@@ -271,6 +286,9 @@ print(&quot;Hello World&quot;)"></textarea>
       feedback('', '');
       const script = source.value;
       if (!script.trim()) { feedback('Masukkan script terlebih dahulu.', 'bad'); source.focus(); return; }
+      if ($('preset').value === 'NativeV3' && bytes(script) > 128 * 1024) {
+        feedback('Native V3 saat ini mendukung script hingga 128 KB.', 'bad'); return;
+      }
       if (bytes(script) > MAX_SCRIPT_BYTES) {
         feedback('Ukuran script maksimal 1 MB untuk backend saat ini.', 'bad'); return;
       }
@@ -279,7 +297,9 @@ print(&quot;Hello World&quot;)"></textarea>
         preset: $('preset').value,
         target: $('target').value,
         blackmamerVM: true,
-        vmMode: $('hybrid').checked ? 'hybrid-v2' : 'v1'
+        vmMode: $('preset').value === 'NativeV3' ? 'native-v3' : ($('hybrid').checked ? 'hybrid-v2' : 'v1'),
+        antiTamper: $('antiTamper').checked,
+        antiDebug: $('antiDebug').checked
       };
       setBusy(true);
       setStatus('Menghubungkan ke backend dan memproses script...');

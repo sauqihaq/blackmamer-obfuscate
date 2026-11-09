@@ -50,3 +50,31 @@ The new `RobloxStrong` preset is implemented in `roblox-strong.lua`. It uses **o
 Usage: `{"script": "print('Hello World')", "preset": "RobloxStrong", "target": "LuaU", "vmMode": "hybrid-v2", "blackmamerVM": true}`.
 
 GitHub CI runs `npm run test:luau` with 18 repeated Luau runtime checks across 6 sample programs (3 randomized builds each) through the custom preprocessor and Prometheus. Green CI only verifies these examples; it does not validate Roblox Studio behavior. Do not merge into `main` or use publicly before this workflow passes; Roblox Studio validation is still required.
+
+## BLACKMAMER Native VM V3 — experimental, independent of Prometheus
+
+V3 has its **own** Lua/Luau subset lexer, parser, bytecode compiler, and register interpreter. V3 does **not** call Prometheus or its `Vmify` step. Older presets (`Weak`, `Medium`, `Strong`, `RobloxStrong`) continue to use Prometheus unchanged.
+
+Example POST `/api/obfuscate`:
+
+```json
+{
+  "script": "local total=0\nfor i=1,5 do total=total+i end\nprint(total)",
+  "preset": "NativeV3",
+  "target": "LuaU",
+  "vmMode": "native-v3",
+  "blackmamerVM": true,
+  "antiTamper": true,
+  "antiDebug": true
+}
+```
+
+Native V3 provides randomized opcode identifiers and operands per build, encrypted string/number constants, and a **basic bytecode integrity checksum** that aborts if its protected data is changed. The anti-debug toggle currently performs lightweight runtime-hook checks and sanity checks on `debug.info` (if available), not reliable detection or prevention of Roblox Studio debugging. Neither guard is unbreakable, and neither is a substitute for server-side security.
+
+Supported **subset**: strings, numeric/boolean/nil literals, Lua arithmetic/comparisons, concatenation, logical short-circuit operations, calls and colon methods, table constructors/indexing, locals, assignments, functions, lexical closures, recursion, `if`/ `elseif`/ `else`, Luau `if` expressions, `while`, `repeat until`, numeric `for`, `break`, single-expression `return`, and `do` blocks. Main restrictions include Luau type annotations, generic `for`, `continue`, varargs, multi-return and multi-assignment semantics, compound assignment, and typed Roblox-specific syntax. Unsupported syntax yields **HTTP 422** with code `V3_UNSUPPORTED_SYNTAX` and **never silently falls back** to Prometheus. Limit: 128 KB source and 12,000 instructions per function.
+
+Run the official Luau CLI test suite with `LUAU_BIN=./path/to/luau node tests/vm3-luau.js`; run the API integration test with `node tests/vm3-api.js` after `npm install`.
+
+Before enabling for production Roblox games, test actual Script/LocalScript/ModuleScript behaviors and measure overhead in Roblox Studio. Luau CLI compatibility tests do **not** prove complete Roblox Studio compatibility, or resistance matching Luraph. If V3 rejects a script, use an older preset as an explicit user choice rather than automatic fallback.
+
+The Netlify frontend source (`netlify-frontend/index.html`) now has a Native V3 option and toggles. For manually uploaded Netlify sites, download and replace the `index.html` in the existing site's deploy; changes in GitHub alone do not update a manual Netlify deployment.

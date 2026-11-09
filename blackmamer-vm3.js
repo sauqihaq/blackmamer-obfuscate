@@ -199,6 +199,13 @@ class Parser {
     }
     if (this.take('break')) return {t:'break'};
     if (this.take('continue')) return {t:'continue'};
+    // "type" and "export" are contextual Luau keywords. Permit builtin
+    // type(value) in expressions, but reject typed declarations at the
+    // declaration keyword's location rather than a later identifier.
+    if((this.peek()==='type' && this.tokens[this.i+1]?.type==='id') ||
+       (this.peek()==='export' && this.tokens[this.i+1]?.value==='type')){
+      throw new SyntaxErrorV3('Unsupported Luau type declaration at '+this.tok().at);
+    }
     const lhs=this.expr(10);
     const assignOps=new Set(['+=','-=','*=','/=','//=','%=','^=','..=']);
     if(assignOps.has(this.peek())){

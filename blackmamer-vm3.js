@@ -406,6 +406,7 @@ function compile(source, options={}) {
     funcs[id-1]={p:params.map(key),ins:builder.ins};
     return id;
   };
+  const initialEntry=makeBuilder(parsed,[]);
   // Compile-time superinstruction pass: coalesce adjacent, independent loads
   // or a constant initialization + local declaration. JUMP/JF/JT destination
   // indices are relocated after the rewrite. Never fuse across a branch target.
@@ -460,7 +461,7 @@ function compile(source, options={}) {
   }
   const fusionTotal=Object.values(fusionCounts).reduce((a,b)=>a+b,0);
 
-  const initialEntry=makeBuilder(parsed,[]);
+
   // A function index must not disclose the root prototype or lexical order.
   // Shuffle the prototype registry each build and fix all CLOSURE operands
   // before packing and masking the bytecode. This is structural polymorphism.

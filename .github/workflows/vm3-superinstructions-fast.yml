@@ -1,0 +1,39 @@
+name: BLACKMAMER VM3 Fusion Quick Checks
+
+on:
+  push:
+    branches:
+      - feature/vm3-superinstructions-v34
+      - main
+    paths:
+      - 'blackmamer-vm3.js'
+      - 'tests/vm3-superinstructions.js'
+      - 'tests/vm3-api.js'
+      - 'tests/vm3-dispatch.js'
+      - '.github/workflows/vm3-superinstructions-fast.yml'
+  pull_request:
+    paths:
+      - 'blackmamer-vm3.js'
+      - 'tests/vm3-superinstructions.js'
+      - 'tests/vm3-api.js'
+      - 'tests/vm3-dispatch.js'
+      - '.github/workflows/vm3-superinstructions-fast.yml'
+
+jobs:
+  validate-fusion:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check VM JavaScript syntax
+        run: node --check blackmamer-vm3.js
+      - name: Run 630 randomized superinstruction compiler builds
+        run: node tests/vm3-superinstructions.js
+      - name: Run 160 randomized dispatcher builds
+        run: node tests/vm3-dispatch.js
+      - name: Install backend dependencies
+        run: npm install --omit=dev
+      - name: Run V3 API tests
+        run: node tests/vm3-api.js

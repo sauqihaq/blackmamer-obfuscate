@@ -50,7 +50,7 @@ jobs:
       - name: Run V3 API integration tests
         run: node tests/vm3-api.js
       - name: Compile entire user Donation Cinematic source
-        run: node -e "const fs=require('node:fs');const vm=require('./blackmamer-vm3');const src=fs.readFileSync('tests/fixtures/bm-saweria-donation-cinematic.luau','utf8');const out=vm.compile(src);if(out.vmInstructions<300)process.exit(1);console.log('Exact Cinematic compiled: '+out.vmInstructions+' VM instructions')"
+        run: node -e "const fs=require('node:fs');const vm=require('./blackmamer-vm3');const src=fs.readFileSync('tests/fixtures/bm-saweria-donation-cinematic.luau','utf8');const out=vm.compile(src);if(out.vmInstructions<300)process.exit(1);console.log('Exact Cinematic compiled '+out.vmInstructions+' VM instructions')"
       - name: Compile full user BM Saweria GUI script (syntax regression)
         run: node -e "const fs=require('fs');const vm=require('./blackmamer-vm3');const src=fs.readFileSync('tests/fixtures/bm-saweria-fake-donate-client.luau','utf8');const out=vm.compile(src);if(!out.code.includes('BLACKMAMER'))process.exit(1);console.log('BM Saweria compile OK',out.vmInstructions,'VM instructions')"
       - name: Verify nondegenerate opcode dispatcher across 160 builds

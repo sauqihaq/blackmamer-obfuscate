@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07121d">
+  <meta name="description" content="BLACKMAMER STUDIO — Lua/Luau obfuscator dengan preset RobloxStrong dan experimental Hybrid VM V2.">
+  <title>BLACKMAMER STUDIO — Roblox Luau Obfuscator</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#07121d; --panel:#0e1b29; --panel2:#122337; --line:#294055;
+      --text:#edf7ff; --muted:#9aadc0; --accent:#55e3d7; --blue:#60aeff; --warn:#ffca78;
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{margin:0;background:radial-gradient(ellipse 680px 400px at 82% 8%,#143c51 0%,transparent 75%),radial-gradient(ellipse 600px 400px at 5% 70%,#0c293a 0%,transparent 75%),var(--bg);color:var(--text);font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh}
+    body:before{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;opacity:.21;background-image:linear-gradient(#70a2c514 1px,transparent 1px),linear-gradient(90deg,#70a2c514 1px,transparent 1px);background-size:46px 46px}
+    a{color:inherit;text-decoration:none}
+    button,select,textarea{font:inherit}
+    button{cursor:pointer}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    :focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+    .wrap{width:min(1300px,calc(100% - 42px));margin:auto}
+    .top{height:82px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #ffffff16;gap:16px}
+    .brand{display:flex;align-items:center;gap:13px;font-size:16px;font-weight:850;letter-spacing:.055em}
+    .logo{width:45px;height:45px;border-radius:14px;display:grid;place-items:center;color:#04292b;background:linear-gradient(140deg,#a0fff3,var(--accent) 58%,#518eff);box-shadow:0 5px 24px #43ecdb4a;font-size:16px;font-weight:900}
+    .studio{font-size:10px;color:var(--accent);font-weight:750;letter-spacing:.24em}
+    .topnav{display:flex;align-items:center;gap:16px;color:var(--muted);font-size:13px}
+    .chip{display:inline-flex;align-items:center;gap:8px;border:1px solid #3e596b;border-radius:999px;padding:6px 12px;font-size:12px;color:var(--muted);white-space:nowrap}
+    .dot{height:8px;width:8px;border-radius:50%;background:#7c8d99;display:inline-block}
+    .chip.ok .dot{background:#5ff0a8;box-shadow:0 0 12px #5ff0a8a8}
+    .chip.bad .dot{background:#ff8a8a}
+    header.hero{padding:64px 0 38px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:24px;align-items:center}
+    .eyebrow{font-size:12px;letter-spacing:.18em;font-weight:800;color:var(--accent);margin:0 0 10px}
+    h1{font-weight:850;font-size:clamp(33px,4.1vw,59px);letter-spacing:-.045em;line-height:1.07;margin:0 0 15px}
+    h1 span{color:var(--accent)}
+    .subtitle{max-width:760px;color:var(--muted);margin:0;line-height:1.65}
+    .notice{max-width:335px;padding:16px 18px;border:1px solid #3e5066;background:#11243799;border-radius:16px;color:#c1d5e2;font-size:12px}
+    .notice strong{color:#fff;display:block;margin-bottom:4px}
+    .layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:17px;padding-bottom:20px}
+    .card{background:linear-gradient(150deg,#122638e8,#0b1928ee);border:1px solid #2a4254;border-radius:20px;box-shadow:0 18px 50px #0003;min-width:0;overflow:hidden}
+    .card-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:19px 21px;border-bottom:1px solid #284052}
+    .card-title{font-size:15px;font-weight:800;display:flex;align-items:center;gap:10px}
+    .card-title b{width:27px;height:27px;border:1px solid #4b747c;border-radius:9px;display:grid;place-items:center;background:#163340;color:var(--accent);font-size:13px}
+    .hint{font-size:12px;color:var(--muted)}
+    .editor-wrap{padding:15px}
+    textarea.editor{display:block;width:100%;min-height:330px;resize:vertical;border:1px solid #243b4e;border-radius:13px;background:#071321;color:#d7f0f7;padding:17px 18px;outline:none;tab-size:4;font:13px/1.75 ui-monospace,SFMono-Regular,Consolas,monospace}
+    textarea.editor:focus{border-color:#4dabae;box-shadow:0 0 0 3px #51dec51a}
+    textarea.editor::placeholder{color:#738c9d}
+    .toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:0 15px 16px}
+    .lefttools,.righttools{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid #3b5367;border-radius:11px;background:#173044;color:#d9f0fc;padding:11px 15px;font-size:13px;font-weight:750;transition:background .2s,transform .2s}
+    .btn:hover:not(:disabled){background:#23455b;transform:translateY(-1px)}
+    .btn.primary{background:linear-gradient(100deg,#5af0d8,#7bbaff);color:#062027;border:0;box-shadow:0 8px 28px #36d0cf30;font-weight:850;padding:13px 18px}
+    .btn.primary:hover:not(:disabled){background:linear-gradient(100deg,#8dfde8,#9ed1ff)}
+    .btn.subtle{background:transparent}
+    .file{display:none}
+    .options{padding:18px}
+    .options h2{font-size:15px;margin:0 0 13px}
+    .field{margin-bottom:16px}
+    .field label{display:block;margin-bottom:7px;color:#d8e8f6;font-size:13px;font-weight:750}
+    .field select{width:100%;border:1px solid #415d70;background:#0b1c2c;color:#ecf9ff;padding:12px;border-radius:11px}
+    .help{color:var(--muted);font-size:12px;line-height:1.55;margin-top:7px}
+    .toggle{display:flex;gap:12px;align-items:flex-start;padding:14px 12px;border:1px solid #344b5e;border-radius:12px;background:#102335;cursor:pointer}
+    .toggle input{margin-top:5px;accent-color:#55e3d7;transform:scale(1.2)}
+    .toggle strong{display:block;font-size:13px}
+    .toggle span{display:block;color:var(--muted);font-size:11px;margin-top:5px}
+    .rule{border:0;border-top:1px solid #284050;margin:20px 0}
+    .presets{padding:13px;border-radius:12px;background:#0a2030;color:#9ccbd5;border:1px solid #285265;font-size:12px;line-height:1.65}
+    .actionzone{padding:0 18px 19px}
+    .actionzone .primary{width:100%}
+    .statusline{min-height:20px;color:var(--muted);font-size:12px;padding-top:11px;text-align:center}
+    .output{margin-top:17px}
+    #result{min-height:300px}
+    .metrics{display:flex;flex-wrap:wrap;gap:12px;color:#9eb4c4;font-size:12px;padding:0 20px 20px}
+    .metric{background:#102336;border:1px solid #2d485b;border-radius:10px;padding:9px 12px}
+    .metric strong{color:#e4f4fc}
+    .feedback{display:none;margin:0 15px 15px;padding:12px 14px;border-radius:10px;border:1px solid #286b62;color:#9af5df;background:#0b2c30;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}
+    .feedback.bad{border-color:#995756;color:#ffcdcb;background:#3a1b24}
+    .feedback.warn{border-color:#866844;color:#ffe0ad;background:#352819}
+    .footer{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;color:#869fb0;font-size:12px;padding:25px 0 34px;border-top:1px solid #253a4b;margin-top:20px}
+    .footer a{text-decoration:underline;text-underline-offset:3px}
+    @media(max-width:950px){.layout{grid-template-columns:1fr}.hero{grid-template-columns:1fr!important;padding-top:43px!important}.notice{max-width:100%}}
+    @media(max-width:550px){.wrap{width:min(100% - 22px,1300px)}.top{height:70px}.topnav a{display:none}.card-head{padding:14px}.toolbar{padding:0 13px 15px}.editor-wrap{padding:12px}h1{font-size:35px}.brand{font-size:13px}}
+    @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="top" aria-label="Navigasi utama">
+      <a class="brand" href="#top" aria-label="BLACKMAMER STUDIO beranda">
+        <span class="logo">BM</span><span>BLACKMAMER<br><span class="studio">STUDIO</span></span>
+      </a>
+      <div class="topnav">
+        <a href="https://github.com/sauqihaq/blackmamer-obfuscate" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <button class="chip" id="healthButton" type="button" title="Periksa koneksi backend"><span class="dot" id="healthDot"></span><span id="healthText">Memeriksa backend...</span></button>
+      </div>
+    </nav>
+    <header class="hero" id="top">
+      <div>
+        <p class="eyebrow">LUAU / LUA • OBFUSCATION PLATFORM</p>
+        <h1>Protect your code.<br><span>BLACKMAMER VM.</span></h1>
+        <p class="subtitle">Obfuscator script Lua dan Roblox Luau dengan Prometheus serta layer BLACKMAMER VM eksperimental. Upload script, pilih preset, dan proses langsung dari browser.</p>
+      </div>
+      <div class="notice">
+        <strong>RobloxStrong • Experimental</strong>
+        Preset berbasis full-program Prometheus VM untuk Luau. Ketahanan setara Luraph belum terbukti. Tes di Roblox Studio sebelum dipakai pada game produksi.
+      </div>
+    </header>
+
+    <main class="layout">
+      <div>
+        <section class="card" aria-label="Script input">
+          <div class="card-head">
+            <div class="card-title"><b>01</b> Source Script</div>
+            <span class="hint" id="inputStats">0 karakter</span>
+          </div>
+          <div class="editor-wrap">
+            <textarea id="source" class="editor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Source Lua atau Luau" placeholder="-- Tulis atau upload script Roblox Luau di sini
+print(&quot;Hello World&quot;)"></textarea>
+          </div>
+          <div class="toolbar">
+            <div class="lefttools">
+              <button class="btn" type="button" id="upload">↑ Upload .lua / .luau</button>
+              <input class="file" type="file" id="file" accept=".lua,.luau,.txt,text/plain">
+              <button class="btn subtle" type="button" id="sample">Contoh</button>
+            </div>
+            <button class="btn subtle" type="button" id="clear">Bersihkan</button>
+          </div>
+        </section>
+
+        <section class="card output" aria-label="Hasil obfuscate">
+          <div class="card-head">
+            <div class="card-title"><b>02</b> Obfuscated Output</div>
+            <span class="hint" id="outputStats">Belum diproses</span>
+          </div>
+          <div class="editor-wrap">
+            <textarea id="result" class="editor" spellcheck="false" readonly aria-label="Hasil obfuscate" placeholder="Hasil obfuscate akan muncul di sini."></textarea>
+          </div>
+          <div class="feedback" id="feedback" role="status" aria-live="polite"></div>
+          <div class="toolbar">
+            <div class="lefttools"><button type="button" class="btn" id="copy" disabled>⧉ Salin hasil</button></div>
+            <div class="righttools"><button type="button" class="btn primary" id="download" disabled>↓ Download .luau</button></div>
+          </div>
+          <div class="metrics" id="metrics" hidden>
+            <div class="metric">Ukuran hasil: <strong id="sizeMetric">—</strong></div>
+            <div class="metric">VM2 expressions: <strong id="exprMetric">—</strong></div>
+            <div class="metric">VM applied: <strong id="appliedMetric">—</strong></div>
+            <div class="metric">Fallback: <strong id="fallbackMetric">—</strong></div>
+          </div>
+        </section>
+      </div>
+      <aside class="card" aria-label="Pengaturan obfuscate">
+        <div class="card-head"><div class="card-title"><b>⚙</b> Protection Settings</div></div>
+        <div class="options">
+          <div class="field">
+            <label for="preset">Protection preset</label>
+            <select id="preset">
+              <option value="Weak">Weak — Ringan</option>
+              <option value="Medium" selected>Medium — Balanced</option>
+              <option value="Strong">Strong — Legacy (berat)</option>
+              <option value="RobloxStrong">RobloxStrong — Roblox VM</option>
+            </select>
+            <p id="presetHint" class="help">Mode yang lebih seimbang untuk penggunaan awal.</p>
+          </div>
+          <div class="field">
+            <label for="target">Target runtime</label>
+            <select id="target">
+              <option value="LuaU" selected>Roblox / Luau</option>
+              <option value="Lua51">Lua 5.1</option>
+            </select>
+          </div>
+          <label class="toggle" for="hybrid">
+            <input id="hybrid" type="checkbox">
+            <span><strong>BLACKMAMER Hybrid VM V2</strong><span>Virtualisasi ekspresi tertentu dan opcode acak setiap build. Belum full-function VM.</span></span>
+          </label>
+          <hr class="rule">
+          <div class="presets" id="info">
+            <strong>Catatan kompatibilitas</strong><br>Mode <b>RobloxStrong</b> memakai VM penuh Prometheus. Lapisan BLACKMAMER V2 bersifat tambahan, bukan pengganti VM penuh tersebut.
+          </div>
+        </div>
+        <div class="actionzone">
+          <button class="btn primary" type="button" id="obfuscate">◆ Obfuscate Script</button>
+          <div class="statusline" id="taskStatus">Siap memproses script.</div>
+        </div>
+      </aside>
+    </main>
+    <footer class="footer">
+      <span>© BLACKMAMER STUDIO • Lua/Luau obfuscation</span>
+      <span>Uses <a href="https://github.com/wcrddn/Prometheus" target="_blank" rel="noopener noreferrer">Prometheus (Elias Oelschner)</a> as the upstream obfuscation engine.</span>
+    </footer>
+  </div>
+
+  <script>
+    'use strict';
+
+    // Change only this URL if the backend hostname changes.
+    const API_BASE = 'https://blackmamer-obfuscate.onrender.com';
+    const MAX_SCRIPT_BYTES = 1024 * 1024;
+    const $ = id => document.getElementById(id);
+    const source = $('source');
+    const result = $('result');
+    let lastMode = 'LuaU';
+    let running = false;
+
+    function bytes(text) { return new Blob([text]).size; }
+    function readable(number) {
+      return number >= 1024 * 1024 ? (number / 1048576).toFixed(2) + ' MB' :
+        number >= 1024 ? (number / 1024).toFixed(1) + ' KB' : number + ' B';
+    }
+    function feedback(message, type) {
+      const el = $('feedback');
+      el.textContent = message || '';
+      el.style.display = message ? 'block' : 'none';
+      el.className = 'feedback' + (type ? ' ' + type : '');
+    }
+    function setStatus(text) { $('taskStatus').textContent = text; }
+    function clearOutput() {
+      result.value = '';
+      $('copy').disabled = true;
+      $('download').disabled = true;
+      $('outputStats').textContent = 'Belum diproses';
+      $('metrics').hidden = true;
+      feedback('', '');
+    }
+    function updateStats() {
+      $('inputStats').textContent = source.value.length.toLocaleString('id-ID') + ' karakter • ' + readable(bytes(source.value));
+    }
+    function warnPreset() {
+      const preset = $('preset').value;
+      const labels = {
+        Weak: 'Proteksi lebih ringan, lebih cepat.',
+        Medium: 'Preset bawaan, seimbang untuk pengujian awal.',
+        Strong: 'VM Prometheus bertingkat. Berpotensi lebih berat atau tidak stabil untuk sebagian script Luau.',
+        RobloxStrong: 'Full-program VM Prometheus satu lapis + proteksi konstanta; enkripsi string dan anti-tamper upstream dimatikan karena masalah kompatibilitas.'
+      };
+      $('presetHint').textContent = labels[preset];
+      $('info').textContent = preset === 'RobloxStrong'
+        ? 'RobloxStrong memakai VM Prometheus untuk seluruh program. VM V2 BLACKMAMER hanya memvirtualisasi subset ekspresi yang didukung.'
+        : 'Untuk script Roblox, gunakan target Roblox / Luau. Uji hasil di Roblox Studio sebelum dipakai publik.';
+    }
+    async function healthCheck() {
+      const chip = $('healthButton');
+      const label = $('healthText');
+      chip.className = 'chip';
+      label.textContent = 'Memeriksa backend...';
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 90000);
+        let response;
+        try { response = await fetch(API_BASE + '/api/health', { signal:controller.signal }); }
+        finally { clearTimeout(timeout); }
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json();
+        const ok = data.status === 'ready' || data.ready === true;
+        chip.className = ok ? 'chip ok' : 'chip bad';
+        label.textContent = ok ? 'Backend Ready' : 'Engine belum siap';
+      } catch (err) {
+        chip.className = 'chip bad';
+        label.textContent = 'Status belum terbaca';
+      }
+    }
+    function setBusy(value) {
+      running = value;
+      $('obfuscate').disabled = value;
+      $('obfuscate').textContent = value ? '◌ Memproses...' : '◆ Obfuscate Script';
+    }
+    async function obfuscate() {
+      if (running) return;
+      feedback('', '');
+      const script = source.value;
+      if (!script.trim()) { feedback('Masukkan script terlebih dahulu.', 'bad'); source.focus(); return; }
+      if (bytes(script) > MAX_SCRIPT_BYTES) {
+        feedback('Ukuran script maksimal 1 MB untuk backend saat ini.', 'bad'); return;
+      }
+      const payload = {
+        script,
+        preset: $('preset').value,
+        target: $('target').value,
+        blackmamerVM: true,
+        vmMode: $('hybrid').checked ? 'hybrid-v2' : 'v1'
+      };
+      setBusy(true);
+      setStatus('Menghubungkan ke backend dan memproses script...');
+      const started = performance.now();
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 120000);
+        let response;
+        try {
+          response = await fetch(API_BASE + '/api/obfuscate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          });
+        } finally { clearTimeout(timeout); }
+
+        let data;
+        try { data = await response.json(); }
+        catch { throw new Error('Backend mengirim respons yang bukan JSON.'); }
+        if (!response.ok) throw new Error(data.error || data.detail || 'Error HTTP ' + response.status);
+        if (typeof data.obfuscated !== 'string' || !data.obfuscated.length) {
+          throw new Error('Backend tidak mengirim kode hasil obfuscation.');
+        }
+
+        result.value = data.obfuscated;
+        lastMode = payload.target;
+        $('copy').disabled = false;
+        $('download').disabled = false;
+        $('outputStats').textContent = readable(bytes(result.value));
+        const m = data.blackmamerVM || {};
+        $('sizeMetric').textContent = readable(bytes(result.value));
+        $('exprMetric').textContent = Number(m.virtualizedExpressions || 0).toLocaleString('id-ID');
+        $('appliedMetric').textContent = m.applied === true ? 'Ya' : 'Tidak';
+        $('fallbackMetric').textContent = m.fallback === true ? 'Ya' : 'Tidak';
+        $('metrics').hidden = false;
+        setStatus('Selesai dalam ' + ((performance.now() - started) / 1000).toFixed(1) + ' detik.');
+
+        if (m.fallback) {
+          feedback('Obfuscation selesai, tetapi backend menggunakan fallback. Lapisan BLACKMAMER VM tidak seluruhnya diterapkan.', 'warn');
+        } else if (payload.vmMode === 'hybrid-v2' && !(m.virtualizedExpressions > 0)) {
+          feedback('Obfuscation selesai. VM V2 tidak menemukan ekspresi yang memenuhi syarat untuk divirtualisasi; hasil tetap diproses Prometheus.', 'warn');
+        } else {
+          feedback('Script berhasil diproses. Tetap uji output di Roblox Studio sebelum dipakai.', '');
+        }
+      } catch (err) {
+        clearOutput();
+        const message = err.name === 'AbortError'
+          ? 'Request melewati batas waktu. Render Free mungkin sedang cold start atau pemrosesan terlalu berat.'
+          : String(err.message || err);
+        feedback('Gagal obfuscate: ' + message, 'bad');
+        setStatus('Gagal memproses script.');
+      } finally { setBusy(false); }
+    }
+
+    $('obfuscate').addEventListener('click', obfuscate);
+    $('healthButton').addEventListener('click', healthCheck);
+    $('preset').addEventListener('change', warnPreset);
+    source.addEventListener('input', updateStats);
+    $('upload').addEventListener('click', () => $('file').click());
+    $('file').addEventListener('change', async event => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      if (file.size > MAX_SCRIPT_BYTES) {
+        feedback('File melebihi 1 MB.', 'bad');
+        event.target.value = ''; return;
+      }
+      source.value = await file.text();
+      updateStats(); clearOutput();
+      event.target.value = '';
+    });
+    $('sample').addEventListener('click', () => {
+      source.value = 'local damage = 20 * 5\nlocal bonus = if damage > 50 then 10 else 0\nprint("Hello World", damage + bonus)';
+      updateStats(); clearOutput();
+    });
+    $('clear').addEventListener('click', () => {
+      source.value = '';
+      updateStats(); clearOutput(); source.focus();
+    });
+    $('copy').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(result.value);
+        feedback('Hasil berhasil disalin ke clipboard.', '');
+      } catch {
+        result.focus(); result.select();
+        feedback('Browser menolak clipboard otomatis. Gunakan Ctrl+C setelah teks hasil terpilih.', 'warn');
+      }
+    });
+    $('download').addEventListener('click', () => {
+      if (!result.value) return;
+      const ext = lastMode === 'LuaU' ? '.luau' : '.lua';
+      const blob = new Blob([result.value], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'BLACKMAMER_STUDIO_obfuscated' + ext;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+    warnPreset();
+    updateStats();
+    healthCheck();
+  </script>
+</body>
+</html>

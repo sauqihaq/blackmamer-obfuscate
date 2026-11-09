@@ -1,0 +1,22 @@
+name: Live BM Saweria NativeV3 compatibility check
+on:
+  push:
+    branches:
+      - test/live-netlify-render-20261110
+    paths:
+      - 'tests/live-saweria-20261110.js'
+      - '.github/workflows/live-saweria-20261110.yml'
+  workflow_dispatch:
+jobs:
+  remote-saweria:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: POST BM Saweria user source to production Render
+        run: node tests/live-saweria-20261110.js

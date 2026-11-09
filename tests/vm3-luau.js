@@ -84,7 +84,7 @@ try {
   assert.notEqual(first.code,second.code,'VM output must mutate between builds');
   assert.ok(!first.code.includes('Hello World'),'String constant should be encoded');
   assert.throws(()=>compile('local x: number = 1'),/V3_UNSUPPORTED_SYNTAX/);
-  assert.throws(()=>compile('continue'),/V3_UNSUPPORTED_SYNTAX/);
+  assert.throws(()=>compile('type ObfuscatorTest = number'),/V3_UNSUPPORTED_SYNTAX/);
   let damaged=first.code.replace(/local CHECK=(\d+)/,(_,n)=>'local CHECK='+String(Number(n)+1));
   assert.notEqual(damaged,first.code);
   const t=path.join(dir,'tampered.luau');

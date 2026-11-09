@@ -6,8 +6,9 @@ const root='http://127.0.0.1:'+port;
 const server=spawn(process.execPath,['server.js'],{
   cwd:require('node:path').resolve(__dirname,'..'),
   env:{...process.env,PORT:String(port)},
-  stdio:'ignore'
+  stdio:['ignore','pipe','pipe']
 });
+let logs='';server.stdout.on('data',x=>{logs+=String(x)});server.stderr.on('data',x=>{logs+=String(x)});
 async function post(body){
   const r=await fetch(root+'/api/obfuscate',{
     method:'POST',
@@ -19,11 +20,11 @@ async function post(body){
 async function main(){
   let online=false;
   for(let attempt=0;attempt<70;attempt++){
-    if(server.exitCode!==null)throw new Error('Server exited before startup');
+    if(server.exitCode!==null)throw new Error('Server exited before startup: '+logs);
     try{const r=await fetch(root+'/');if(r.ok){online=true;break;}}catch{}
     await new Promise(resolve=>setTimeout(resolve,100));
   }
-  if(!online)throw new Error('Backend did not start');
+  if(!online)throw new Error('Backend did not start: '+logs);
   const script='print("Hello World")';
   const good=await post({script,preset:'NativeV3',target:'LuaU',vmMode:'native-v3',antiTamper:true,antiDebug:true});
   assert.equal(good.status,200,JSON.stringify(good.data));

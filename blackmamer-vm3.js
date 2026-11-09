@@ -194,10 +194,8 @@ class Parser {
       return {t:'do',body};
     }
     if (this.take('return')) {
-      if (new Set(['end','elseif','else','until',';','<eof>']).has(this.peek())) return {t:'return',value:{t:'nil'}};
-      const value=this.expr();
-      if(this.peek()===',') throw new SyntaxErrorV3('Multiple returns not yet supported');
-      return {t:'return',value};
+      if (new Set(['end','elseif','else','until',';','<eof>']).has(this.peek())) return {t:'return',values:[]};
+      return {t:'return',values:this.exprlist()};
     }
     if (this.take('break')) return {t:'break'};
     if (this.take('continue')) return {t:'continue'};
@@ -284,7 +282,7 @@ class Parser {
     }
   }
 }
-const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV'];
+const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','RET0','RETM','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV'];
 function compile(source, options={}) {
   if(typeof source!=='string') throw new TypeError('Expected Luau source string');
   if(Buffer.byteLength(source)>128*1024) throw new SyntaxErrorV3('V3 source limit: 128 KB');
@@ -521,13 +519,26 @@ function compile(source, options={}) {
             for(let i=builder.depth;i>retain;i--)emit('EXIT');
             loop.continues.push(emit('JUMP',0));break;
           }
-          case 'return':emit('RET',expr(n.value));break;
+          case 'return':{
+            const values=n.values;
+            if(values.length===0){emit('RET0');break;}
+            const tail=values[values.length-1];
+            const expand=['call','method'].includes(tail.t);
+            if(values.length===1&&!expand){
+              emit('RET',expr(tail));break;
+            }
+            // Only the final function call is expanded, like native Luau.
+            // Any earlier calls are evaluated for exactly their first result.
+            const registers=values.map((value,i)=>expr(value,expand&&i===values.length-1));
+            emit('RETM',argSets.push(registers),expand?1:0);
+            break;
+          }
           default:throw new SyntaxErrorV3('Unsupported statement type '+n.t);
         }
         if(builder.ins.length>12000)throw new SyntaxErrorV3('V3 instruction limit exceeded');
       }
     };
-    statements(ast);emit('RET',0);
+    statements(ast);emit('RET0');
     funcs[id-1]={p:params.map(key),ins:builder.ins};
     return id;
   };
@@ -783,6 +794,15 @@ function compile(source, options={}) {
     '        for j=5,#list do R[list[j]]=args[j-4] end',
     '      elseif op==O.CLOSURE then local capture=env;R[a]=function(...)return exec(b,{...},capture)end',
     '      elseif op==O.RET then return a==0 and nil or R[a]',
+    '      elseif op==O.RET0 then return',
+    '      elseif op==O.RETM then local regs=A[a];local vals={};local count=0',
+    '        for j=1,#regs do',
+    '          if j==#regs and b==1 then',
+    '            local tail=R[regs[j]];local n=tail.n',
+    '            for k=1,n do count=count+1;vals[count]=tail[k] end',
+    '          else count=count+1;vals[count]=R[regs[j]] end',
+    '        end',
+    '        return nativeUnpack(vals,1,count)',
     '      elseif op==O.JUMP then nextpc=a',
     '      elseif op==O.JF then if not R[a] then nextpc=b end',
     '      elseif op==O.JT then if R[a] then nextpc=b end',

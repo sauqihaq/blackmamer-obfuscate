@@ -1,0 +1,22 @@
+name: Live Netlify Render Smoke 2026-11-10
+on:
+  push:
+    branches:
+      - test/live-netlify-render-20261110
+    paths:
+      - 'tests/live-site-smoke-20261110.js'
+      - '.github/workflows/live-site-smoke-20261110.yml'
+  workflow_dispatch:
+jobs:
+  http-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check production website and API (read and harmless test scripts only)
+        run: node tests/live-site-smoke-20261110.js

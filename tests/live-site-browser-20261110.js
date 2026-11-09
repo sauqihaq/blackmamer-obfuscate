@@ -103,6 +103,10 @@ const {chromium}=require('playwright');
     assert.ok(cinematicOutput.includes('BLACKMAMER VM V3.4'),
       'Netlify browser still reports 422 for exact cinematic: '+cinematicFeedback);
     assert.ok(cinematicOutput.length>10000);
+    assert.match(cinematicOutput,/local _[a-z]{7}=\{"[A-Za-z0-9_-]+"/,
+      'Netlify output should use shuffled printable bytecode shards');
+    assert.doesNotMatch(cinematicOutput,/\\[0-9]{3}/,
+      'Netlify output must not use old decimal byte escapes');
     assert.ok(/selesai/i.test(cinematicStatus));
     assert.equal(await page.locator('#download').isEnabled(),true);
     console.log(JSON.stringify({test:'Browser full user Donation Cinematic via NativeV3',

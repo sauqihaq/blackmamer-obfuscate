@@ -96,3 +96,22 @@ The V3.2 runtime is an original extension of BLACKMAMER V3.1. Each compiled func
 These changes reduce obvious static signatures and make one universal opcode lookup less convenient. **They do not make bytecode confidential**: all masks, seeds and the interpreter are shipped to the Luau client, so a determined analyst can emulate it or instrument its runtime. Input as small as `print("Hello World")` remains trivial in underlying semantics regardless of output size. The obfuscated Luraph-style sample supplied for comparison was inspected **statically** (not executed) and is not copied into this repository.
 
 The Luau CLI CI suite verifies 20 example programs across 3 randomized builds each (60 total), with API checks and bytecode-integrity tamper testing. Actual Roblox Studio compatibility, performance, and independent deobfuscation effort are still unmeasured. Do not claim parity with Luraph, and do not store real Roblox secrets in a client script.
+
+
+## BLACKMAMER VM V3.3 — buffer-backed prototype VM
+
+This opt-in NativeV3 engine has an independent Luau subset compiler, **not** a copied Luraph interpreter or a Prometheus Vmify pass. V3.3 shifts the runtime from eagerly reconstructing Lua arrays for every instruction to:
+
+- Sealed binary function prototypes, each with its own parameters, bytecode and opcode mask.
+- **Lazy prototype loading:** decode a function only when invoked and cache its Luau buffer.
+- **Direct buffer.readu32 instruction fetches:** 16 bytes per instruction, rather than building an open array of decoded instruction rows.
+- Per-build shuffled function prototype ordering and relocation of closure operands; the root function need not be prototype #1.
+- Existing PC-dependent opcode masks, nondegenerate handler shards, checksum and best-effort runtime sanity checks remain.
+
+### Reference and threat-model caveats
+
+The user supplied a Luraph-style 284 KB Loader(2).luau and a 4-stage deobfuscation pipeline. Both were **inspected statically only**; unknown code was never executed. The supplied pipeline explicitly warns that its Luraph v15 prototype lifter is incomplete for some newer formats. That limitation does NOT demonstrate resistance of BLACKMAMER.
+
+Similarity of architecture is not equivalent resistance against reversing. All decryption parameters and interpreter code must travel with Roblox client code, so runtime instrumentation can still extract bytecode and values. A checksum is bypassable. Never embed API keys, server-side authority or secrets in a LocalScript.
+
+V3.3 supports a Luau syntax subset. It explicitly returns HTTP 422 for unsupported code rather than silently falling back. It requires Roblox Luau buffer; it is not supported in ordinary Lua 5.1. Compatibility CI uses official Luau CLI, not Roblox Studio. Test native execution, performance and resistance separately before calling this production ready.

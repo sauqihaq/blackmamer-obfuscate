@@ -40,9 +40,13 @@ async function main() {
   assert.equal(first.data.blackmamerVM.nativeSealer,available());
   assert.equal(first.data.blackmamerVM.applied,true);
   assert.equal(first.data.blackmamerVM.fallback,false);
+  assert.ok(first.data.obfuscated.startsWith('--[[\n'),'Native V4 output must start with large ASCII-art banner');
+  assert.match(first.data.obfuscated,/OBFUSCATED & SECURED BY BLACKMAMER STUDIO/);
   assert.ok(first.data.obfuscated.includes('BLACKMAMER VM V4.0'));
   assert.ok(!first.data.obfuscated.includes('print(a)'));
-  assert.equal(first.data.obfuscated.includes('\n'),false);
+  const nativePayload=first.data.obfuscated.slice(first.data.obfuscated.indexOf('--[[BLACKMAMER VM V4.0]]'));
+  assert.ok(nativePayload.startsWith('--[[BLACKMAMER VM V4.0]]return'));
+  assert.equal(nativePayload.includes('\n'),false,'Native V4 VM payload stays one physical line');
   const second=await post(request);
   assert.equal(second.status,200);
   assert.notEqual(first.data.obfuscated,second.data.obfuscated);

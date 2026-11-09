@@ -5,6 +5,10 @@
 const FRONT='https://blackmamerstudioobfuscated.netlify.app/';
 const BACK='https://blackmamer-obfuscate.onrender.com';
 const ALT='https://blackmamerstudioobfuscate.netlify.app/';
+const fs=require('node:fs'), os=require('node:os'), path=require('node:path');
+const {spawnSync}=require('node:child_process');
+const LUAU_BIN=path.resolve(process.env.LUAU_BIN||'./luau-build/luau');
+const scratch=fs.mkdtempSync(path.join(os.tmpdir(),'blackmamer-live-test-'));
 const results=[];
 const report=(name,ok,info)=>{const entry={test:name,pass:!!ok,...info};results.push(entry);console.log(JSON.stringify(entry));};
 async function req(url,options={},timeout=70000){
@@ -90,12 +94,30 @@ async function main(){
       error:data.error||res.error||null,detail:data.detail||null,
       responseSnippet:!res.ok?(res.body||'').slice(0,250):undefined
     });
-    if(valid&&!output.includes(item.expected))report(item.name+' literal not present',true,{});
-    else report(item.name+' literal not present',false,{foundRawLiteral:output.includes(item.expected)});
+    // Numeric text ("15") may appear inside an unrelated opcode/seed. Never
+    // treat substring matches in obfuscated code as proof of literal leakage.
+    if(valid){
+      const stem=item.name.includes('Hello')?'hello':'for';
+      const input=path.join(scratch,stem+'.source.luau');
+      const compiled=path.join(scratch,stem+'.compiled.luau');
+      fs.writeFileSync(input,item.script);
+      fs.writeFileSync(compiled,output);
+      const execute=file=>spawnSync(LUAU_BIN,[file],{encoding:'utf8',timeout:12000,maxBuffer:1024*1024});
+      const plain=execute(input),obfuscated=execute(compiled);
+      report(item.name+' generated Luau execution matches source',plain.status===0&&obfuscated.status===0
+        &&plain.stdout.trim()===item.expected
+        &&obfuscated.stdout.trim()===plain.stdout.trim(),{
+        originalOutput:plain.stdout.trim().slice(0,100),
+        obfuscatedOutput:obfuscated.stdout.trim().slice(0,100),
+        originalExit:plain.status,obfuscatedExit:obfuscated.status,
+        stderr:(obfuscated.stderr||'').slice(0,400),
+        executionError:obfuscated.error?.message||null
+      });
+    }
   }
   const fail=results.filter(x=>!x.pass);
   console.log('\nRESULT '+(results.length-fail.length)+'/'+results.length+' passed');
   for(const f of fail)console.log('FAILED: '+f.test);
   if(fail.length)process.exitCode=1;
 }
-main().catch(error=>{console.error(error);process.exitCode=1});
+main().catch(error=>{console.error(error);process.exitCode=1}).finally(()=>fs.rmSync(scratch,{recursive:true,force:true}));

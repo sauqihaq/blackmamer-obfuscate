@@ -1,0 +1,31 @@
+name: Live Netlify Render Smoke 2026-11-10
+on:
+  push:
+    branches:
+      - test/live-netlify-render-20261110
+    paths:
+      - 'tests/live-site-smoke-20261110.js'
+      - '.github/workflows/live-site-smoke-20261110.yml'
+  workflow_dispatch:
+jobs:
+  http-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build official Luau CLI for runtime comparison
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ make
+          git clone --depth 1 https://github.com/luau-lang/luau.git luau-src
+          cmake -S luau-src -B luau-build -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_TESTS=OFF
+          cmake --build luau-build --target Luau.Repl.CLI --parallel 2
+      - name: Check live Netlify, Render and execute API output in Luau
+        env:
+          LUAU_BIN: ./luau-build/luau
+        run: node tests/live-site-smoke-20261110.js

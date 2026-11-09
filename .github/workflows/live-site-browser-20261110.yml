@@ -1,0 +1,26 @@
+name: Live BLACKMAMER Browser UI 2026-11-10
+on:
+  push:
+    branches:
+      - test/live-netlify-render-20261110
+    paths:
+      - 'tests/live-site-browser-20261110.js'
+      - '.github/workflows/live-site-browser-20261110.yml'
+  workflow_dispatch:
+jobs:
+  chromium-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Playwright and Chromium
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Interact with real deployed Netlify GUI
+        run: node tests/live-site-browser-20261110.js

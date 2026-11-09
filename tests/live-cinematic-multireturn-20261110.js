@@ -1,0 +1,55 @@
+'use strict';
+const assert=require('node:assert/strict');
+const BASE='https://blackmamer-obfuscate.onrender.com';
+const SOURCE='https://raw.githubusercontent.com/sauqihaq/blackmamer-obfuscate/main/tests/fixtures/bm-saweria-donation-cinematic.luau';
+const opts={signal:AbortSignal.timeout(120000)};
+async function check(){
+ const sourceRes=await fetch(SOURCE,{signal:AbortSignal.timeout(30000)});
+ assert.equal(sourceRes.status,200,'Exact Donation Cinematic fixture should be accessible');
+ const script=await sourceRes.text();
+ assert.equal(script.length,6136);
+ const healthRes=await fetch(BASE+'/api/health',{signal:AbortSignal.timeout(100000)});
+ assert.equal(healthRes.status,200);
+ const health=await healthRes.json();
+ console.log(JSON.stringify({test:'Render health',status:healthRes.status,vm3Available:health.vm3Available,ready:health.status==='ready'}));
+ const started=Date.now();
+ const resp=await fetch(BASE+'/api/obfuscate',{
+   method:'POST',headers:{'Content-Type':'application/json','Origin':'https://blackmamerstudioobfuscated.netlify.app'},
+   body:JSON.stringify({script,preset:'NativeV3',target:'LuaU',vmMode:'native-v3',blackmamerVM:true,antiTamper:true,antiDebug:true}),
+   ...opts
+ });
+ let data;const body=await resp.text();
+ try{data=JSON.parse(body)}catch{data={error:'Non-JSON response: '+body.slice(0,240)};}
+ const vm=data.blackmamerVM||{};
+ const output=data.obfuscated||'';
+ console.log(JSON.stringify({
+   test:'Exact user Donation Cinematic over public Render',
+   status:resp.status,elapsedMs:Date.now()-started,scriptCharacters:script.length,
+   firstChars:output.slice(0,100),lineCount:output.split('\n').length,
+   outputBytes:Buffer.byteLength(output),engine:data.engine||null,
+   mode:vm.mode||null,fallback:vm.fallback??null,instructions:vm.vmInstructions??null,
+   fused:vm.fusedInstructions??null,layout:vm.bytecodeLayout??null,layoutWidths:vm.bytecodeWidths??null,
+   version:(output.match(/BLACKMAMER VM V[\d.]+/)||[])[0]||null,
+   error:data.error||null,detail:data.detail||null
+ }));
+ assert.equal(resp.status,200,'Production backend does not yet support multi-return: '+(data.detail||data.error||resp.status));
+ assert.equal(vm.mode,'native-v3');
+ assert.equal(vm.fallback,false);
+ assert.equal(vm.bytecodeLayout,'per-prototype-shuffled-12-or-16',
+   'Render has not deployed Hybrid VM yet');
+ assert.ok(vm.bytecodeWidths.compact+vm.bytecodeWidths.wide===vm.virtualizedFunctions);
+ assert.match(output,/local SBOX_MASK=bit32\.bxor/,'Hybrid VM S-Box masking missing');
+ assert.match(output,/local function field\(at,logical\)/,'Hybrid operand layout decoder missing');
+ assert.ok(output.includes('BLACKMAMER VM V3.4'));
+ assert.equal(output.includes('\n'),false,'Production VM should have one Luau line');
+ assert.equal(output.includes('\r'),false,'Production VM should not have CR');
+ assert.ok(output.startsWith('--[[BLACKMAMER STUDIO]]--[[BLACKMAMER VM V3.4]]return'),
+   'Production still has multiline ASCII banner or an unminified VM');
+ assert.ok(output.length>10000);
+ assert.match(output,/local _[a-z]{7}=\{"[A-Za-z0-9_-]+"/,
+   'Current Render should emit shuffled alphanumeric payload shards');
+ assert.doesNotMatch(output,/\\[0-9]{3}/,
+   'Current Render must no longer serialize VM bytecode as decimal escape numbers');
+ console.log('PASS: Live Render successfully obfuscates exact 6,136-character Donation Cinematic without fallback');
+}
+check().catch(e=>{console.error(e.stack||e);process.exitCode=1});

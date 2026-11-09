@@ -2,6 +2,7 @@
 // BLACKMAMER VM V3 - independent, opt-in Lua/Luau subset compiler.
 // No Prometheus/Vmify step in this engine. Unsupported syntax fails closed.
 const crypto = require('node:crypto');
+const {compactLuau} = require('./lua-output-compact');
 const rand = max => crypto.randomInt(max);
 
 class SyntaxErrorV3 extends Error {
@@ -1106,10 +1107,14 @@ function compile(source, options={}) {
   dispatch.push('      if not '+guardedName+
     ' then nativeError("BLACKMAMER V3 invalid opcode") end');
   lines.splice(dispatchStart,dispatchEnd-dispatchStart+1,...dispatch);
-  const code=lines.join('\n').replace(/\bO\.([A-Z]+)\b/g,(_,name)=>{
+  const expanded=lines.join('\n').replace(/\bO\.([A-Z]+)\b/g,(_,name)=>{
     if(!Object.hasOwn(codes,name)) throw new Error('Unknown VM opcode '+name);
     return String(codes[name]);
   });
+  // Deliberately publish the runtime as a dense single-line Luau chunk.
+  // Retain a compact block-comment identifier so newline comments never
+  // accidentally consume live code after minification.
+  const code='--[[BLACKMAMER VM V3.4]]'+compactLuau(expanded);
   return {code,engine:'BLACKMAMER V3 Native VM',virtualizedFunctions:funcs.length,
     bytecodeLayout:'per-prototype-shuffled-12-or-16',
     bytecodeWidths:{compact:sealedFunctions.filter(f=>f[2]===3).length,

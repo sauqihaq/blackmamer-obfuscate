@@ -320,7 +320,7 @@ print(&quot;Hello World&quot;)"></textarea>
         let data;
         try { data = await response.json(); }
         catch { throw new Error('Backend mengirim respons yang bukan JSON.'); }
-        if (!response.ok) throw new Error(data.error || data.detail || 'Error HTTP ' + response.status);
+        if (!response.ok) throw new Error((data.error || 'Error HTTP ' + response.status) + (data.detail ? '\nDetail: ' + data.detail : ''));
         if (typeof data.obfuscated !== 'string' || !data.obfuscated.length) {
           throw new Error('Backend tidak mengirim kode hasil obfuscation.');
         }

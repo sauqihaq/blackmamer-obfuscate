@@ -952,7 +952,10 @@ function compile(source, options={}) {
   };
   const guardedName='_d'+crypto.randomBytes(5).toString('hex');
   const emitHandler=(part,head,indent)=>{
-    return [indent+head+' '+guardedName+'=true',...part.slice(1)];
+    // Preserve an instruction's inline body, e.g. "then R[a]=K[b]".
+    const tail=/\bthen(.*)$/.exec(part[0]);
+    if(!tail)throw new Error('Malformed opcode handler body');
+    return [indent+head+' '+guardedName+'=true;'+tail[1],...part.slice(1)];
   };
   const useTree=options.dispatchMode==='tree'||
     (options.dispatchMode!=='shard'&&rand(2)===0);

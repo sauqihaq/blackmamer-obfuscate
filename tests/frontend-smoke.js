@@ -90,9 +90,20 @@ compiled.runInContext(vm.createContext(sandbox));
   assert.equal(v3.antiDebug, true);
   assert.equal(byId('hybrid').disabled, true);
 
+  byId('preset').value = 'NativeV4';
+  byId('preset').handlers.change();
+  calls = [];
+  await byId('obfuscate').click();
+  send = calls.find(item => item.url.endsWith('/api/obfuscate'));
+  const v4 = JSON.parse(send.options.body);
+  assert.equal(v4.preset, 'NativeV4');
+  assert.equal(v4.vmMode, 'native-v4');
+  assert.equal(v4.target, 'LuaU');
+  assert.equal(byId('hybrid').disabled, true);
+
   byId('source').value = '';
   calls = [];
   await byId('obfuscate').click();
   assert.equal(calls.filter(item => item.url.endsWith('/api/obfuscate')).length, 0);
-  console.log('Frontend smoke: 16 assertions passed (syntax, UI bindings, payload, output, validation)');
+  console.log('Frontend smoke: NativeV3 + NativeV4 requests passed (syntax, UI bindings, payload, output, validation)');
 })().catch(err=>{ console.error(err); process.exitCode=1; });

@@ -166,11 +166,25 @@ app.post('/api/obfuscate', async (req, res) => {
       });
     } catch (error) {
       const unsupported = error.code === 'V3_UNSUPPORTED_SYNTAX';
+      const match = /(?:at(?: offset)?\\s+)(\\d+)/i.exec(String(error.message));
+      const offset = Number.isInteger(error.offset)
+        ? error.offset : (match ? Number(match[1]) : null);
+      let position = null;
+      if (Number.isInteger(offset) && offset >= 0 && offset <= code.length) {
+        const before = code.slice(0, offset);
+        const line = before.split('\\n').length;
+        const column = offset - before.lastIndexOf('\\n');
+        position = { line, column, offset };
+      }
+      const message = unsupported
+        ? 'V3 belum mendukung sintaks Luau'
+          + (position ? ' di baris ' + position.line + ', kolom ' + position.column : '')
+          + ': ' + String(error.message).slice(0, 220)
+        : 'BLACKMAMER Native V3 gagal memproses script.';
       return res.status(unsupported ? 422 : 500).json({
-        error: unsupported
-          ? 'V3 belum mendukung sebagian sintaks Luau dalam script ini.'
-          : 'BLACKMAMER Native V3 gagal memproses script.',
+        error: message,
         code: error.code || 'V3_COMPILE_ERROR',
+        position,
         detail: String(error.message).slice(0, 400)
       });
     }

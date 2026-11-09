@@ -1,0 +1,475 @@
+'use strict';
+// BLACKMAMER VM V3 - independent, opt-in Lua/Luau subset compiler.
+// No Prometheus/Vmify step in this engine. Unsupported syntax fails closed.
+const crypto = require('node:crypto');
+const rand = max => crypto.randomInt(max);
+
+class SyntaxErrorV3 extends Error {
+  constructor(message) { super(message); this.name = 'V3_UNSUPPORTED_SYNTAX'; this.code = 'V3_UNSUPPORTED_SYNTAX'; }
+}
+function lex(source) {
+  const tokens = [], n = source.length;
+  let pos = 0;
+  const push = (type, value, at) => tokens.push({ type, value, at });
+  while (pos < n) {
+    const at = pos, c = source[pos];
+    if (/\s/.test(c)) { pos++; continue; }
+    if (source.startsWith('--', pos)) {
+      pos += 2;
+      const lm = /^\[(=*)\[/.exec(source.slice(pos));
+      if (lm) {
+        const close = ']' + lm[1] + ']';
+        const end = source.indexOf(close, pos + lm[0].length);
+        if (end < 0) throw new SyntaxErrorV3('Unclosed comment at ' + at);
+        pos = end + close.length;
+      } else {
+        while (pos < n && source[pos] !== '\n') pos++;
+      }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      const quote = c; pos++;
+      const bytes = [];
+      while (pos < n && source[pos] !== quote) {
+        if (source[pos] === '\n' || source[pos] === '\r') throw new SyntaxErrorV3('Unterminated string at ' + at);
+        if (source[pos] !== '\\') {
+          const cp = source.codePointAt(pos);
+          bytes.push(...Buffer.from(String.fromCodePoint(cp)));
+          pos += cp > 65535 ? 2 : 1;
+          continue;
+        }
+        pos++;
+        if (pos >= n) throw new SyntaxErrorV3('Invalid escape at ' + at);
+        const esc = source[pos++];
+        const simple = { a:7,b:8,f:12,n:10,r:13,t:9,v:11,'\\':92,'"':34,"'":39 };
+        if (Object.hasOwn(simple, esc)) bytes.push(simple[esc]);
+        else if (/[0-9]/.test(esc)) {
+          let digits = esc;
+          while (digits.length < 3 && /[0-9]/.test(source[pos] || '')) digits += source[pos++];
+          const value = Number(digits);
+          if (value > 255) throw new SyntaxErrorV3('Escape > 255 at ' + at);
+          bytes.push(value);
+        } else if (esc === 'x') {
+          const pair = source.slice(pos, pos+2);
+          if (!/^[a-fA-F0-9]{2}$/.test(pair)) throw new SyntaxErrorV3('Invalid hex escape');
+          bytes.push(parseInt(pair,16)); pos += 2;
+        } else if (esc === 'z') {
+          while (/\s/.test(source[pos] || '') && pos < n) pos++;
+        } else if (esc === 'u' && source[pos] === '{') {
+          const m = /^\{([a-fA-F0-9]+)\}/.exec(source.slice(pos));
+          if (!m) throw new SyntaxErrorV3('Invalid Unicode escape');
+          const cp = parseInt(m[1],16);
+          if (cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) throw new SyntaxErrorV3('Invalid Unicode codepoint');
+          bytes.push(...Buffer.from(String.fromCodePoint(cp))); pos += m[0].length;
+        } else if (esc === '\n' || esc === '\r') {
+          if (esc === '\r' && source[pos] === '\n') pos++;
+          bytes.push(10);
+        } else throw new SyntaxErrorV3('Unsupported escape at ' + at);
+      }
+      if (source[pos] !== quote) throw new SyntaxErrorV3('Unterminated string at ' + at);
+      pos++;
+      push('str', Buffer.from(bytes).toString('utf8'), at);
+      continue;
+    }
+    if (c === '[') {
+      const m = /^\[(=*)\[/.exec(source.slice(pos));
+      if (m) {
+        const close = ']' + m[1] + ']';
+        const end = source.indexOf(close, pos + m[0].length);
+        if (end < 0) throw new SyntaxErrorV3('Unclosed long string');
+        let val = source.slice(pos + m[0].length, end);
+        if (val.startsWith('\r\n')) val = val.slice(2);
+        else if (val.startsWith('\n')) val = val.slice(1);
+        push('str', val, at); pos = end + close.length; continue;
+      }
+    }
+    const num = /^(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?\d+)?|\.\d[\d_]*(?:[eE][+-]?\d+)?)/.exec(source.slice(pos));
+    if (num && (/\d/.test(c) || (c === '.' && /\d/.test(source[pos+1] || '')))) {
+      const raw = num[0].replace(/_/g,'');
+      const val = /^0[bB]/.test(raw) ? parseInt(raw.slice(2),2) : Number(raw);
+      if (!Number.isFinite(val)) throw new SyntaxErrorV3('Unsupported numeric constant');
+      push('num', val, at); pos += num[0].length; continue;
+    }
+    const word = /^[A-Za-z_][A-Za-z_0-9]*/.exec(source.slice(pos));
+    if (word) { push('id', word[0], at); pos += word[0].length; continue; }
+    const symbol = ['...','..','==','~=','<=','>=','+=','-=','*=','/=','//','::','->'].find(s=>source.startsWith(s,pos));
+    if (symbol) { push('sym',symbol,at); pos += symbol.length; continue; }
+    if ('+-*/%^#=~<>(){}[];:, .'.includes(c) && c !== ' ') {
+      push('sym',c,at); pos++; continue;
+    }
+    throw new SyntaxErrorV3('Unsupported character ' + JSON.stringify(c) + ' at offset ' + at);
+  }
+  push('eof','<eof>',n);
+  return tokens;
+}
+class Parser {
+  constructor(source) { this.tokens=lex(source); this.i=0; }
+  peek() { return this.tokens[this.i].value; }
+  tok() { return this.tokens[this.i]; }
+  take(val) { if (this.peek()===val) {this.i++;return true;} return false; }
+  must(val) { if (!this.take(val)) throw new SyntaxErrorV3('Expected ' + val + ', got ' + this.peek() + ' at ' + this.tok().at); }
+  name() {
+    const t=this.tok();
+    const reserved=new Set(['and','break','do','else','elseif','end','false','for','function','if','in','local','nil','not','or','repeat','return','then','true','until','while','continue','type','export']);
+    if (t.type!=='id' || reserved.has(t.value)) throw new SyntaxErrorV3('Identifier expected at ' + t.at);
+    this.i++; return t.value;
+  }
+  block(stop) {
+    const body=[];
+    while (!stop.has(this.peek()) && this.peek() !== '<eof>') {
+      if (this.take(';')) continue;
+      body.push(this.statement());
+      this.take(';');
+    }
+    return body;
+  }
+  params() {
+    this.must('('); const names=[];
+    if (!this.take(')')) {
+      do { names.push(this.name()); } while(this.take(','));
+      this.must(')');
+    }
+    return names;
+  }
+  fun(extraSelf) {
+    const params=this.params();
+    if(extraSelf) params.unshift('self');
+    const body=this.block(new Set(['end']));
+    this.must('end');
+    return {t:'fun',params,body};
+  }
+  statement() {
+    if (this.take('local')) {
+      if (this.take('function')) {
+        const name=this.name(); return {t:'localfun',name,fun:this.fun(false)};
+      }
+      const name=this.name();
+      if (this.peek()===',' || this.peek()===':') throw new SyntaxErrorV3('V3 supports one untyped local per declaration');
+      return {t:'local',name,value:this.take('=')?this.expr():{t:'nil'}};
+    }
+    if (this.take('function')) {
+      let target={t:'var',name:this.name()},self=false;
+      while (this.take('.')) target={t:'index',obj:target,key:{t:'str',value:this.name()}};
+      if(this.take(':')){target={t:'index',obj:target,key:{t:'str',value:this.name()}}; self=true;}
+      return {t:'assign',target,value:this.fun(self)};
+    }
+    if (this.take('if')) {
+      const branches=[];
+      do { const condition=this.expr();this.must('then'); const body=this.block(new Set(['elseif','else','end'])); branches.push({condition,body}); } while(this.take('elseif'));
+      const otherwise=this.take('else')?this.block(new Set(['end'])):[];
+      this.must('end');
+      return {t:'if',branches,otherwise};
+    }
+    if (this.take('while')) {
+      const condition=this.expr();this.must('do');
+      const body=this.block(new Set(['end']));this.must('end');
+      return {t:'while',condition,body};
+    }
+    if (this.take('do')) {
+      const body=this.block(new Set(['end']));this.must('end');
+      return {t:'do',body};
+    }
+    if (this.take('return')) {
+      if (new Set(['end','elseif','else','until',';','<eof>']).has(this.peek())) return {t:'return',value:{t:'nil'}};
+      const value=this.expr();
+      if(this.peek()===',') throw new SyntaxErrorV3('Multiple returns not yet supported');
+      return {t:'return',value};
+    }
+    if (this.take('break')) return {t:'break'};
+    const lhs=this.expr(10);
+    if(this.take('=')) {
+      if(!['var','index'].includes(lhs.t)) throw new SyntaxErrorV3('Assignment target must be name or index');
+      return {t:'assign',target:lhs,value:this.expr()};
+    }
+    if(lhs.t==='call' || lhs.t==='method') return {t:'callstmt',value:lhs};
+    throw new SyntaxErrorV3('Unsupported statement at ' + this.tok().at + ': '+this.peek());
+  }
+  table() {
+    const fields=[];let ordinal=1;
+    while(!this.take('}')) {
+      let key,value;
+      if(this.take('[')){key=this.expr();this.must(']');this.must('=');value=this.expr();}
+      else if(this.tok().type==='id' && this.tokens[this.i+1].value==='=') {
+        key={t:'str',value:this.name()};this.must('=');value=this.expr();
+      } else {key={t:'num',value:ordinal++};value=this.expr();}
+      fields.push({key,value});
+      if(this.take(',')||this.take(';')) continue;
+      this.must('}');break;
+    }
+    return {t:'table',fields};
+  }
+  expr(min=0) {
+    let node;
+    const t=this.tok();
+    if(this.take('nil')) node={t:'nil'};
+    else if(this.take('true')) node={t:'bool',value:true};
+    else if(this.take('false')) node={t:'bool',value:false};
+    else if(t.type==='num'){this.i++;node={t:'num',value:t.value};}
+    else if(t.type==='str'){this.i++;node={t:'str',value:t.value};}
+    else if(this.take('(')){node=this.expr();this.must(')');}
+    else if(this.take('{')) node=this.table();
+    else if(this.take('function')) node=this.fun(false);
+    else if(['-','not','#'].includes(this.peek())){
+      const op=this.tok().value;this.i++; node={t:'unary',op,x:this.expr(7)};
+    }
+    else if(t.type==='id'){node={t:'var',name:this.name()};}
+    else throw new SyntaxErrorV3('Unsupported expression near ' + t.value + ' at '+t.at);
+    for(;;){
+      const op=this.peek();
+      if(op==='.' && 10>=min){this.i++;node={t:'index',obj:node,key:{t:'str',value:this.name()}};continue;}
+      if(op==='[' && 10>=min){this.i++;const key=this.expr();this.must(']');node={t:'index',obj:node,key};continue;}
+      if(op==='(' && 10>=min){const args=this.args();node={t:'call',fn:node,args};continue;}
+      if(op===':' && 10>=min){this.i++;const method=this.name();const args=this.args();node={t:'method',obj:node,name:method,args};continue;}
+      const precedence={or:1,and:2,'<':3,'>':3,'<=':3,'>=':3,'==':3,'~=':3,'..':4,'+':5,'-':5,'*':6,'/':6,'%':6,'^':8};
+      const p=precedence[op];
+      if(p===undefined || p<min) break;
+      this.i++;
+      node={t:'binary',op,left:node,right:this.expr(p+(['^','..'].includes(op)?0:1))};
+    }
+    return node;
+  }
+  args(){
+    this.must('(');const args=[];
+    if(!this.take(')')){do{args.push(this.expr());}while(this.take(','));this.must(')');}
+    return args;
+  }
+  parse(){const body=this.block(new Set());this.must('<eof>');return body;}
+}
+const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN'];
+function compile(source, options={}) {
+  if(typeof source!=='string') throw new TypeError('Expected Luau source string');
+  if(Buffer.byteLength(source)>128*1024) throw new SyntaxErrorV3('V3 source limit: 128 KB');
+  const parsed=new Parser(source).parse();
+  const used=new Set(), codes={};
+  for(const op of OPS){let id;do{id=rand(220)+17;}while(used.has(id));used.add(id);codes[op]=id;}
+  const consts=[], constKeys=new Map(), funcs=[], argSets=[];
+  const key=(value)=>{
+    const type=value===null?'nil':typeof value;
+    const label=type+':'+String(value);
+    if(constKeys.has(label))return constKeys.get(label);
+    const idx=consts.length+1;
+    constKeys.set(label,idx);consts.push(value);return idx;
+  };
+  const builders=[];
+  const makeBuilder=(ast,params)=>{
+    const id=funcs.length+1;const builder={id,ins:[],regs:0,depth:0,loops:[]};
+    funcs.push(null);builders.push(builder);
+    const reg=()=>{if(++builder.regs>2048)throw new SyntaxErrorV3('V3 register limit exceeded');return builder.regs;};
+    const emit=(op,a=0,b=0,c=0)=>{builder.ins.push([codes[op],a,b,c]);return builder.ins.length;};
+    const scope=(body)=>{emit('ENTER');builder.depth++;statements(body);builder.depth--;emit('EXIT');};
+    const expr=(n)=>{
+      if(['nil','bool','str','num'].includes(n.t)){const dst=reg();emit('K',dst,key(n.t==='nil'?null:n.value));return dst;}
+      if(n.t==='var'){const dst=reg();emit('GET',dst,key(n.name));return dst;}
+      if(n.t==='index'){const obj=expr(n.obj),k=expr(n.key),dst=reg();emit('INDEX',dst,obj,k);return dst;}
+      if(n.t==='table'){const dst=reg();emit('TABLE',dst);for(const f of n.fields){const a=expr(f.key),b=expr(f.value);emit('PUT',dst,a,b);}return dst;}
+      if(n.t==='fun'){const fnid=makeBuilder(n.body,n.params),dst=reg();emit('CLOSURE',dst,fnid);return dst;}
+      if(n.t==='call' || n.t==='method'){
+        let fn,regs=[];
+        if(n.t==='method'){
+          const obj=expr(n.obj),k=expr({t:'str',value:n.name});
+          fn=reg();emit('INDEX',fn,obj,k);regs.push(obj);
+        } else fn=expr(n.fn);
+        for(const arg of n.args)regs.push(expr(arg));
+        const idx=argSets.push(regs);const dst=reg();emit('CALL',dst,fn,idx);return dst;
+      }
+      if(n.t==='unary'){
+        const from=expr(n.x),dst=reg();
+        emit({'-':'NEG','not':'NOT','#':'LEN'}[n.op],dst,from);return dst;
+      }
+      if(n.t==='binary'){
+        const a=expr(n.left),dst=reg();
+        if(n.op==='and'||n.op==='or'){
+          emit('MOV',dst,a);
+          const skip=emit(n.op==='and'?'JF':'JT',a,0);
+          const b=expr(n.right);emit('MOV',dst,b);
+          builder.ins[skip-1][2]=builder.ins.length+1;
+          return dst;
+        }
+        const b=expr(n.right);
+        const map={'+':'ADD','-':'SUB','*':'MUL','/':'DIV','%':'MOD','^':'POW','..':'CAT','<':'LT','<=':'LE','>':'GT','>=':'GE','==':'EQ','~=':'NE'};
+        emit(map[n.op],dst,a,b);return dst;
+      }
+      throw new SyntaxErrorV3('Unknown AST expression '+n.t);
+    };
+    const write=(target,value)=>{
+      const valueReg=expr(value);
+      if(target.t==='var')emit('SET',key(target.name),valueReg);
+      else{const objectReg=expr(target.obj),indexReg=expr(target.key);emit('PUT',objectReg,indexReg,valueReg);}
+    };
+    const statements=(body)=>{
+      for(const n of body){
+        switch(n.t){
+          case 'local':{const r=expr(n.value);emit('DECL',key(n.name),r);break;}
+          case 'localfun':{
+            const nil=expr({t:'nil'});emit('DECL',key(n.name),nil);
+            const r=expr(n.fun);emit('SET',key(n.name),r);break;
+          }
+          case 'assign':write(n.target,n.value);break;
+          case 'callstmt':expr(n.value);break;
+          case 'do':scope(n.body);break;
+          case 'if':{
+            const endJumps=[];
+            for(const part of n.branches){
+              const test=expr(part.condition);
+              const skip=emit('JF',test,0);scope(part.body);
+              endJumps.push(emit('JUMP',0));
+              builder.ins[skip-1][2]=builder.ins.length+1;
+            }
+            if(n.otherwise.length)scope(n.otherwise);
+            const end=builder.ins.length+1;
+            for(const j of endJumps)builder.ins[j-1][1]=end;
+            break;
+          }
+          case 'while':{
+            const start=builder.ins.length+1;
+            const r=expr(n.condition),exit=emit('JF',r,0);
+            const loop={breaks:[],depth:builder.depth};builder.loops.push(loop);
+            scope(n.body);emit('JUMP',start);
+            const end=builder.ins.length+1;
+            builder.ins[exit-1][2]=end;
+            for(const j of loop.breaks)builder.ins[j-1][1]=end;
+            builder.loops.pop();break;
+          }
+          case 'break':{
+            const loop=builder.loops[builder.loops.length-1];
+            if(!loop)throw new SyntaxErrorV3('break outside while');
+            for(let i=builder.depth;i>loop.depth;i--)emit('EXIT');
+            loop.breaks.push(emit('JUMP',0));break;
+          }
+          case 'return':emit('RET',expr(n.value));break;
+          default:throw new SyntaxErrorV3('Unsupported statement type '+n.t);
+        }
+        if(builder.ins.length>12000)throw new SyntaxErrorV3('V3 instruction limit exceeded');
+      }
+    };
+    statements(ast);emit('RET',0);
+    funcs[id-1]={p:params.map(key),ins:builder.ins};
+    return id;
+  };
+  const entry=makeBuilder(parsed,[]);
+  const salt=crypto.randomInt(2000,100000), xkey=rand(255)+1;
+  const modulus=10000019, hashMod=1000000007;
+  const packed=funcs.map(f=>({p:f.p,ins:f.ins.map(ins=>ins.map((n,j)=>(n+salt+5*(j+1)+modulus)%modulus))}));
+  const encodeConst=(value,at)=>{
+    const typ=value===null?5:typeof value==='string'?1:typeof value==='number'?2:value===true?3:4;
+    const bytes=(typ===1||typ===2)?Buffer.from(String(value),'utf8'):[];
+    return [typ,[...bytes].map((v,i)=>(v ^ ((xkey+(i+1)*17+at*13)%256)))];
+  };
+  const pool=consts.map((v,i)=>encodeConst(v,i+1));
+  const data={
+    f:packed.map(f=>[f.p,f.ins]),
+    p:pool,
+    a:argSets,
+  };
+  let digest=17;
+  const mix=(n)=>{digest=(digest*131+n+1)%hashMod;};
+  for(const [p,ins] of data.f){mix(p.length);p.forEach(mix);mix(ins.length);for(const row of ins)row.forEach(mix);}
+  for(const [typ,b] of data.p){mix(typ);mix(b.length);b.forEach(mix);}
+  for(const args of data.a){mix(args.length);args.forEach(mix);}
+  const opsAsLua=OPS.map(o=>o+'='+codes[o]).join(',');
+  const code=[
+    '-- BLACKMAMER VM V3 / Native Luau dispatcher / NOT Prometheus Vmify',
+    'return (function(...)',
+    '  local P=' + JSON.stringify(data.f).replace(/\[/g,'{').replace(/\]/g,'}'),
+    '  local Q=' + JSON.stringify(data.p).replace(/\[/g,'{').replace(/\]/g,'}'),
+    '  local A=' + JSON.stringify(data.a).replace(/\[/g,'{').replace(/\]/g,'}'),
+    '  local O={' + opsAsLua + '}',
+    '  local SALT=' + salt + '; local XKEY=' + xkey + '; local CHECK=' + digest,
+    '  local modulus=' + modulus + '; local hmod=' + hashMod,
+    '  local nativeByte=string.byte; local nativeChar=string.char; local nativeConcat=table.concat',
+    '  local nativeUnpack=table.unpack or unpack; local bxor=bit32 and bit32.bxor',
+    '  local nativeType=type; local nativePcall=pcall; local nativeError=error',
+    '  local dbg=debug; local globals=(getfenv and getfenv()) or _ENV or _G',
+    '  if nativeType(bxor)~="function" then nativeError("BLACKMAMER V3 requires Luau bit32") end',
+    '  local function verify()',
+    '    local h=17;local function mix(v)h=(h*131+v+1)%hmod end',
+    '    for _,f in ipairs(P) do mix(#f[1]);for _,v in ipairs(f[1])do mix(v)end',
+    '      mix(#f[2]);for _,ins in ipairs(f[2])do for j=1,4 do mix(ins[j])end end end',
+    '    for _,v in ipairs(Q)do mix(v[1]);mix(#v[2]);for _,b in ipairs(v[2])do mix(b)end end',
+    '    for _,ar in ipairs(A)do mix(#ar);for _,v in ipairs(ar)do mix(v)end end',
+    '    if h~=CHECK then nativeError("BLACKMAMER V3: bytecode integrity failed") end',
+    '    if '+(options.antiDebug===false?'false':'true')+' then',
+    '      if nativeType(nativeByte)~="function" or nativeType(nativeChar)~="function" or',
+    '        nativeChar(65)~="A" or nativeByte("A")~=65 or bxor(9,3)~=10 or',
+    '        nativeConcat({"B","M"})~="BM" then',
+    '        nativeError("BLACKMAMER V3: runtime hooks detected") end',
+    '    end',
+    '  end',
+    '  '+(options.antiTamper===false?'-- integrity check disabled by request':'verify()'),
+    '  local K={}',
+    '  for k,entry in ipairs(Q) do',
+    '    local typ=entry[1];local bytes=entry[2]',
+    '    if typ==5 then K[k]=nil elseif typ==3 then K[k]=true elseif typ==4 then K[k]=false',
+    '    else local output={} for j,b in ipairs(bytes) do output[j]=nativeChar(bxor(b,(XKEY+j*17+k*13)%256)) end',
+    '      local str=nativeConcat(output);K[k]=(typ==2) and tonumber(str) or str end',
+    '  end',
+    '  local NIL={};local function nonil(v)if v==NIL then return nil else return v end end',
+    '  local exec',
+    '  exec=function(fid,passed,captured)',
+    '    local spec=P[fid]; if not spec then nativeError("BLACKMAMER V3 invalid function") end',
+    '    local env={vars={},parent=captured}',
+    '    for j,k in ipairs(spec[1])do local v=passed[j];env.vars[K[k]]=v==nil and NIL or v end',
+    '    local R={};local pc=1;local ticks=0;local instructions=spec[2]',
+    '    local function get(n)',
+    '      local frame=env',
+    '      while frame do local v=rawget(frame.vars,n);if v~=nil then return nonil(v)end;frame=frame.parent end',
+    '      return globals[n]',
+    '    end',
+    '    local function set(n,v)',
+    '      local frame=env;while frame do if rawget(frame.vars,n)~=nil then',
+    '        frame.vars[n]=v==nil and NIL or v;return end;frame=frame.parent end',
+    '      globals[n]=v',
+    '    end',
+    '    while true do',
+    '      ticks=ticks+1; if ticks>1000000 then nativeError("BLACKMAMER V3 instruction limit") end',
+    '      local row=instructions[pc];if not row then nativeError("BLACKMAMER V3 bad PC") end',
+    '      local op=((row[1]-SALT-5)%modulus);',
+    '      local a=((row[2]-SALT-10)%modulus);if a>modulus/2 then a=a-modulus end',
+    '      local b=((row[3]-SALT-15)%modulus);if b>modulus/2 then b=b-modulus end',
+    '      local c=((row[4]-SALT-20)%modulus);if c>modulus/2 then c=c-modulus end',
+    '      local nextpc=pc+1',
+    '      if op==O.K then R[a]=K[b]',
+    '      elseif op==O.GET then R[a]=get(K[b])',
+    '      elseif op==O.DECL then local v=R[b];env.vars[K[a]]=v==nil and NIL or v',
+    '      elseif op==O.SET then set(K[a],R[b])',
+    '      elseif op==O.TABLE then R[a]={}',
+    '      elseif op==O.INDEX then R[a]=R[b][R[c]]',
+    '      elseif op==O.PUT then R[a][R[b]]=R[c]',
+    '      elseif op==O.MOV then R[a]=R[b]',
+    '      elseif op==O.CALL then local args=A[c] or {};local vals={};for j,v in ipairs(args)do vals[j]=R[v]end',
+    '        R[a]=R[b](nativeUnpack(vals,1,#args))',
+    '      elseif op==O.CLOSURE then local capture=env;R[a]=function(...)return exec(b,{...},capture)end',
+    '      elseif op==O.RET then return a==0 and nil or R[a]',
+    '      elseif op==O.JUMP then nextpc=a',
+    '      elseif op==O.JF then if not R[a] then nextpc=b end',
+    '      elseif op==O.JT then if R[a] then nextpc=b end',
+    '      elseif op==O.ENTER then env={vars={},parent=env}',
+    '      elseif op==O.EXIT then env=env.parent',
+    '      elseif op==O.ADD then R[a]=R[b]+R[c]',
+    '      elseif op==O.SUB then R[a]=R[b]-R[c]',
+    '      elseif op==O.MUL then R[a]=R[b]*R[c]',
+    '      elseif op==O.DIV then R[a]=R[b]/R[c]',
+    '      elseif op==O.MOD then R[a]=R[b]%R[c]',
+    '      elseif op==O.POW then R[a]=R[b]^R[c]',
+    '      elseif op==O.CAT then R[a]=R[b]..R[c]',
+    '      elseif op==O.LT then R[a]=R[b]<R[c]',
+    '      elseif op==O.LE then R[a]=R[b]<=R[c]',
+    '      elseif op==O.GT then R[a]=R[b]>R[c]',
+    '      elseif op==O.GE then R[a]=R[b]>=R[c]',
+    '      elseif op==O.EQ then R[a]=R[b]==R[c]',
+    '      elseif op==O.NE then R[a]=R[b]~=R[c]',
+    '      elseif op==O.NEG then R[a]=-R[b]',
+    '      elseif op==O.NOT then R[a]=not R[b]',
+    '      elseif op==O.LEN then R[a]=#R[b]',
+    '      else nativeError("BLACKMAMER V3 invalid opcode") end',
+    '      pc=nextpc',
+    '    end',
+    '  end',
+    '  return exec('+entry+',{},nil)',
+    'end)(...)'
+  ].join('\n');
+  return {code,engine:'BLACKMAMER V3 Native VM',virtualizedFunctions:funcs.length,
+    vmInstructions:funcs.reduce((n,f)=>n+f.ins.length,0),
+    antiTamper: options.antiTamper!==false, antiDebug: options.antiDebug!==false};
+}
+module.exports={compile,lex,Parser,SyntaxErrorV3};

@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 10000;
 
 // Path ke cli.lua hasil git clone di Dockerfile (RUN git clone ... /app/prometheus)
 const PROMETHEUS_CLI = process.env.PROMETHEUS_CLI || path.join(__dirname, 'prometheus', 'cli.lua');
-const ROBLOX_STRONG_CONFIG = '/app/roblox-strong.lua';
+const ROBLOX_STRONG_CONFIG = path.join(__dirname, 'roblox-strong.lua');
 
 const BANNER = `--[[
     ██████╗ ██╗      █████╗  ██████╗██╗  ██╗███╗   ███╗ █████╗ ███╗   ███╗███████╗██████╗     ███████╗████████╗██╗   ██╗██████╗ ██╗ ██████╗ 
@@ -46,27 +46,6 @@ app.get('/', (_req, res) => {
     vm: 'BLACKMAMER VM V1 + experimental V2',
     defaultTarget: 'LuaU',
     version: '1.2.0'
-  });
-});
-
-// Diagnostic endpoint: distinguishes a live Node server from a working Lua engine.
-app.get('/api/health', async (_req, res) => {
-  const cliFound = fs.existsSync(PROMETHEUS_CLI);
-  let luaAvailable = false;
-  try {
-    await execFileAsync('lua', ['-v'], { timeout: 3000 });
-    luaAvailable = true;
-  } catch (_error) {
-    luaAvailable = false;
-  }
-  res.json({
-    service: 'blackmamer-obfuscator',
-    ready: cliFound && luaAvailable,
-    luaAvailable,
-    prometheusInstalled: cliFound,
-    runtime: process.env.RENDER ? 'Render' : 'unknown',
-    vm2Available: typeof compileBlackmamerVM2 === 'function',
-    target: 'LuaU'
   });
 });
 
@@ -118,6 +97,8 @@ app.get('/api/health', async (_req, res) => {
     luaAvailable,
     prometheusInstalled: cli,
     dockerRequired: !cli || !luaAvailable,
+    vm2Available: typeof compileBlackmamerVM2 === 'function',
+    defaultTarget: 'LuaU',
     message: cli && luaAvailable
       ? 'Lua and Prometheus are present'
       : 'Render must deploy with the Docker runtime to use the bundled Lua and Prometheus'

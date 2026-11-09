@@ -448,9 +448,9 @@ function compile(source, options={}) {
       return encoded;
     });
   }
-  function pack24(int,bytes) {
-    if(!Number.isSafeInteger(int)||int<0||int>0xffffff)throw new SyntaxErrorV3('Bytecode integer out of range');
-    bytes.push(int&255,(int>>>8)&255,(int>>>16)&255);
+  function pack32(int,bytes) {
+    if(!Number.isSafeInteger(int)||int<0||int>0xffffffff)throw new SyntaxErrorV3('Bytecode integer out of range');
+    bytes.push(int&255,(int>>>8)&255,(int>>>16)&255,(int>>>24)&255);
   }
   function pack16(int,bytes) {
     if(!Number.isSafeInteger(int)||int<0||int>0xffff)throw new SyntaxErrorV3('Too many registers or instructions');
@@ -461,8 +461,8 @@ function compile(source, options={}) {
     pack16(f.p.length,raw);
     pack16(f.ins.length,raw);
     raw.push(f.opSeed);
-    for(const v of f.p) pack24(v,raw);
-    for(const row of f.ins) for(const v of row)pack24(v,raw);
+    for(const v of f.p) pack32(v,raw);
+    for(const row of f.ins) for(const v of row)pack32(v,raw);
     const seed=rand(60000)+1000;
     return [seed,seal(raw,seed)];
   });
@@ -526,11 +526,10 @@ function compile(source, options={}) {
     '  local P={}',
     '  local bufFrom=buffer and buffer.fromstring',
     '  local bufRead=buffer and buffer.readu8',
-    '  if nativeType(bufFrom)~="function" or nativeType(bufRead)~="function" then',
+    '  local bufRead32=buffer and buffer.readu32',
+    '  if nativeType(bufFrom)~="function" or nativeType(bufRead)~="function" or nativeType(bufRead32)~="function" then',
     '    nativeError("BLACKMAMER V3.3 requires Roblox Luau buffer API") end',
-    '  local function read24(buf,at)',
-    '    return bufRead(buf,at)+256*bufRead(buf,at+1)+65536*bufRead(buf,at+2)',
-    '  end',
+
     '  local function prototype(fid)',
     '    local cached=P[fid];if cached then return cached end',
     '    local bundle=E[fid];if not bundle then nativeError("BLACKMAMER V3 invalid function")end',
@@ -541,7 +540,7 @@ function compile(source, options={}) {
     '    local count=bufRead(packed,2)+256*bufRead(packed,3)',
     '    local opSeed=bufRead(packed,4);local off=5',
     '    local params={}',
-    '    for j=1,pn do params[j]=read24(packed,off);off=off+3 end',
+    '    for j=1,pn do params[j]=bufRead32(packed,off);off=off+4 end',
     '    -- Store one byte buffer for each prototype, never an open P[pc] instruction table.',
     '    local spec={params,packed,opSeed,off,count}',
     '    P[fid]=spec;return spec',
@@ -573,11 +572,11 @@ function compile(source, options={}) {
     '    while true do',
     '      ticks=ticks+1; if ticks>1000000 then nativeError("BLACKMAMER V3 instruction limit") end',
     '      if pc<1 or pc>length then nativeError("BLACKMAMER V3 bad PC") end',
-    '      local at=off+(pc-1)*12',
-    '      local op=bxor((read24(stream,at)-SALT-5)%modulus,(spec[3]+pc*41)%256)',
-    '      local a=((read24(stream,at+3)-SALT-10)%modulus);if a>modulus/2 then a=a-modulus end',
-    '      local b=((read24(stream,at+6)-SALT-15)%modulus);if b>modulus/2 then b=b-modulus end',
-    '      local c=((read24(stream,at+9)-SALT-20)%modulus);if c>modulus/2 then c=c-modulus end',
+    '      local at=off+(pc-1)*16',
+    '      local op=bxor((bufRead32(stream,at)-SALT-5)%modulus,(spec[3]+pc*41)%256)',
+    '      local a=((bufRead32(stream,at+4)-SALT-10)%modulus);if a>modulus/2 then a=a-modulus end',
+    '      local b=((bufRead32(stream,at+8)-SALT-15)%modulus);if b>modulus/2 then b=b-modulus end',
+    '      local c=((bufRead32(stream,at+12)-SALT-20)%modulus);if c>modulus/2 then c=c-modulus end',
     '      local nextpc=pc+1',
     '      if op==O.K then R[a]=K[b]',
     '      elseif op==O.GET then R[a]=get(K[b])',

@@ -406,7 +406,21 @@ function compile(source, options={}) {
     funcs[id-1]={p:params.map(key),ins:builder.ins};
     return id;
   };
-  const entry=makeBuilder(parsed,[]);
+  const initialEntry=makeBuilder(parsed,[]);
+  // A function index must not disclose the root prototype or lexical order.
+  // Shuffle the prototype registry each build and fix all CLOSURE operands
+  // before packing and masking the bytecode. This is structural polymorphism.
+  const order=Array.from({length:funcs.length},(_,i)=>i+1);
+  for(let i=order.length-1;i>0;i--){
+    const j=rand(i+1);[order[i],order[j]]=[order[j],order[i]];
+  }
+  const reloc=new Map(order.map((oldIndex,newIndex)=>[oldIndex,newIndex+1]));
+  const oldFunctions=funcs.slice();
+  for(let i=0;i<funcs.length;i++)funcs[i]=oldFunctions[order[i]-1];
+  for(const fn of funcs)for(const row of fn.ins){
+    if(row[0]===codes.CLOSURE)row[2]=reloc.get(row[2]);
+  }
+  const entry=reloc.get(initialEntry);
   // Each function becomes a compact, per-build sealed binary bytecode blob.
   // It raises the cost of casual inspection, NOT the cryptographic secrecy of
   // client-side code: the decoder and its seeds must travel with the output.

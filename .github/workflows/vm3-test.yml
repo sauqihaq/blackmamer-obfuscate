@@ -13,6 +13,7 @@ on:
       - fix/nativev3-cinematic-syntax-diagnostics
       - fix/nativev3-function-multireturn-cinematic
       - feature/vm3-shuffled-alphabet-blob-encoding
+      - feature/vm3-polymorphic-dispatch-iter-20261110
       - main
     paths:
       - 'blackmamer-vm3.js'
@@ -22,6 +23,7 @@ on:
       - 'tests/vm3-saweria-luau.js'
       - 'tests/fixtures/**'
       - 'tests/vm3-dispatch.js'
+      - 'tests/vm3-user-patterns.js'
       - 'tests/vm3-superinstructions.js'
       - '.github/workflows/vm3-test.yml'
       - 'server.js'
@@ -77,6 +79,10 @@ jobs:
         env:
           LUAU_BIN: ./luau-build/luau
         run: node tests/vm3-luau.js
+      - name: Compare 3 user-script feature groups against official Luau
+        env:
+          LUAU_BIN: ./luau-build/luau
+        run: node tests/vm3-user-patterns.js
       - name: Compare compound assignment and continue semantics against Luau
         env:
           LUAU_BIN: ./luau-build/luau

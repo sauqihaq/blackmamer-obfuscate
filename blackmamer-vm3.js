@@ -110,7 +110,7 @@ class Parser {
   must(val) { if (!this.take(val)) throw new SyntaxErrorV3('Expected ' + val + ', got ' + this.peek() + ' at ' + this.tok().at); }
   name() {
     const t=this.tok();
-    const reserved=new Set(['and','break','do','else','elseif','end','false','for','function','if','in','local','nil','not','or','repeat','return','then','true','until','while','continue','type','export']);
+    const reserved=new Set(['and','break','do','else','elseif','end','false','for','function','if','in','local','nil','not','or','repeat','return','then','true','until','while','continue']);
     if (t.type!=='id' || reserved.has(t.value)) throw new SyntaxErrorV3('Identifier expected at ' + t.at);
     this.i++; return t.value;
   }
@@ -199,6 +199,13 @@ class Parser {
     }
     if (this.take('break')) return {t:'break'};
     if (this.take('continue')) return {t:'continue'};
+    // "type" and "export" are contextual Luau keywords. Permit builtin
+    // type(value) in expressions, but reject typed declarations at the
+    // declaration keyword's location rather than a later identifier.
+    if((this.peek()==='type' && this.tokens[this.i+1]?.type==='id') ||
+       (this.peek()==='export' && this.tokens[this.i+1]?.value==='type')){
+      throw new SyntaxErrorV3('Unsupported Luau type declaration at '+this.tok().at);
+    }
     const lhs=this.expr(10);
     const assignOps=new Set(['+=','-=','*=','/=','//=','%=','^=','..=']);
     if(assignOps.has(this.peek())){
@@ -861,7 +868,18 @@ function compile(source, options={}) {
     '      elseif op==O.MVGET then R[a]=R[b][c]',
     '      elseif op==O.MVPACK then local list=A[b] or {};local vals={};for j,v in ipairs(list)do vals[j]=R[v]end',
     '        R[a]=vals',
-    '      elseif op==O.ITERNEXT then local list=A[a];local args=nativePack(R[list[1]](R[list[2]],R[list[3]]))',
+    '      elseif op==O.ITERNEXT then local list=A[a]',
+    '        local iterator=R[list[1]]',
+    '        if nativeType(iterator)=="table" then',
+    '          local mt=getmetatable(iterator)',
+    '          if nativeType(mt)=="table" and nativeType(mt.__iter)=="function" then',
+    '            local f,s,ctrl=mt.__iter(iterator)',
+    '            R[list[1]]=f;R[list[2]]=s;R[list[3]]=ctrl',
+    '          else',
+    '            R[list[1]]=next;R[list[2]]=iterator;R[list[3]]=nil',
+    '          end',
+    '        end',
+    '        local args=nativePack(R[list[1]](R[list[2]],R[list[3]]))',
     '        local control=args[1];R[list[3]]=control;R[list[4]]=control~=nil',
     '        for j=5,#list do R[list[j]]=args[j-4] end',
     '      elseif op==O.CLOSURE then local capture=env;R[a]=function(...)return exec(b,{...},capture)end',
@@ -929,63 +947,95 @@ function compile(source, options={}) {
     const j=rand(i+1);
     [handlers[i],handlers[j]]=[handlers[j],handlers[i]];
   }
-  // Two-stage opcode dispatcher. The first level uses a per-build affine
-  // bucket mapping; each bucket contains a separately permuted set of
-  // semantic handlers. It avoids one flat globally enumerable opcode chain.
-  // Never let an affine multiplier collapse modulo shardCount. Previously,
-  // mul=135 and shardCount=5 made (op*135+bias)%5 a constant for EVERY opcode,
-  // silently degrading the hierarchy to a single flat dispatcher.
+  // Per-build polymorphic dispatcher: two distinct control-flow topologies.
+  // Each handler is still a real VM instruction, but there is one shared
+  // invalid-opcode guard rather than a repeated else/error at every leaf.
+  // The guard is essential: a corrupt/unknown opcode must never fall through.
   const gcd=(a,b)=>{while(b){[a,b]=[b,a%b];}return a;};
-  const opcodeValues=handlers.map(part=>{
+  const opcodeName=part=>{
     const match=/^\s*(?:if|elseif) op==O\.([A-Z]+) then/.exec(part[0]);
     if(!match)throw new Error('Unrecognized dispatcher handler');
-    return codes[match[1]];
-  });
-  // Prefer 5–7 populated shards; fall back to 4/3 only when this particular
-  // randomized opcode assignment cannot populate the larger moduli.
-  const counts=[5,6,7];
-  for(let i=counts.length-1;i>0;i--){
-    const j=rand(i+1);[counts[i],counts[j]]=[counts[j],counts[i]];
-  }
-  const shardChoices=[...new Set([...counts,4,3])].filter(count=>
-    new Set(opcodeValues.map(op=>op%count)).size===count);
-  if(!shardChoices.length)throw new Error('Unable to partition VM opcode handlers');
-  const shardCount=shardChoices[0];
-  const multipliers=Array.from({length:180},(_,i)=>i+17)
-    .filter(value=>gcd(value,shardCount)===1);
-  const mul=multipliers[rand(multipliers.length)],bias=rand(2000)+1;
-  const buckets=Array.from({length:shardCount},()=>[]);
-  for(const part of handlers){
-    const match=/^\s*(?:if|elseif) op==O\.([A-Z]+) then/.exec(part[0]);
-    if(!match)throw new Error('Unrecognized dispatcher handler');
-    const bucket=(codes[match[1]]*mul+bias)%shardCount;
-    buckets[bucket].push(part);
-  }
-  if(buckets.some(bucket=>bucket.length===0)) {
-    throw new Error('Invariant violated: empty VM handler shard');
-  }
-  const shards=[];
-  let outer=0;
-  for(let bucket=0;bucket<shardCount;bucket++){
-    const parts=buckets[bucket];
-    if(!parts.length)continue;
-    shards.push('      '+(outer++===0?'if':'elseif')+
-      ' ((op*'+mul+'+'+bias+')%'+shardCount+')=='+bucket+' then');
-    for(let i=0;i<parts.length;i++){
-      const part=parts[i];
-      const first=part[0].replace(/^(\s*)(?:if|elseif) op==O\./,
-        '        '+(i===0?'if':'elseif')+' op==O.');
-      shards.push(first,...part.slice(1));
+    return match[1];
+  };
+  const guardedName='_d'+crypto.randomBytes(5).toString('hex');
+  const emitHandler=(part,head,indent)=>{
+    // Preserve an instruction's inline body, e.g. "then R[a]=K[b]".
+    const tail=/\bthen(.*)$/.exec(part[0]);
+    if(!tail)throw new Error('Malformed opcode handler body');
+    return [indent+head+' '+guardedName+'=true;'+tail[1],...part.slice(1)];
+  };
+  const useTree=options.dispatchMode==='tree'||
+    (options.dispatchMode!=='shard'&&rand(2)===0);
+  const dispatch=['      local '+guardedName+'=false'];
+  let dispatchStructure;
+  if(useTree){
+    // A sorted decision tree has a different structure from modulo shards;
+    // nodes change when per-build opcode IDs are permuted.
+    const sorted=[...handlers].sort((x,y)=>
+      codes[opcodeName(x)]-codes[opcodeName(y)]);
+    const tree=(items,depth)=>{
+      if(items.length===0)return [];
+      const pad=' '.repeat(depth);
+      const mid=Math.floor(items.length/2);
+      const pivot=items[mid],tag='O.'+opcodeName(pivot);
+      if(items.length===1){
+        return [...emitHandler(pivot,'if op=='+tag+' then',pad),
+          pad+'end'];
+      }
+      const out=[pad+'if op<'+tag+' then'];
+      out.push(...tree(items.slice(0,mid),depth+2));
+      out.push(pad+'elseif op>'+tag+' then');
+      out.push(...tree(items.slice(mid+1),depth+2));
+      out.push(...emitHandler(pivot,'else',pad));
+      out.push(pad+'end');
+      return out;
+    };
+    dispatch.push(...tree(sorted,6));
+    dispatchStructure='tree';
+  }else{
+    // Choose only multipliers coprime to bucket count; all shards populated.
+    const values=handlers.map(part=>codes[opcodeName(part)]);
+    const counts=[5,6,7];
+    for(let i=counts.length-1;i>0;i--){
+      const j=rand(i+1);[counts[i],counts[j]]=[counts[j],counts[i]];
     }
-    shards.push('        else nativeError("BLACKMAMER V3 invalid opcode") end');
+    const choices=[...new Set([...counts,4,3])].filter(n=>
+      new Set(values.map(op=>op%n)).size===n);
+    if(!choices.length)throw new Error('Unable to partition VM opcode handlers');
+    const shardCount=choices[0];
+    const multipliers=Array.from({length:180},(_,i)=>i+17)
+      .filter(value=>gcd(value,shardCount)===1);
+    const mul=multipliers[rand(multipliers.length)],bias=rand(2000)+1;
+    const buckets=Array.from({length:shardCount},()=>[]);
+    for(const part of handlers){
+      const bucket=(codes[opcodeName(part)]*mul+bias)%shardCount;
+      buckets[bucket].push(part);
+    }
+    if(buckets.some(x=>x.length===0))
+      throw new Error('Empty dispatcher bucket');
+    for(let bucket=0;bucket<shardCount;bucket++){
+      const parts=buckets[bucket],keyword=bucket===0?'if':'elseif';
+      dispatch.push('      '+keyword+
+        ' ((op*'+mul+'+'+bias+')%'+shardCount+')=='+bucket+' then');
+      for(let i=0;i<parts.length;i++){
+        dispatch.push(...emitHandler(parts[i],
+          (i===0?'if':'elseif')+' op==O.'+opcodeName(parts[i])+' then',
+          '        '));
+      }
+      dispatch.push('        end');
+    }
+    dispatch.push('      end');
+    dispatchStructure='shard';
   }
-  shards.push('      else nativeError("BLACKMAMER V3 invalid opcode") end');
-  lines.splice(dispatchStart,dispatchEnd-dispatchStart+1,...shards);
+  dispatch.push('      if not '+guardedName+
+    ' then nativeError("BLACKMAMER V3 invalid opcode") end');
+  lines.splice(dispatchStart,dispatchEnd-dispatchStart+1,...dispatch);
   const code=lines.join('\n').replace(/\bO\.([A-Z]+)\b/g,(_,name)=>{
     if(!Object.hasOwn(codes,name)) throw new Error('Unknown VM opcode '+name);
     return String(codes[name]);
   });
   return {code,engine:'BLACKMAMER V3 Native VM',virtualizedFunctions:funcs.length,
+    dispatchStructure,
     fusedInstructions:fusionTotal,superInstructionKinds:fusionCounts,
     vmInstructions:funcs.reduce((n,f)=>n+f.ins.length,0),
     antiTamper: options.antiTamper!==false, antiDebug: options.antiDebug!==false};

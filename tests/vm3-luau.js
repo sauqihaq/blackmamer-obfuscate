@@ -60,7 +60,10 @@ try {
       assert.match(result.code, /off\+\(pc-1\)\*16/, 'PC must address packed instruction words');
       assert.doesNotMatch(result.code, /instructions\[j\]=\{/, 'No eager instruction array allowed');
 
-      assert.match(result.code, /\(\(op\*\d+\+\d+\)%[34567]\)/, 'VM should dispatch through populated randomized opcode buckets');
+      assert.ok(['shard','tree'].includes(result.dispatchStructure),'Expected polymorphic VM dispatch');
+      assert.equal((result.code.match(/BLACKMAMER V3 invalid opcode/g)||[]).length,1,
+        'Only one shared invalid opcode failure is allowed');
+      assert.match(result.code,/if not _d[a-f0-9]{10} then nativeError\("BLACKMAMER V3 invalid opcode"\) end/);
       assert.doesNotMatch(result.code, /local P=\{\{\d/, 'P must be decoded on demand');
 
       const actual=execute(result.code,label+'-v3-'+attempt);

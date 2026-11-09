@@ -412,7 +412,17 @@ function compile(source, options={}) {
   // client-side code: the decoder and its seeds must travel with the output.
   const salt=crypto.randomInt(2000,100000);
   const modulus=10000019, hashMod=1000000007;
-  const packed=funcs.map(f=>({p:f.p,ins:f.ins.map(ins=>ins.map((n,j)=>(n+salt+5*(j+1)+modulus)%modulus))}));
+  // Build-scoped opcode ids are further masked per function and instruction PC.
+  // A static row no longer carries an opcode that can be mapped with one
+  // global subtraction. This is polymorphism, not secret encryption.
+  const packed=funcs.map(f=>{
+    const opSeed=rand(255)+1;
+    const ins=f.ins.map((row,idx)=>row.map((n,j)=>{
+      const masked=j===0 ? (n ^ ((opSeed+(idx+1)*41)%256)) : n;
+      return (masked+salt+5*(j+1)+modulus)%modulus;
+    }));
+    return {p:f.p,ins,opSeed};
+  });
   function seal(bytes,seed) {
     let state=seed,prev=0;
     return bytes.map((plain,i)=>{
@@ -436,6 +446,7 @@ function compile(source, options={}) {
     const raw=[];
     pack16(f.p.length,raw);
     pack16(f.ins.length,raw);
+    raw.push(f.opSeed);
     for(const v of f.p) pack24(v,raw);
     for(const row of f.ins) for(const v of row)pack24(v,raw);
     const seed=rand(60000)+1000;
@@ -503,10 +514,10 @@ function compile(source, options={}) {
     '    local bytes=unseal(bundle[2],bundle[1]);local at=1',
     '    local function two()local n=bytes[at]+256*bytes[at+1];at=at+2;return n end',
     '    local function three()local n=bytes[at]+256*bytes[at+1]+65536*bytes[at+2];at=at+3;return n end',
-    '    local pn=two();local inum=two();local params={};local instructions={}',
+    '    local pn=two();local inum=two();local opSeed=bytes[at];at=at+1;local params={};local instructions={}',
     '    for j=1,pn do params[j]=three() end',
     '    for j=1,inum do instructions[j]={three(),three(),three(),three()}end',
-    '    P[id]={params,instructions}',
+    '    P[id]={params,instructions,opSeed}',
     '  end',
     '  local K={}',
     '  for k,entry in ipairs(Q) do',
@@ -535,7 +546,7 @@ function compile(source, options={}) {
     '    while true do',
     '      ticks=ticks+1; if ticks>1000000 then nativeError("BLACKMAMER V3 instruction limit") end',
     '      local row=instructions[pc];if not row then nativeError("BLACKMAMER V3 bad PC") end',
-    '      local op=((row[1]-SALT-5)%modulus);',
+    '      local op=bxor((row[1]-SALT-5)%modulus,(spec[3]+pc*41)%256);',
     '      local a=((row[2]-SALT-10)%modulus);if a>modulus/2 then a=a-modulus end',
     '      local b=((row[3]-SALT-15)%modulus);if b>modulus/2 then b=b-modulus end',
     '      local c=((row[4]-SALT-20)%modulus);if c>modulus/2 then c=c-modulus end',
@@ -605,11 +616,34 @@ function compile(source, options={}) {
     const j=rand(i+1);
     [handlers[i],handlers[j]]=[handlers[j],handlers[i]];
   }
-  const permuted=handlers.flatMap((part,i)=>{
-    const first=part[0].replace(/^(\s*)(?:if|elseif)(?= op==O\.)/, '$1'+(i===0?'if':'elseif'));
-    return [first,...part.slice(1)];
-  });
-  lines.splice(dispatchStart,dispatchEnd-dispatchStart,...permuted);
+  // Two-stage opcode dispatcher. The first level uses a per-build affine
+  // bucket mapping; each bucket contains a separately permuted set of
+  // semantic handlers. It avoids one flat globally enumerable opcode chain.
+  const shardCount=5+rand(3),mul=rand(180)+17,bias=rand(2000)+1;
+  const buckets=Array.from({length:shardCount},()=>[]);
+  for(const part of handlers){
+    const match=/^\s*(?:if|elseif) op==O\.([A-Z]+) then/.exec(part[0]);
+    if(!match)throw new Error('Unrecognized dispatcher handler');
+    const bucket=(codes[match[1]]*mul+bias)%shardCount;
+    buckets[bucket].push(part);
+  }
+  const shards=[];
+  let outer=0;
+  for(let bucket=0;bucket<shardCount;bucket++){
+    const parts=buckets[bucket];
+    if(!parts.length)continue;
+    shards.push('      '+(outer++===0?'if':'elseif')+
+      ' ((op*'+mul+'+'+bias+')%'+shardCount+')=='+bucket+' then');
+    for(let i=0;i<parts.length;i++){
+      const part=parts[i];
+      const first=part[0].replace(/^(\s*)(?:if|elseif) op==O\./,
+        '        '+(i===0?'if':'elseif')+' op==O.');
+      shards.push(first,...part.slice(1));
+    }
+    shards.push('        else nativeError("BLACKMAMER V3 invalid opcode") end');
+  }
+  shards.push('      else nativeError("BLACKMAMER V3 invalid opcode") end');
+  lines.splice(dispatchStart,dispatchEnd-dispatchStart+1,...shards);
   const code=lines.join('\n').replace(/\bO\.([A-Z]+)\b/g,(_,name)=>{
     if(!Object.hasOwn(codes,name)) throw new Error('Unknown VM opcode '+name);
     return String(codes[name]);

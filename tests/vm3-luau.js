@@ -52,6 +52,8 @@ try {
       assert.match(result.code, /local E=\{\{/, 'Bytecode should be sealed in blob entries');
       assert.doesNotMatch(result.code, /local O=\{/, 'No cleartext opcode map');
       assert.doesNotMatch(result.code, /\bO\.(GET|K|CALL|RET|JUMP)\b/, 'No named opcode symbols');
+      assert.match(result.code, /op=bxor\(/, 'Opcode should decode using per-function and PC-dependent mask');
+      assert.match(result.code, /\(\(op\*\d+\+\d+\)%[567]\)/, 'VM should dispatch through randomized opcode buckets');
       assert.doesNotMatch(result.code, /local P=\{\{\d/, 'P must be decoded on demand');
 
       const actual=execute(result.code,label+'-v3-'+attempt);

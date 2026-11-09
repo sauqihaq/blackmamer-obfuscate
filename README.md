@@ -88,3 +88,11 @@ The integrity check covers the **sealed bytecode**, sealed constants, and argume
 The V3.1 regression suite runs the full 20-case Luau sample corpus under the official Luau CLI, three randomized builds per case. An additional test edits a byte of the sealed bytecode and asserts failure. Roblox Studio runtime still needs its own test.
 
 This change does **not** alter the API contract: choose `"preset":"NativeV3"`, `"target":"LuaU"`, `"vmMode":"native-v3"`. Legacy Prometheus presets are unaffected.
+
+## BLACKMAMER Native VM V3.2 — per-function opcode polymorphism (experimental)
+
+The V3.2 runtime is an original extension of BLACKMAMER V3.1. Each compiled function now has its own opcode masking seed, and the encoded opcode depends on the **instruction position**. The runtime unmasks it using the current function's seed and program counter, rather than using one bytecode-wide opcode formula. The dispatcher is also split into 5–7 randomized branches whose opcode buckets and handler ordering change on each build.
+
+These changes reduce obvious static signatures and make one universal opcode lookup less convenient. **They do not make bytecode confidential**: all masks, seeds and the interpreter are shipped to the Luau client, so a determined analyst can emulate it or instrument its runtime. Input as small as `print("Hello World")` remains trivial in underlying semantics regardless of output size. The obfuscated Luraph-style sample supplied for comparison was inspected **statically** (not executed) and is not copied into this repository.
+
+The Luau CLI CI suite verifies 20 example programs across 3 randomized builds each (60 total), with API checks and bytecode-integrity tamper testing. Actual Roblox Studio compatibility, performance, and independent deobfuscation effort are still unmeasured. Do not claim parity with Luraph, and do not store real Roblox secrets in a client script.

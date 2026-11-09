@@ -7,6 +7,7 @@ on:
       - feature/vm3-per-function-polymorphism-v32
       - feature/vm3-opaque-bytecode-v31
       - fix/vm3-shard-dispatch-degenerate
+      - feature/vm3-buffer-prototypes-v33
       - main
     paths:
       - 'blackmamer-vm3.js'

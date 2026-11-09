@@ -250,7 +250,7 @@ class Parser {
   }
   parse(){const body=this.block(new Set());this.must('<eof>');return body;}
 }
-const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO'];
+const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL'];
 function compile(source, options={}) {
   if(typeof source!=='string') throw new TypeError('Expected Luau source string');
   if(Buffer.byteLength(source)>128*1024) throw new SyntaxErrorV3('V3 source limit: 128 KB');
@@ -406,6 +406,60 @@ function compile(source, options={}) {
     funcs[id-1]={p:params.map(key),ins:builder.ins};
     return id;
   };
+  // Compile-time superinstruction pass: coalesce adjacent, independent loads
+  // or a constant initialization + local declaration. JUMP/JF/JT destination
+  // indices are relocated after the rewrite. Never fuse across a branch target.
+  //
+  // This changes the compiled instruction language, not just its display.
+  // It makes naive one-to-one opcode lifting less universal, but it is still
+  // invertible with runtime instrumentation; no client-side VM is a secret.
+  const fusionCounts={GETK:0,KGET:0,KK:0,KDECL:0};
+  if(options.superInstructions!==false){
+    for(const fn of funcs){
+      const before=fn.ins;
+      const targets=new Set();
+      for(const row of before){
+        if(row[0]===codes.JUMP)targets.add(row[1]);
+        else if(row[0]===codes.JF||row[0]===codes.JT)targets.add(row[2]);
+      }
+      const relocated=Array(before.length+2).fill(0),output=[];
+      let pos=1;
+      while(pos<=before.length){
+        const one=before[pos-1],two=before[pos];
+        const canMerge=two&&!targets.has(pos+1)&&rand(100)<82;
+        let kind=null;
+        if(canMerge){
+          if(one[0]===codes.GET&&two[0]===codes.K&&one[1]!==two[1])kind='GETK';
+          else if(one[0]===codes.K&&two[0]===codes.GET&&one[1]!==two[1])kind='KGET';
+          else if(one[0]===codes.K&&two[0]===codes.K&&one[1]!==two[1])kind='KK';
+          else if(one[0]===codes.K&&two[0]===codes.DECL&&one[1]===two[2])kind='KDECL';
+        }
+        relocated[pos]=output.length+1;
+        if(kind){
+          relocated[pos+1]=output.length+1;
+          let row;
+          if(kind==='KDECL')row=[codes.KDECL,one[1],one[2],two[1]];
+          else row=[codes[kind],one[2],two[2],argSets.push([one[1],two[1]])];
+          output.push(row);fusionCounts[kind]++;pos+=2;
+        } else{
+          output.push(one.slice());pos++;
+        }
+      }
+      relocated[before.length+1]=output.length+1;
+      for(const row of output){
+        if(row[0]===codes.JUMP){
+          if(!relocated[row[1]])throw new Error('Invalid fused jump target');
+          row[1]=relocated[row[1]];
+        } else if(row[0]===codes.JF||row[0]===codes.JT){
+          if(!relocated[row[2]])throw new Error('Invalid fused conditional target');
+          row[2]=relocated[row[2]];
+        }
+      }
+      fn.ins=output;
+    }
+  }
+  const fusionTotal=Object.values(fusionCounts).reduce((a,b)=>a+b,0);
+
   const initialEntry=makeBuilder(parsed,[]);
   // A function index must not disclose the root prototype or lexical order.
   // Shuffle the prototype registry each build and fix all CLOSURE operands
@@ -482,7 +536,7 @@ function compile(source, options={}) {
   for(const [typ,seed,bytes] of sealedConstants){mix(typ);mix(seed);mix(bytes.length);bytes.forEach(mix);}
   for(const args of argSets){mix(args.length);args.forEach(mix);}
   const lines=[
-    '-- BLACKMAMER VM V3.3',
+    '-- BLACKMAMER VM V3.4',
     'return (function(...)',
     '  local E=' + luaFunctions,
     '  local Q=' + luaConstants,
@@ -580,6 +634,10 @@ function compile(source, options={}) {
     '      local nextpc=pc+1',
     '      if op==O.K then R[a]=K[b]',
     '      elseif op==O.GET then R[a]=get(K[b])',
+    '      elseif op==O.GETK then local pair=A[c];R[pair[1]]=get(K[a]);R[pair[2]]=K[b]',
+    '      elseif op==O.KGET then local pair=A[c];R[pair[1]]=K[a];R[pair[2]]=get(K[b])',
+    '      elseif op==O.KK then local pair=A[c];R[pair[1]]=K[a];R[pair[2]]=K[b]',
+    '      elseif op==O.KDECL then local value=K[b];R[a]=value;env.vars[K[c]]=value==nil and NIL or value',
     '      elseif op==O.DECL then local v=R[b];env.vars[K[a]]=v==nil and NIL or v',
     '      elseif op==O.SET then set(K[a],R[b])',
     '      elseif op==O.TABLE then R[a]={}',
@@ -700,6 +758,7 @@ function compile(source, options={}) {
     return String(codes[name]);
   });
   return {code,engine:'BLACKMAMER V3 Native VM',virtualizedFunctions:funcs.length,
+    fusedInstructions:fusionTotal,superInstructionKinds:fusionCounts,
     vmInstructions:funcs.reduce((n,f)=>n+f.ins.length,0),
     antiTamper: options.antiTamper!==false, antiDebug: options.antiDebug!==false};
 }

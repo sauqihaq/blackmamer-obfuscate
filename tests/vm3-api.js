@@ -48,6 +48,12 @@ async function main(){
   const basic=await post({script,preset:'NativeV3',target:'LuaU',superInstructions:false});
   assert.equal(basic.status,200,JSON.stringify(basic.data));
   assert.equal(basic.data.blackmamerVM.fusedInstructions,0);
-  console.log('Native V3 API: 5 requests passed; superinstructions selectable and unsupported syntax fails closed');
+  const saweriaScript=require('node:fs').readFileSync(require('node:path').resolve(__dirname,'fixtures/bm-saweria-fake-donate-client.luau'),'utf8');
+  const saweria=await post({script:saweriaScript,preset:'NativeV3',target:'LuaU',vmMode:'native-v3',blackmamerVM:true,antiTamper:true,antiDebug:true});
+  assert.equal(saweria.status,200,JSON.stringify(saweria.data).slice(0,1200));
+  assert.equal(saweria.data.blackmamerVM.fallback,false);
+  assert.ok(saweria.data.blackmamerVM.vmInstructions>200);
+  assert.ok(saweria.data.obfuscated.includes('BLACKMAMER VM V3.'));
+  console.log('Native V3 API: 6 requests passed, including full user BM Saweria source');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;}).finally(()=>server.kill());

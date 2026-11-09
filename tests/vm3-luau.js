@@ -121,6 +121,14 @@ try {
     'Encoded data should start with printable shuffled shards');
   assert.doesNotMatch(first.code,/\\[0-9]{3}/,
     'VM binary must not be emitted as decimal escaped byte strings');
+  const damagedSBox=first.code.replace(/(local SBOX_MASK=bit32\\.bxor\\(SALT%256,)(\\d+)/,
+    (_match,prefix,value)=>prefix+String(Number(value)^1));
+  assert.notEqual(damagedSBox,first.code,'S-Box masking input must be mutable for integrity test');
+  const sboxTest=path.join(dir,'tampered-sbox.luau');
+  fs.writeFileSync(sboxTest,damagedSBox,'utf8');
+  const corruptedSBox=spawnSync(LUAU,[sboxTest],{encoding:'utf8',timeout:10000});
+  assert.ok(corruptedSBox.status!==0,'Altered S-Box mask must fail integrity verification');
+
   const changedBlob=first.code.replace(/(local _[a-z]{7}=\{")([A-Za-z0-9_-])/,
     (_match,prefix,glyph)=>prefix+(glyph==='A'?'B':'A'));
   assert.notEqual(changedBlob,first.code,'Encoded shard must have an editable test byte');

@@ -56,9 +56,36 @@ const {chromium}=require('playwright');
       null,{timeout:12000});
     console.log(JSON.stringify({test:'Browser upload .luau works',pass:true}));
 
+    const sawSourceUrl='https://raw.githubusercontent.com/sauqihaq/blackmamer-obfuscate/main/tests/fixtures/bm-saweria-fake-donate-client.luau';
+    const sawResponse=await fetch(sawSourceUrl,{signal:AbortSignal.timeout(30000)});
+    assert.equal(sawResponse.status,200);
+    const sawSource=await sawResponse.text();
+    assert.ok(sawSource.includes('for _, userId in ipairs('));
+    await page.locator('#source').fill(sawSource);
+    const before=Date.now();
+    await page.locator('#obfuscate').click();
+    await page.waitForFunction(()=>{
+      const button=document.querySelector('#obfuscate');
+      const result=document.querySelector('#result')?.value||'';
+      const status=document.querySelector('#taskStatus')?.textContent||'';
+      const message=document.querySelector('#feedback')?.textContent||'';
+      return !button?.disabled&&(result.includes('BLACKMAMER VM V3.4')||status.includes('Gagal')||message.includes('Gagal'));
+    },null,{timeout:130000});
+    const sawOutput=await page.locator('#result').inputValue();
+    const sawStatus=await page.locator('#taskStatus').innerText();
+    const sawMessage=await page.locator('#feedback').innerText();
+    assert.ok(sawOutput.includes('BLACKMAMER VM V3.4'),
+      'Real site still rejects full BM Saweria client: '+sawStatus+' / '+sawMessage);
+    assert.ok(sawOutput.length>10000);
+    assert.ok(/Selesai/i.test(sawStatus));
+    assert.equal(await page.locator('#download').isEnabled(),true);
+    console.log(JSON.stringify({test:'Browser full BM Saweria NativeV3 obfuscation',pass:true,
+      scriptChars:sawSource.length,outputChars:sawOutput.length,
+      ms:Date.now()-before,status:sawStatus}));
+    
     assert.deepEqual(errors,[],'JavaScript page errors: '+JSON.stringify(errors));
     console.log(JSON.stringify({test:'No uncaught JavaScript page errors',pass:true}));
-    console.log('RESULT 5/5 BROWSER TESTS PASSED');
+    console.log('RESULT 6/6 BROWSER TESTS PASSED');
   }finally{
     await browser.close();
   }

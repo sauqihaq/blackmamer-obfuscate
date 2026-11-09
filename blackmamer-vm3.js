@@ -634,10 +634,10 @@ function compile(source, options={}) {
   for(let i=counts.length-1;i>0;i--){
     const j=rand(i+1);[counts[i],counts[j]]=[counts[j],counts[i]];
   }
-  const options=[...new Set([...counts,4,3])].filter(count=>
+  const shardChoices=[...new Set([...counts,4,3])].filter(count=>
     new Set(opcodeValues.map(op=>op%count)).size===count);
-  if(!options.length)throw new Error('Unable to partition VM opcode handlers');
-  const shardCount=options[0];
+  if(!shardChoices.length)throw new Error('Unable to partition VM opcode handlers');
+  const shardCount=shardChoices[0];
   const multipliers=Array.from({length:180},(_,i)=>i+17)
     .filter(value=>gcd(value,shardCount)===1);
   const mul=multipliers[rand(multipliers.length)],bias=rand(2000)+1;

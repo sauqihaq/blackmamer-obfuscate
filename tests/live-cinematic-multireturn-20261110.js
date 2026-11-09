@@ -35,6 +35,10 @@ async function check(){
  assert.equal(vm.fallback,false);
  assert.ok(output.includes('BLACKMAMER VM V3.4'));
  assert.ok(output.length>10000);
+ assert.match(output,/local _[a-z]{7}=\\{"[A-Za-z0-9_-]+"/,
+   'Current Render should emit shuffled alphanumeric payload shards');
+ assert.doesNotMatch(output,/\\\\[0-9]{3}/,
+   'Current Render must no longer serialize VM bytecode as decimal escape numbers');
  console.log('PASS: Live Render successfully obfuscates exact 6,136-character Donation Cinematic without fallback');
 }
 check().catch(e=>{console.error(e.stack||e);process.exitCode=1});

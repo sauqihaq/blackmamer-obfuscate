@@ -136,3 +136,14 @@ The VM also handles Luau generalized table iteration such as `for _, value in aT
 Three user-supplied Roblox scripts were inspected and **compiled privately** as compatibility checks: `BM SAWERIA.luau`, `AntiTCS.luau`, and `BLACKMAMERVISUAL.luau`. The source files are not copied into this repository. BLACKMAMERVISUAL was supplied in a Windows single-byte encoding (not UTF-8); save it as UTF-8 before pasting/uploading if the browser displays replacement characters. Successful compilation is not proof of correct behavior in Roblox Studio.
 
 CI runs 224 randomized dispatcher checks, 66 native Luau comparisons derived from the three scripts' publicly safe syntax patterns, and the existing NativeV3/API/Donation Cinematic regressions. No Luraph-equivalent security claim is made: the interpreter and all decode parameters remain client-side.
+
+
+## NativeV3 threat model: embedded keys, offline decoding and lazy constants
+
+The generated LuaU VM is self-contained. It must include all the information needed to decrypt and execute itself, including opcode-derived salts, per-entry seeds, the shuffled payload alphabet and decoding logic. A reverse engineer who can read and execute the client output can reconstruct these values. **It is not possible to keep a cryptographic secret secret from an attacker while shipping both the protected data and everything required to decrypt it to the same attacker.**
+
+NativeV3 now **decodes each constant on first access**, caching used values with a sentinel to distinguish `nil` from not-yet-decoded entries. Previously all Q constants were unsealed at startup. This reduces immediately available plaintext in the VM and avoids work on unused functions. It does **not** remove static keys, guarantee anti-dump protection, or prevent a reverse engineer from implementing the same decoder offline.
+
+To protect actual private logic, make server decisions in `ServerScriptService`/`ServerStorage` and expose narrow validated `RemoteEvent`/`RemoteFunction` APIs. In client LocalScripts, retain only the non-secret UI/animation logic. An online server-issued decryption key can make a static file alone insufficient to decode, but once the key reaches an attacker-controlled client it can be extracted; it needs a real backend/authentication and may reduce reliability when offline. Do not use variable `os.time()`/`os.clock()` as standalone decryption keys, or assume `game.PlaceId`/`game.JobId` are secrets.
+
+Integrity checks (anti-tamper) protect against some unauthorized modifications during execution. Debug-hook checks detect only a narrow subset of runtime changes. Neither is a defense against reading the file, reconstructing its decoder externally or observing plaintext during execution. Any claim of Luraph-equivalent resistance requires independent reverse-engineering benchmarks.

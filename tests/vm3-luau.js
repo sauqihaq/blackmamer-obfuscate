@@ -57,6 +57,8 @@ try {
       assert.match(result.code, /buffer\.fromstring/, 'Runtime must materialize bytecode as Luau buffer');
       assert.match(result.code, /buffer\.readu32/, 'VM must stream 32-bit operands through buffer');
       assert.match(result.code, /local function prototype\(fid\)/, 'Prototype decoder must be callable on demand');
+      assert.match(result.code, /local function K\(index\)/, 'Constants should decode lazily on access');
+      assert.doesNotMatch(result.code, /for k,entry in ipairs\(Q\)/, 'Constants must not unseal during VM startup');
       assert.match(result.code, /off\+\(pc-1\)\*16/, 'PC must address packed instruction words');
       assert.doesNotMatch(result.code, /instructions\[j\]=\{/, 'No eager instruction array allowed');
 

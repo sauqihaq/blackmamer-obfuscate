@@ -78,7 +78,7 @@ try {
       ...presetArgs,
       '--LuaU',
       '--nocolors',
-      vmFile,
+      t.preset === 'RobloxStrong' ? v2File : vmFile,
       '--out', outputFile
     ], t.label + ' Prometheus');
 

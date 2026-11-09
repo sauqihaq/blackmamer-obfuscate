@@ -1,0 +1,72 @@
+name: BLACKMAMER Native V4 C++ + Luau
+
+on:
+  pull_request:
+    paths:
+      - 'blackmamer-vm3.js'
+      - 'native/**'
+      - 'native-sealer.js'
+      - 'server.js'
+      - 'Dockerfile'
+      - 'netlify-frontend/**'
+      - 'tests/native-sealer.js'
+      - 'tests/vm4-luau.js'
+      - '.github/workflows/native-v4.yml'
+  push:
+    branches: [main, feature/native-v4-cpp-hardening]
+    paths:
+      - 'blackmamer-vm3.js'
+      - 'native/**'
+      - 'native-sealer.js'
+      - 'server.js'
+      - 'Dockerfile'
+      - 'netlify-frontend/**'
+      - 'tests/native-sealer.js'
+      - 'tests/vm4-luau.js'
+      - '.github/workflows/native-v4.yml'
+
+jobs:
+  native-v4-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify compiler and frontend syntax
+        run: |
+          node --check blackmamer-vm3.js
+          node --check native-sealer.js
+          node --check server.js
+          node tests/frontend-smoke.js
+      - name: Build native C++17 sealer (warnings treated as errors)
+        run: g++ -O2 -std=c++17 -Wall -Wextra -Werror native/sealer.cpp -o native/bm-sealer
+      - name: Compare C++ with JavaScript fallback across randomized batches
+        run: node tests/native-sealer.js
+      - name: Run regression suites and V3/V4 API integration
+        run: |
+          npm install --omit=dev
+          node tests/vm3-api.js
+          node tests/vm4-api.js
+      - name: Docker build including C++ native binary
+        run: docker build -t blackmamer-native-v4 .
+
+  native-v4-luau:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compile official Luau CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ make
+          git clone --depth 1 https://github.com/luau-lang/luau.git luau-src
+          cmake -S luau-src -B luau-build -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_TESTS=OFF
+          cmake --build luau-build --target Luau.Repl.CLI --parallel 2
+      - name: Run hardened V4 execution and tamper regression
+        env:
+          LUAU_BIN: ./luau-build/luau
+        run: node tests/vm4-luau.js

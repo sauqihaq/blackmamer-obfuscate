@@ -143,15 +143,22 @@ app.post('/api/obfuscate', async (req, res) => {
         console.warn('[BLACKMAMER VM2] Compile failed, retaining source:', error.message);
       }
     }
-    try {
-      vmResult = transform(vm2Result.code, {
-        maxLiteralBytes: 256,
-        maxTotalBytes: 4096
-      });
-    } catch (error) {
-      fallback = true;
+    // RobloxStrong already encrypts strings inside Prometheus. Feeding V1's
+    // nested string-decoder closures through another full VM can destabilize
+    // some randomized builds, so keep that pass out of this preset.
+    if (preset === 'RobloxStrong') {
       vmResult = { code: vm2Result.code, literals: 0, protectedBytes: 0 };
-      console.warn('[BLACKMAMER VM1] String pass failed:', error.message);
+    } else {
+      try {
+        vmResult = transform(vm2Result.code, {
+          maxLiteralBytes: 256,
+          maxTotalBytes: 4096
+        });
+      } catch (error) {
+        fallback = true;
+        vmResult = { code: vm2Result.code, literals: 0, protectedBytes: 0 };
+        console.warn('[BLACKMAMER VM1] String pass failed:', error.message);
+      }
     }
   }
 

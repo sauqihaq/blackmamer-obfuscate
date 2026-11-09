@@ -103,6 +103,10 @@ const {chromium}=require('playwright');
     assert.ok(cinematicOutput.includes('BLACKMAMER VM V3.4'),
       'Netlify browser still reports 422 for exact cinematic: '+cinematicFeedback);
     assert.ok(cinematicOutput.length>10000);
+    assert.match(cinematicOutput,/local SBOX_MASK=bit32\.bxor/,
+      'Netlify must receive Hybrid VM with per-build S-Box');
+    assert.match(cinematicOutput,/local function field\(at,logical\)/,
+      'Netlify must use compact/wide shuffled operand layout');
     assert.match(cinematicOutput,/local _[a-z]{7}=\{"[A-Za-z0-9_-]+"/,
       'Netlify output should use shuffled printable bytecode shards');
     assert.doesNotMatch(cinematicOutput,/\\[0-9]{3}/,

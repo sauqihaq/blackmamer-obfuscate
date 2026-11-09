@@ -16,6 +16,10 @@ const cases=[
   ['precedence','print(-2^2,2^3^2,10%3)'],
   ['branch','local x=5\nif x>8 then print("no") elseif x==5 then print("yes") else print("oops") end'],
   ['while','local i=1\nlocal s=0\nwhile i<=5 do s=s+i;i=i+1 end\nprint(s)'],
+  ['ifexpr','local a=if 7>3 then 100 else 200\nprint(a)'],
+  ['fornum','local sum=0\nfor i=1,5 do sum=sum+i end\nprint(sum)'],
+  ['forstep','for i=5,1,-2 do print(i) end'],
+  ['repeat','local n=0\nrepeat n=n+1 until n==3\nprint(n)'],
   ['break','local i=0\nwhile true do i=i+1;if i==4 then break end end\nprint(i)'],
   ['table','local t={x=3, [4]="a"}\nt.x=t.x+2\nprint(t.x,t[4])'],
   ['closure','local function make(x)\n return function(y) return x+y end\nend\nlocal add=make(11)\nprint(add(4))'],
@@ -56,7 +60,7 @@ try {
   assert.notEqual(first.code,second.code,'VM output must mutate between builds');
   assert.ok(!first.code.includes('Hello World'),'String constant should be encoded');
   assert.throws(()=>compile('local x: number = 1'),/V3_UNSUPPORTED_SYNTAX/);
-  assert.throws(()=>compile('for i=1,3 do print(i) end'),/V3_UNSUPPORTED_SYNTAX/);
+  assert.throws(()=>compile('continue'),/V3_UNSUPPORTED_SYNTAX/);
   let damaged=first.code.replace(/local CHECK=(\d+)/,(_,n)=>'local CHECK='+String(Number(n)+1));
   assert.notEqual(damaged,first.code);
   const t=path.join(dir,'tampered.luau');

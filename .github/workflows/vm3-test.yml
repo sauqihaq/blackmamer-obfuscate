@@ -12,6 +12,7 @@ on:
       - feature/native-v3-generic-for-multireturn-saweria
       - fix/nativev3-cinematic-syntax-diagnostics
       - fix/nativev3-function-multireturn-cinematic
+      - feature/vm3-shuffled-alphabet-blob-encoding
       - main
     paths:
       - 'blackmamer-vm3.js'

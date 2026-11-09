@@ -296,6 +296,10 @@ function compile(source, options={}) {
   if(typeof source!=='string') throw new TypeError('Expected Luau source string');
   if(Buffer.byteLength(source)>128*1024) throw new SyntaxErrorV3('V3 source limit: 128 KB');
   const parsed=new Parser(source).parse();
+  // V4 defaults to a second independent register-bytecode interpreter.
+  // The outer micro-VM decodes every inner VM instruction before dispatch.
+  // V3 keeps its original single-VM execution path.
+  const nestedVM=options.hardened===true && options.nestedVM!==false;
   const used=new Set(), codes={};
   for(const op of OPS){let id;do{id=rand(220)+17;}while(used.has(id));used.add(id);codes[op]=id;}
   const consts=[], constKeys=new Map(), funcs=[], argSets=[];
@@ -708,16 +712,62 @@ function compile(source, options={}) {
     const seed=rand(60000)+1000;
     return [typ,seed,raw];
   });
+
+  // Outer decoder micro-VM: its own instruction set, random opcodes, registers,
+  // program counter and genuine runtime control-flow branching. This is not
+  // merely another encoding pass: every inner instruction is processed by a
+  // separately interpreted microprogram.
+  //
+  // Two equivalent operand-unmasking paths are selected using the current
+  // inner PC and per-prototype opSeed. This is a runtime-dependent branch,
+  // NOT a secret key or an unbreakable opaque predicate.
+  const outerOpNames=['PREP','FETCH','BRANCH','MASK','MASK_ALT','XOR','JUMP','SIGN','HALT','NOOP'];
+  const outerOpIds={};
+  let outerProgram=null,outerSeed=0,outerBranchMul=0,outerBranchBias=0;
+  if(nestedVM){
+    const seen=new Set();
+    for(const name of outerOpNames){
+      let id;do{id=27+rand(200)}while(seen.has(id));
+      seen.add(id);outerOpIds[name]=id;
+    }
+    outerSeed=rand(60000)+1000;
+    outerBranchMul=7+2*rand(9); // odd: both runtime paths are reachable across PCs
+    outerBranchBias=1+rand(49);
+    const rows=[
+      ['PREP',0],['FETCH',0],['BRANCH',0],
+      ['MASK',0],['XOR',0],['JUMP',0]
+    ];
+    // Randomized unreachable padding complicates positional matching.
+    // Control flow never executes these rows.
+    for(let n=rand(4);n>0;n--)rows.push(['NOOP',0]);
+    const alternativePC=rows.length+1;
+    rows.push(['MASK_ALT',0],['XOR',0]);
+    const signedPC=rows.length+1;
+    rows.push(['SIGN',0],['HALT',0]);
+    rows[2][1]=alternativePC;
+    rows[5][1]=signedPC;
+    const payload=[rows.length];
+    rows.forEach(([name,arg],i)=>{
+      const pos=i+1;
+      payload.push(outerOpIds[name]^((outerSeed+pos*53)%256));
+      payload.push(arg^((outerSeed*3+pos*17)%256));
+    });
+    outerProgram=[outerSeed,payload,rows.length];
+  }
   // C++17 sealer handles complete batches when available. A byte-for-byte
   // equivalent JS fallback keeps local development and old deployments working.
   const sealedBatch=sealBatch([
     ...rawFunctions.map(([seed,raw])=>[seed,raw]),
-    ...rawConstants.map(([,seed,raw])=>[seed,raw])
+    ...rawConstants.map(([,seed,raw])=>[seed,raw]),
+    ...(nestedVM?[[outerProgram[0],outerProgram[1]]]:[])
   ],sbox,seal);
   const sealedFunctions=rawFunctions.map(([seed,,width],i)=>
     [seed,sealedBatch.sealed[i],width]);
   const sealedConstants=rawConstants.map(([typ,seed],i)=>
     [typ,seed,sealedBatch.sealed[rawFunctions.length+i]]);
+  const sealedOuter=nestedVM
+    ? [outerProgram[0],sealedBatch.sealed[rawFunctions.length+rawConstants.length]]
+    : null;
   // NativeV3 payload layout v2: a per-build shuffled 64-symbol alphabet,
   // sealed binary -> radix-64 strings, then small interleaved and reordered
   // segments. The VM data is never written as obvious \ddd Lua escapes.
@@ -754,6 +804,9 @@ function compile(source, options={}) {
     [seed^seedMask(1,i+1),segment(bytes)]);
   const sealedConstantRefs=sealedConstants.map(([typ,seed,bytes],i)=>
     [typ,seed^seedMask(2,i+1),segment(bytes)]);
+  const outerRefs=nestedVM
+    ? [sealedOuter[0]^seedMask(3,1),segment(sealedOuter[1])]
+    : null;
   const inverseParts=segment(maskedInverse);
   const segmentOrder=Array.from({length:fragments.length},(_,i)=>i);
   for(let i=segmentOrder.length-1;i>0;i--){
@@ -764,6 +817,7 @@ function compile(source, options={}) {
   const luaFragments='{'+segmentOrder.map(id=>JSON.stringify(fragments[id])).join(',')+'}';
   const luaFunctions='{'+sealedFunctionRefs.map(([seed,parts])=>'{'+seed+','+refs(parts)+'}').join(',')+'}';
   const luaConstants='{'+sealedConstantRefs.map(([typ,seed,parts])=>'{'+typ+','+seed+','+refs(parts)+'}').join(',')+'}';
+  const luaOuter=nestedVM?'{'+outerRefs[0]+','+refs(outerRefs[1])+'}':null;
   const luaInverse=refs(inverseParts);
   const randomName=()=>('_'+Array.from({length:7},()=>String.fromCharCode(97+rand(26))).join(''));
   const blobName=randomName(),alphabetName=randomName(),mapName=randomName(),unpackName=randomName();
@@ -786,6 +840,10 @@ function compile(source, options={}) {
   mix(maskedInverse.length);maskedInverse.forEach(mix);
   mix(salt);mix(sboxMask);
   for(const args of argSets){mix(args.length);args.forEach(mix);}
+  if(nestedVM){
+    mix(outerRefs[0]);mix(sealedOuter[1].length);
+    sealedOuter[1].forEach(mix);
+  }
   const saltShare=rand(1<<30), checkShare=rand(1<<30);
   const runtimeSaltCheck=options.hardened
     ? '  local SALT=bit32.bxor('+saltShare+','+(salt^saltShare)+'); local CHECK=bit32.bxor('+checkShare+','+(digest^checkShare)+')'
@@ -795,6 +853,55 @@ function compile(source, options={}) {
   const runtimeOpcodeMask=options.hardened
     ? '((spec[3]+pc*41+(pc*pc%251)*17)%256)'
     : '((spec[3]+pc*41)%256)';
+
+  const outerRuntime=nestedVM?[
+    '  -- Outer VM has a separate sealed instruction stream and interpreter.',
+    '  local outerSeed=bxor(H[1],(SALT+(3+3)*7919+1543)%65536)',
+    '  local outerData=unseal(H[2],outerSeed)',
+    '  local outerCount=outerData[1]',
+    '  if not outerCount or outerCount<9 or outerCount>32 or #outerData~=1+2*outerCount then',
+    '    nativeError("BLACKMAMER V4 invalid outer bytecode") end',
+    '  local outerProgram={}',
+    '  for i=1,outerCount do',
+    '    local at=2+(i-1)*2',
+    '    outerProgram[i]={bxor(outerData[at],(outerSeed+i*53)%256),',
+    '      bxor(outerData[at+1],(outerSeed*3+i*17)%256)}',
+    '  end',
+    '  outerData=nil;H=nil',
+    '  local function outerVM(spec,pc,at,field)',
+    '    local regs={};local ip=1;local steps=0',
+    '    while true do',
+    '      steps=steps+1;if steps>32 then nativeError("BLACKMAMER V4 outer VM step overflow")end',
+    '      local instruction=outerProgram[ip]',
+    '      if not instruction then nativeError("BLACKMAMER V4 outer VM bad PC")end',
+    '      local opcode=instruction[1];local arg=instruction[2];local nextip=ip+1',
+    '      if opcode=='+outerOpIds.PREP+' then',
+    '        regs[5]=(spec[3]*97+(pc*(pc%131))*31)%modulus',
+    '      elseif opcode=='+outerOpIds.FETCH+' then',
+    '        for slot=1,4 do regs[slot]=field(at,slot)end',
+    '      elseif opcode=='+outerOpIds.BRANCH+' then',
+    '        if ((pc*'+outerBranchMul+'+spec[3]+'+outerBranchBias+')%2)==0 then nextip=arg end',
+    '      elseif opcode=='+outerOpIds.MASK+' then',
+    '        for slot=1,4 do',
+    '          regs[slot]=(regs[slot]-SALT-regs[5]-5*slot)%modulus end',
+    '      elseif opcode=='+outerOpIds.MASK_ALT+' then',
+    '        for slot=4,1,-1 do',
+    '          regs[slot]=((regs[slot]-regs[5]-5*slot)-SALT+modulus)%modulus end',
+    '      elseif opcode=='+outerOpIds.XOR+' then',
+    '        regs[1]=bxor(regs[1],(spec[3]+pc*41+(pc*pc%251)*17)%256)',
+    '      elseif opcode=='+outerOpIds.JUMP+' then nextip=arg',
+    '      elseif opcode=='+outerOpIds.SIGN+' then',
+    '        for slot=2,4 do if regs[slot]>modulus/2 then',
+    '          regs[slot]=regs[slot]-modulus end end',
+    '      elseif opcode=='+outerOpIds.NOOP+' then',
+    '        -- decoy padding',
+    '      elseif opcode=='+outerOpIds.HALT+' then',
+    '        return regs[1],regs[2],regs[3],regs[4]',
+    '      else nativeError("BLACKMAMER V4 invalid outer opcode") end',
+    '      ip=nextip',
+    '    end',
+    '  end'
+  ]:[];
   const lines=[
     options.hardened?'-- BLACKMAMER VM V4.0':'-- BLACKMAMER VM V3.4',
     'return (function(...)',
@@ -802,6 +909,7 @@ function compile(source, options={}) {
     '  local '+alphabetName+'='+JSON.stringify(alphabet),
     '  local E=' + luaFunctions,
     '  local Q=' + luaConstants,
+    ...(nestedVM?['  local H='+luaOuter]:[]),
     '  local A=' + luaArgs,
     '  local '+inverseRefsName+'='+luaInverse,
     runtimeSaltCheck,
@@ -840,6 +948,7 @@ function compile(source, options={}) {
     '  end',
     '  for _,b in ipairs(E)do b[2]='+unpackName+'(b[2])end',
     '  for _,b in ipairs(Q)do b[3]='+unpackName+'(b[3])end',
+    ...(nestedVM?['  H[2]='+unpackName+'(H[2])']:[]),
     '  local '+inverseName+'='+unpackName+'('+inverseRefsName+')',
     '  '+blobName+'=nil;'+alphabetName+'=nil;'+mapName+'=nil;'+inverseRefsName+'=nil',
     '  local function verify()',
@@ -849,6 +958,7 @@ function compile(source, options={}) {
     '    mix(#'+inverseName+');for j=1,#'+inverseName+' do mix(nativeByte('+inverseName+',j)) end',
     '    mix(SALT);mix(SBOX_MASK)',
     '    for _,ar in ipairs(A)do mix(#ar);for _,v in ipairs(ar)do mix(v)end end',
+    ...(nestedVM?['    mix(H[1]);mix(#H[2]);for j=1,#H[2]do mix(nativeByte(H[2],j))end']:[]),
     '    if '+(options.antiTamper===false?'false':'true')+' and h~=CHECK then nativeError("BLACKMAMER V3: bytecode integrity failed") end',
     '    if '+(options.antiDebug===false?'false':'true')+' then',
     '      if nativeType(nativeByte)~="function" or nativeType(nativeChar)~="function" or',
@@ -875,6 +985,7 @@ function compile(source, options={}) {
     '    end',
     '    return out',
     '  end',
+    ...outerRuntime,
     '  local P={}',
     '  local bufFrom=buffer and buffer.fromstring',
     '  local bufRead=buffer and buffer.readu8',
@@ -952,11 +1063,15 @@ function compile(source, options={}) {
     '      ticks=ticks+1; if ticks>1000000 then nativeError("BLACKMAMER V3 instruction limit") end',
     '      if pc<1 or pc>length then nativeError("BLACKMAMER V3 bad PC") end',
     '      local at=off+(pc-1)*4*width',
-    '      local tweak='+runtimeTweak,
-    '      local op=bxor((field(at,1)-SALT-tweak-5)%modulus,'+runtimeOpcodeMask+')',
-    '      local a=((field(at,2)-SALT-tweak-10)%modulus);if a>modulus/2 then a=a-modulus end',
-    '      local b=((field(at,3)-SALT-tweak-15)%modulus);if b>modulus/2 then b=b-modulus end',
-    '      local c=((field(at,4)-SALT-tweak-20)%modulus);if c>modulus/2 then c=c-modulus end',
+    ...(nestedVM?[
+      '      local op,a,b,c=outerVM(spec,pc,at,field)'
+    ]:[
+      '      local tweak='+runtimeTweak,
+      '      local op=bxor((field(at,1)-SALT-tweak-5)%modulus,'+runtimeOpcodeMask+')',
+      '      local a=((field(at,2)-SALT-tweak-10)%modulus);if a>modulus/2 then a=a-modulus end',
+      '      local b=((field(at,3)-SALT-tweak-15)%modulus);if b>modulus/2 then b=b-modulus end',
+      '      local c=((field(at,4)-SALT-tweak-20)%modulus);if c>modulus/2 then c=c-modulus end'
+    ]),
     '      local nextpc=pc+1',
     '      if op==O.K then R[a]=K(b)',
     '      elseif op==O.GET then R[a]=get(K(b))',
@@ -1149,6 +1264,7 @@ function compile(source, options={}) {
   const code='--[[BLACKMAMER VM '+(options.hardened?'V4.0':'V3.4')+']]'+compactLuau(expanded);
   return {code,engine:options.hardened?'BLACKMAMER V4 Native VM':'BLACKMAMER V3 Native VM',
     hardened:options.hardened===true,nativeSealer:sealedBatch.nativeUsed,
+    nestedVM,outerVmInstructions:nestedVM?outerProgram[2]:0,
     virtualizedFunctions:funcs.length,
     bytecodeLayout:'per-prototype-shuffled-12-or-16',
     bytecodeWidths:{compact:sealedFunctions.filter(f=>f[2]===3).length,

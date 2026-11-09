@@ -213,3 +213,16 @@ LUAU_BIN=luau node tests/vm4-luau.js
 ```
 
 **Kompatibilitas:** V4 masih memakai parser Luau subset dari V3.4 dan menolak sintaks yang tidak didukung dengan HTTP 422 (tidak diam-diam mengirim kode asli). Ini harus diuji lebih lanjut di Roblox Studio pada Script, LocalScript, module, event/callback, dan API Roblox asli. C++ meningkatkan kinerja tahap backend pada sebagian beban dan memisahkan implementasi sealer, **tidak** membuat kode Luau yang dikirim ke klien menjadi rahasia.
+
+## Nested VM untuk Native V4 (eksperimental)
+
+Native V4 secara default sekarang menggunakan **dua interpreter berbasis bytecode**: VM decoder luar (register micro-VM) menjalankan microprogram yang diacak dan disegel secara terpisah; lalu VM utama mengeksekusi instruksi Luau berdasarkan hasil decoding. VM luar berjalan **untuk setiap instruksi** VM utama, bukan sekadar Base64/XOR tambahan. Program micro-VM disimpan dalam payload tersendiri yang ikut dilindungi pemeriksaan integritas bytecode.
+
+- VM luar memiliki set opcode acak per build, register, program counter, jalur branch runtime yang aktif, dan batas langkah untuk mendeteksi microprogram rusak.
+- Setiap fungsi tetap menggunakan layout operand 12/16-byte, masking opcode, dan seed yang berbeda. Decoder luar memiliki dua cara aritmetika yang ekuivalen untuk menurunkan operand, dipilih berdasarkan PC instruksi dan seed prototype runtime.
+- Response `/api/obfuscate` preset `NativeV4` melaporkan `blackmamerVM.nestedVM: true` dan `outerVmInstructions`. Pengaturan `nestedVM: false` hanya ditujukan sebagai opsi kompatibilitas/benchmark dan menjalankan decoder V4 lama.
+- V3 tetap menggunakan interpreter sebelumnya tanpa nested micro-VM.
+
+Contoh permintaan: `{"script":"print('test')","preset":"NativeV4","target":"LuaU","vmMode":"native-v4","antiTamper":true,"antiDebug":true}`. Tidak perlu pembaruan frontend bila situs sudah mengirim preset `NativeV4`.
+
+**Batasan penting:** ini lapisan interpreter luar untuk **decoding instruksi VM utama**, bukan dua virtualisasi penuh seluruh semantik Luau. VM bertingkat menambah overhead startup dan eksekusi; uji game nyata, terutama loop besar dan frame-sensitive callbacks. Bytecode, interpreter, dan semua bahan pembentukan kunci tetap tersedia pada klien: tidak mungkin menjamin perlindungan dari analisis dinamis, dan ini belum terbukti setara Luraph. Jangan mengandalkan obfuscation untuk rahasia server, kontrol ekonomi, atau otorisasi.

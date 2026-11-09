@@ -36,9 +36,12 @@ try {
   for(const [name,src] of fixtures) {
     const expected=run(src,name+'-source');
     for(let attempt=0;attempt<3;attempt++) {
-      const compiled=compile(src,{hardened:true,antiTamper:true,antiDebug:true});
+      const compiled=compile(src,{hardened:true,nestedVM:true,antiTamper:true,antiDebug:true});
       assert.equal(compiled.engine,'BLACKMAMER V4 Native VM');
       assert.equal(compiled.hardened,true);
+      assert.equal(compiled.nestedVM,true);
+      assert.ok(compiled.outerVmInstructions>=10);
+      assert.match(compiled.code,/BLACKMAMER V4 outer VM/);
       assert.match(compiled.code,/BLACKMAMER VM V4\.0/);
       assert.doesNotMatch(compiled.code,/local SALT=\d+;local CHECK=\d+/);
       const actual=run(compiled.code,name+'-'+attempt);
@@ -46,7 +49,10 @@ try {
       comparisons++;
     }
   }
-  const corrupted=compile('print("test")',{hardened:true});
+  const legacy=compile('print("legacy")',{hardened:true,nestedVM:false});
+  assert.equal(legacy.nestedVM,false);
+  assert.equal(run(legacy.code,'legacy-v4'),run('print("legacy")','legacy-source'));
+  const corrupted=compile('print("test")',{hardened:true,nestedVM:true});
   const tampered=corrupted.code.replace(/(local _[a-z]{7}=\{")([A-Za-z0-9_-])/,
     (_,prefix,c)=>prefix+(c==='A'?'B':'A'));
   assert.notEqual(tampered,corrupted.code);

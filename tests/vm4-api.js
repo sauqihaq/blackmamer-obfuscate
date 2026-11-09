@@ -37,6 +37,10 @@ async function main() {
   assert.equal(first.data.engine,'BLACKMAMER V4 Native VM');
   assert.equal(first.data.blackmamerVM.mode,'native-v4');
   assert.equal(first.data.blackmamerVM.hardened,true);
+  assert.equal(first.data.blackmamerVM.nestedVM,true);
+  assert.ok(first.data.blackmamerVM.outerVmInstructions>=10);
+  assert.ok(first.data.obfuscated.includes('BLACKMAMER V4 outer VM'),
+    'A genuine second interpreter must be emitted in NativeV4');
   assert.equal(first.data.blackmamerVM.nativeSealer,available());
   assert.equal(first.data.blackmamerVM.applied,true);
   assert.equal(first.data.blackmamerVM.fallback,false);
@@ -50,6 +54,11 @@ async function main() {
   const second=await post(request);
   assert.equal(second.status,200);
   assert.notEqual(first.data.obfuscated,second.data.obfuscated);
+  const unnested=await post({...request,nestedVM:false});
+  assert.equal(unnested.status,200,JSON.stringify(unnested.data).slice(0,900));
+  assert.equal(unnested.data.blackmamerVM.nestedVM,false);
+  assert.equal(unnested.data.blackmamerVM.outerVmInstructions,0);
+  assert.ok(!unnested.data.obfuscated.includes('BLACKMAMER V4 outer VM'));
   const syntax=await post({...request,script:'type Foo = string'});
   assert.equal(syntax.status,422);
   assert.equal(syntax.data.code,'V3_UNSUPPORTED_SYNTAX');

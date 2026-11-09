@@ -15,6 +15,7 @@ on:
       - feature/vm3-shuffled-alphabet-blob-encoding
       - feature/vm3-polymorphic-dispatch-iter-20261110
       - feature/nativev3-lazy-constant-pool-20261110
+      - feature/nativev3-hybrid-sbox-layout-20261110
       - main
     paths:
       - 'blackmamer-vm3.js'

@@ -61,6 +61,13 @@ async function main(){
   assert.equal(saweria.data.blackmamerVM.fallback,false);
   assert.ok(saweria.data.blackmamerVM.vmInstructions>200);
   assert.ok(saweria.data.obfuscated.includes('BLACKMAMER VM V3.'));
-  console.log('Native V3 API: 6 requests passed, including full user BM Saweria source');
+  const cinematicScript=require('node:fs').readFileSync(require('node:path').resolve(__dirname,'fixtures/bm-saweria-donation-cinematic.luau'),'utf8');
+  const cinematicFull=await post({script:cinematicScript,preset:'NativeV3',target:'LuaU',vmMode:'native-v3',
+    blackmamerVM:true,antiTamper:true,antiDebug:true});
+  assert.equal(cinematicFull.status,200,JSON.stringify(cinematicFull.data).slice(0,1000));
+  assert.equal(cinematicFull.data.blackmamerVM.mode,'native-v3');
+  assert.equal(cinematicFull.data.blackmamerVM.fallback,false);
+  assert.ok(cinematicFull.data.blackmamerVM.vmInstructions>300);
+  console.log('Native V3 API: 7 requests passed, including exact user Donation Cinematic source');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;}).finally(()=>server.kill());

@@ -697,13 +697,13 @@ function compile(source, options={}) {
   };
   const sealedFunctionRefs=sealedFunctions.map(([seed,bytes])=>[seed,segment(bytes)]);
   const sealedConstantRefs=sealedConstants.map(([typ,seed,bytes])=>[typ,seed,segment(bytes)]);
-  const order=Array.from({length:fragments.length},(_,i)=>i);
-  for(let i=order.length-1;i>0;i--){
-    const j=rand(i+1);[order[i],order[j]]=[order[j],order[i]];
+  const segmentOrder=Array.from({length:fragments.length},(_,i)=>i);
+  for(let i=segmentOrder.length-1;i>0;i--){
+    const j=rand(i+1);[segmentOrder[i],segmentOrder[j]]=[segmentOrder[j],segmentOrder[i]];
   }
-  const positions=new Map(order.map((old,i)=>[old,i+1]));
+  const positions=new Map(segmentOrder.map((old,i)=>[old,i+1]));
   const refs=parts=>'{'+parts.map(id=>positions.get(id)).join(',')+'}';
-  const luaFragments='{'+order.map(id=>JSON.stringify(fragments[id])).join(',')+'}';
+  const luaFragments='{'+segmentOrder.map(id=>JSON.stringify(fragments[id])).join(',')+'}';
   const luaFunctions='{'+sealedFunctionRefs.map(([seed,parts])=>'{'+seed+','+refs(parts)+'}').join(',')+'}';
   const luaConstants='{'+sealedConstantRefs.map(([typ,seed,parts])=>'{'+typ+','+seed+','+refs(parts)+'}').join(',')+'}';
   const randomName=()=>('_'+Array.from({length:7},()=>String.fromCharCode(97+rand(26))).join(''));

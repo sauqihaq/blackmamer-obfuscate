@@ -149,7 +149,8 @@ app.post('/api/obfuscate', async (req, res) => {
         antiTamper: body.antiTamper !== false,
         antiDebug: body.antiDebug !== false,
         superInstructions: body.superInstructions !== false,
-        hardened: useNativeV4
+        hardened: useNativeV4,
+        nestedVM: useNativeV4 && body.nestedVM !== false
       });
       return res.json({
         // Keep the VM payload compact, but restore the original large
@@ -164,6 +165,8 @@ app.post('/api/obfuscate', async (req, res) => {
           mode: useNativeV4 ? 'native-v4' : 'native-v3',
           nativeSealer: result.nativeSealer,
           hardened: result.hardened,
+          nestedVM: result.nestedVM,
+          outerVmInstructions: result.outerVmInstructions,
           virtualizedFunctions: result.virtualizedFunctions,
           bytecodeLayout: result.bytecodeLayout,
           bytecodeWidths: result.bytecodeWidths,

@@ -1,0 +1,33 @@
+name: Package Netlify Manual Deployment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'netlify-frontend/index.html'
+      - '.github/workflows/package-netlify-manual.yml'
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify NativeV4 frontend and backend endpoint
+        run: |
+          grep -q 'value="NativeV4"' netlify-frontend/index.html
+          grep -q "blackmamer-obfuscate.onrender.com" netlify-frontend/index.html
+          test -s netlify-frontend/index.html
+      - name: Prepare drop-in folder
+        run: |
+          mkdir -p website
+          cp netlify-frontend/index.html website/index.html
+      - name: Upload ready-to-deploy ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: BLACKMAMER-Netlify-V4-Manual-Deploy
+          path: website/
+          if-no-files-found: error
+          retention-days: 90

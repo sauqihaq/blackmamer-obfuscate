@@ -41,9 +41,12 @@ async function main(){
   assert.equal(good.data.protection.antiTamper,true);
   assert.equal(good.data.protection.antiDebug,true);
   assert.ok(good.data.obfuscated.includes('BLACKMAMER VM V3'));
-  assert.equal(good.data.obfuscated.includes('\n'),false,'API NativeV3 output must be one physical line');
-  assert.equal(good.data.obfuscated.includes('\r'),false);
-  assert.ok(good.data.obfuscated.startsWith('--[[BLACKMAMER STUDIO]]--[[BLACKMAMER VM V3.4]]return'));
+  assert.ok(good.data.obfuscated.startsWith('--[[\n'),'Native V3 output must start with large ASCII-art banner');
+  assert.match(good.data.obfuscated,/OBFUSCATED & SECURED BY BLACKMAMER STUDIO/);
+  const nativePayload=good.data.obfuscated.slice(good.data.obfuscated.indexOf('--[[BLACKMAMER VM V3.4]]'));
+  assert.ok(nativePayload.startsWith('--[[BLACKMAMER VM V3.4]]return'));
+  assert.equal(nativePayload.includes('\n'),false,'Native V3 VM payload stays one physical line');
+  assert.equal(nativePayload.includes('\r'),false);
   assert.ok(!good.data.obfuscated.includes('Hello World'));
   const unsupported=await post({script:'type ObfuscatorTest = number',preset:'NativeV3',target:'LuaU'});
   assert.equal(unsupported.status,422);

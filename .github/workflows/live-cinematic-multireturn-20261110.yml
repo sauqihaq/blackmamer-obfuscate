@@ -1,0 +1,20 @@
+name: Live Donation Cinematic multi-return regression
+on:
+  push:
+    branches:
+      - test/live-netlify-render-20261110
+    paths:
+      - 'tests/live-cinematic-multireturn-20261110.js'
+      - '.github/workflows/live-cinematic-multireturn-20261110.yml'
+  workflow_dispatch:
+jobs:
+  remote-user-script:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: POST exact Donation Cinematic to production Render
+        run: node tests/live-cinematic-multireturn-20261110.js

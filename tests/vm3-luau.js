@@ -24,6 +24,7 @@ const cases=[
   ['table','local t={x=3, [4]="a"}\nt.x=t.x+2\nprint(t.x,t[4])'],
   ['closure','local function make(x)\n return function(y) return x+y end\nend\nlocal add=make(11)\nprint(add(4))'],
   ['recursive','local function fact(n)\n if n<=1 then return 1 end\n return n*fact(n-1)\nend\nprint(fact(5))'],
+  ['nested-prototypes','local function outer(x)\n local function mid(y)\n  local function inner(z) return x+y+z end\n  return inner\n end\n return mid\nend\nprint(outer(1)(2)(3))'],
   ['scopes','local n=8\ndo local n=3 end\nprint(n)'],
   ['bool','print(not false, 0 and "yes" or "no", nil or 42)'],
   ['method','local game={GetService=function(self,name) return {Name=name} end}\nprint(game:GetService("Players").Name)'],
@@ -68,6 +69,16 @@ try {
     }
     console.log('PASS',label);
   }
+  const roots=new Set();
+  for(let build=0;build<30;build++){
+    const variant=compile('local function outer(x) return function(y) return x+y end end\nprint(outer(3)(4))').code;
+    const entry=/return exec\((\d+),\{\},nil\)/.exec(variant);
+    assert.ok(entry,'VM entrypoint prototype missing');
+    roots.add(Number(entry[1]));
+    assert.match(variant,/local function prototype\(fid\)/,'VM must lazily decode prototype');
+  }
+  assert.ok(roots.size>=2,'Multiple function inputs should randomize the root prototype ID');
+
   const first=compile('print("Hello World")');
   const second=compile('print("Hello World")');
   assert.notEqual(first.code,second.code,'VM output must mutate between builds');

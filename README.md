@@ -126,3 +126,13 @@ For example, the simplest `print("Hello World")` program may compile `GET print 
 API stays `preset: NativeV3`, `vmMode: native-v3`. To compare debugging output, pass `superInstructions: false`; default is enabled. Results include `blackmamerVM.fusedInstructions` and per-opcode fusion counts. Existing RobloxStrong/Prometheus modes remain unchanged.
 
 CI exercises 630 randomized compiler builds, 63 native Luau runtime comparisons and compatibility checks. These tests establish behavioral correctness for selected examples, **not** full Roblox Studio compatibility or resistance against reverse engineering.
+
+## BLACKMAMER NativeV3 dispatcher polymorphism and Roblox Luau support
+
+NativeV3 generates one of two dispatcher layouts on each build: a fully populated affine-bucket dispatcher or a sorted opcode decision tree. All opcode handlers share **one** invalid-opcode fallback after dispatch, replacing repeated `else nativeError("BLACKMAMER V3 invalid opcode")` blocks. Invalid opcodes still fail closed; anti-tamper and existing backend API flags are preserved. This diversifies the generated VM's visible control-flow layout but does not make it unrecoverable.
+
+The VM also handles Luau generalized table iteration such as `for _, value in aTable do`. Plain tables iterate via `next`, and a table with a callable `__iter` metamethod uses the returned iterator triple. Existing `ipairs`, `pairs` and numeric loops remain supported. The parser now treats `type` and `export` contextually so builtin calls such as `type(decoded)` are not misclassified as declarations. Luau type declarations/annotations remain unsupported (HTTP 422).
+
+Three user-supplied Roblox scripts were inspected and **compiled privately** as compatibility checks: `BM SAWERIA.luau`, `AntiTCS.luau`, and `BLACKMAMERVISUAL.luau`. The source files are not copied into this repository. BLACKMAMERVISUAL was supplied in a Windows single-byte encoding (not UTF-8); save it as UTF-8 before pasting/uploading if the browser displays replacement characters. Successful compilation is not proof of correct behavior in Roblox Studio.
+
+CI runs 224 randomized dispatcher checks, 66 native Luau comparisons derived from the three scripts' publicly safe syntax patterns, and the existing NativeV3/API/Donation Cinematic regressions. No Luraph-equivalent security claim is made: the interpreter and all decode parameters remain client-side.

@@ -143,7 +143,8 @@ app.post('/api/obfuscate', async (req, res) => {
     try {
       const result = compileBlackmamerVM3(code, {
         antiTamper: body.antiTamper !== false,
-        antiDebug: body.antiDebug !== false
+        antiDebug: body.antiDebug !== false,
+        superInstructions: body.superInstructions !== false
       });
       return res.json({
         obfuscated: BANNER + result.code,
@@ -156,6 +157,8 @@ app.post('/api/obfuscate', async (req, res) => {
           mode: 'native-v3',
           virtualizedFunctions: result.virtualizedFunctions,
           vmInstructions: result.vmInstructions,
+          fusedInstructions: result.fusedInstructions,
+          superInstructionKinds: result.superInstructionKinds,
           fallback: false,
           protectedLiterals: 0,
           protectedBytes: 0

@@ -2,8 +2,9 @@
 -- Based on Prometheus by Elias Oelschner,
 -- https://github.com/prometheus-lua/Prometheus
 --
--- A single full-program Vmify pass avoids Strong's second nested VM,
--- while retaining anti-tamper, string encryption, and constant mutation.
+-- Single full-program Vmify for Luau plus constant-array and numeric obfuscation.
+-- Upstream AntiTamper and EncryptStrings are disabled here: their randomized
+-- behavior has produced incorrect output in Luau CLI compatibility tests.
 -- The compiler and Vmify are still from Prometheus (not proprietary).
 return {
   LuaVersion = "LuaU",

@@ -10,14 +10,27 @@ on:
       - 'tests/vm3-luau.js'
       - '.github/workflows/vm3-test.yml'
       - 'server.js'
+      - 'tests/vm3-api.js'
   pull_request:
     paths:
       - 'blackmamer-vm3.js'
       - 'tests/vm3-luau.js'
       - '.github/workflows/vm3-test.yml'
       - 'server.js'
+      - 'tests/vm3-api.js'
 
 jobs:
+  native-vm-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install API dependencies
+        run: npm install --omit=dev
+      - name: Run V3 API integration tests
+        run: node tests/vm3-api.js
   native-vm-luau:
     runs-on: ubuntu-latest
     timeout-minutes: 25

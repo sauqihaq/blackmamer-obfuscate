@@ -147,3 +147,18 @@ NativeV3 now **decodes each constant on first access**, caching used values with
 To protect actual private logic, make server decisions in `ServerScriptService`/`ServerStorage` and expose narrow validated `RemoteEvent`/`RemoteFunction` APIs. In client LocalScripts, retain only the non-secret UI/animation logic. An online server-issued decryption key can make a static file alone insufficient to decode, but once the key reaches an attacker-controlled client it can be extracted; it needs a real backend/authentication and may reduce reliability when offline. Do not use variable `os.time()`/`os.clock()` as standalone decryption keys, or assume `game.PlaceId`/`game.JobId` are secrets.
 
 Integrity checks (anti-tamper) protect against some unauthorized modifications during execution. Debug-hook checks detect only a narrow subset of runtime changes. Neither is a defense against reading the file, reconstructing its decoder externally or observing plaintext during execution. Any claim of Luraph-equivalent resistance requires independent reverse-engineering benchmarks.
+
+
+## NativeV3 Hybrid VM: S-Box and prototype-specific bytecode (2026-11)
+
+The NativeV3 interpreter remains **self-contained Roblox Luau**: no `loadstring()` or special server flag. The new output keeps the existing VM, per-build randomized opcode IDs, two dispatcher topologies, lazy constants, integrity checks, and client-compatible `buffer` reads.
+
+- **Per-build S-Box substitution:** generated sealed byte strings pass through an independently shuffled 256-entry substitution before the existing chaining/stream transform. The inverse S-Box is masked, encoded with the other payload segments, and reconstructed inside the VM. The verification checksum covers the sealed payload, inverse S-Box, salt and unmasking parameter.
+- **Masked per-entry seeds:** each prototype/constant entry stores a masked seed; the VM derives its usable seed from the entry index, kind, and build salt. This hides obvious raw seed literals but does **not** provide a cryptographic secret.
+- **Prototype-specific instruction layout:** instructions use **12 bytes (four 24-bit fields)** or **16 bytes (four 32-bit fields)**, selected independently per prototype. The four logical fields are independently permuted for each prototype, so a fixed `(op,a,b,c)` offset pattern no longer applies to every VM function. This is **not** a variable-length encoding for every individual instruction.
+- **Test controls:** compiler options `bytecodeWidth: 'compact'` and `bytecodeWidth: 'wide'` force the layout for regression testing. Default randomly mixes layouts; `dispatchMode: 'tree'|'shard'` remains available to tests.
+- **API observability:** `blackmamerVM.bytecodeLayout` and aggregate `bytecodeWidths` show which mode the backend emitted. These are not security-sensitive secrets.
+
+**Security boundaries:** the S-Box inverse, salt, masks and reconstruction logic still travel with the output. Someone who controls a client can reconstruct the encoder/decoder or observe its runtime. No guarantee of key secrecy, resistance comparable to Luraph, or protection of server-side secrets is implied. Keep secrets and critical decisions on the Roblox server.
+
+**Compatibility and performance:** compact operands trade additional byte reads for smaller sealed prototypes. Both width modes, both dispatchers, nil/multi-return, and the user-derived Roblox Luau patterns are covered by CI. Benchmark game scripts in Roblox Studio before relying on new VM layouts for time-sensitive code such as RenderStepped.

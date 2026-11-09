@@ -30,22 +30,24 @@ function cmd(binary, args, label) {
 }
 
 const cases = [
-  { label: 'hello', code: 'print("Hello World")', preset: 'Medium' },
+  { label: 'hello', code: 'print("Hello World")', preset: 'RobloxStrong' },
   { label: 'arithmetic', code: 'local x=20*5\nprint(x)', preset: 'RobloxStrong' },
-  { label: 'closure', code: 'local function add(x,y) return x+y end\nprint(add(2,3))', preset: 'Medium' },
+  { label: 'closure', code: 'local function add(x,y) return x+y end\nprint(add(2,3))', preset: 'RobloxStrong' },
   { label: 'branch', code: 'local x=if 9>4 then 10 else 20\nprint(x)', preset: 'RobloxStrong' },
-  { label: 'table', code: 'local t={a=7}\nprint(t.a+2)', preset: 'Medium' },
+  { label: 'table', code: 'local t={a=7}\nprint(t.a+2)', preset: 'RobloxStrong' },
   {
     label: 'roblox-style-method',
     code: 'local game={GetService=function(_,name) return {Name=name} end}\nprint(game:GetService("Players").Name)',
-    preset: 'Medium'
+    preset: 'RobloxStrong'
   }
 ];
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'blackmamer-luau-'));
+const iterations = 3;
 let successful = 0;
 try {
-  for (const t of cases) {
+  for (let attempt = 1; attempt <= iterations; attempt++) {
+    for (const t of cases) {
     const inFile = path.join(scratch, t.label + '.luau');
     const vmFile = path.join(scratch, t.label + '.lua');
     const outputFile = path.join(scratch, t.label + '.obfuscated.lua');
@@ -83,10 +85,11 @@ try {
     const result = cmd(LUAU, [outputFile], t.label + ' output');
     assert.equal(result, expected, t.label + ' changed program behavior');
     assert.ok(fs.statSync(outputFile).size > 0, 'Empty obfuscation result');
-    console.log('PASS ' + t.label + ' [' + t.preset + ']');
+    console.log('PASS #' + attempt + ' ' + t.label + ' [' + t.preset + ']');
     successful++;
+    }
   }
-  console.log('BLACKMAMER Luau compatibility: ' + successful + '/' + cases.length + ' passed');
+  console.log('BLACKMAMER Luau compatibility: ' + successful + '/' + (cases.length * iterations) + ' passed');
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });
 }

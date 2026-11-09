@@ -12,6 +12,7 @@ const { transform } = require('../blackmamer-vm');
 const LUA = process.env.LUA_BIN || 'lua';
 const LUAU = process.env.LUAU_BIN || 'luau';
 const PROMETHEUS = process.env.PROMETHEUS_CLI || '/app/prometheus/cli.lua';
+const ROBLOX_STRONG = process.env.ROBLOX_STRONG || path.resolve(__dirname, '../roblox-strong.lua');
 const TIMEOUT = 40000;
 
 function cmd(binary, args, label) {
@@ -30,9 +31,9 @@ function cmd(binary, args, label) {
 
 const cases = [
   { label: 'hello', code: 'print("Hello World")', preset: 'Medium' },
-  { label: 'arithmetic', code: 'local x=20*5\nprint(x)', preset: 'Strong' },
+  { label: 'arithmetic', code: 'local x=20*5\nprint(x)', preset: 'RobloxStrong' },
   { label: 'closure', code: 'local function add(x,y) return x+y end\nprint(add(2,3))', preset: 'Medium' },
-  { label: 'branch', code: 'local x=if 9>4 then 10 else 20\nprint(x)', preset: 'Strong' },
+  { label: 'branch', code: 'local x=if 9>4 then 10 else 20\nprint(x)', preset: 'RobloxStrong' },
   { label: 'table', code: 'local t={a=7}\nprint(t.a+2)', preset: 'Medium' },
   {
     label: 'roblox-style-method',
@@ -67,9 +68,12 @@ try {
     assert.equal(cmd(LUAU, [vmFile], t.label + ' VM1 raw'),
       expected, t.label + ' changed in VM1 string stage');
 
+    const presetArgs = t.preset === 'RobloxStrong'
+      ? ['--config', ROBLOX_STRONG]
+      : ['--preset', t.preset];
     cmd(LUA, [
       PROMETHEUS,
-      '--preset', t.preset,
+      ...presetArgs,
       '--LuaU',
       '--nocolors',
       vmFile,

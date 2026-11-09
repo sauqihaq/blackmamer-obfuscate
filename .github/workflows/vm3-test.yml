@@ -1,0 +1,39 @@
+name: BLACKMAMER Native VM V3 Luau
+
+on:
+  push:
+    branches:
+      - feature/blackmamer-native-vm-v3
+      - main
+    paths:
+      - 'blackmamer-vm3.js'
+      - 'tests/vm3-luau.js'
+      - '.github/workflows/vm3-test.yml'
+      - 'server.js'
+  pull_request:
+    paths:
+      - 'blackmamer-vm3.js'
+      - 'tests/vm3-luau.js'
+      - '.github/workflows/vm3-test.yml'
+      - 'server.js'
+
+jobs:
+  native-vm-luau:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build official Luau CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ make
+          git clone --depth 1 https://github.com/luau-lang/luau.git luau-src
+          cmake -S luau-src -B luau-build -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_TESTS=OFF
+          cmake --build luau-build --target Luau.Repl.CLI --parallel 2
+      - name: Run independent V3 VM and guards against Luau
+        env:
+          LUAU_BIN: ./luau-build/luau
+        run: node tests/vm3-luau.js

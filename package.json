@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test-vm2.js"
+    "test": "node test-vm2.js",
+    "test:luau": "node tests/luau-smoke.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

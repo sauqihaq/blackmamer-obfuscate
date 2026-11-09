@@ -10,10 +10,12 @@ on:
       - feature/vm3-buffer-prototypes-v33
       - feature/vm3-superinstructions-v34
       - feature/native-v3-generic-for-multireturn-saweria
+      - fix/nativev3-cinematic-syntax-diagnostics
       - main
     paths:
       - 'blackmamer-vm3.js'
       - 'tests/vm3-luau.js'
+      - 'tests/vm3-cinematic-luau.js'
       - 'tests/vm3-saweria-luau.js'
       - 'tests/fixtures/**'
       - 'tests/vm3-dispatch.js'
@@ -25,6 +27,7 @@ on:
     paths:
       - 'blackmamer-vm3.js'
       - 'tests/vm3-luau.js'
+      - 'tests/vm3-cinematic-luau.js'
       - 'tests/vm3-saweria-luau.js'
       - 'tests/fixtures/**'
       - '.github/workflows/vm3-test.yml'
@@ -68,6 +71,10 @@ jobs:
         env:
           LUAU_BIN: ./luau-build/luau
         run: node tests/vm3-luau.js
+      - name: Compare compound assignment and continue semantics against Luau
+        env:
+          LUAU_BIN: ./luau-build/luau
+        run: node tests/vm3-cinematic-luau.js
       - name: Compare full BM Saweria GUI script with Native VM3 and Luau CLI
         env:
           LUAU_BIN: ./luau-build/luau

@@ -3,6 +3,7 @@ name: BLACKMAMER VM Luau verification
 on:
   push:
     branches:
+      - main
       - feature/blackmamer-hybrid-vm-v2
   pull_request:
     paths:

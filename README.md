@@ -162,3 +162,13 @@ The NativeV3 interpreter remains **self-contained Roblox Luau**: no `loadstring(
 **Security boundaries:** the S-Box inverse, salt, masks and reconstruction logic still travel with the output. Someone who controls a client can reconstruct the encoder/decoder or observe its runtime. No guarantee of key secrecy, resistance comparable to Luraph, or protection of server-side secrets is implied. Keep secrets and critical decisions on the Roblox server.
 
 **Compatibility and performance:** compact operands trade additional byte reads for smaller sealed prototypes. Both width modes, both dispatchers, nil/multi-return, and the user-derived Roblox Luau patterns are covered by CI. Benchmark game scripts in Roblox Studio before relying on new VM layouts for time-sensitive code such as RenderStepped.
+
+
+## NativeV3 one-line output
+
+NativeV3 emits a **single physical line** of executable Luau, not an indented VM listing. The generator removes comments and unnecessary whitespace outside string literals, preserves required lexical separators, and keeps a short single-line block-comment brand prefix. The existing API uses a compact NativeV3 branding header instead of the multiline ASCII art; legacy presets continue to use the existing banner.
+
+The website's `netlify-frontend/index.html` also sets `wrap="off"` on the output textarea, so the generated line scrolls horizontally rather than visually wrapping. If the live Netlify site was deployed using manual drag-and-drop, the updated frontend must be re-uploaded to activate this **display-only** change. The backend/downloaded `.luau` does not require the frontend update.
+
+Removing whitespace does not make the VM cryptographically stronger, hide its decryption key, or make it immune to deobfuscation. It is a compact rendering format and has been tested for semantic equivalence using Luau CLI.
+

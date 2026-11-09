@@ -87,7 +87,7 @@ try {
   }
   assert.ok(roots.size>=2,'Multiple function inputs should randomize the root prototype ID');
 
-  const hybridSample='local function combo(x) return x+3,nil,x*4 end\\nlocal a,b,c=combo(7)\\nprint(a,b==nil,c)';
+  const hybridSample='local function combo(x) return x+3,nil,x*4 end\nlocal a,b,c=combo(7)\nprint(a,b==nil,c)';
   const expectedHybrid=execute(hybridSample,'hybrid-source');
   for(const width of ['compact','wide']){
     for(const dispatcher of ['tree','shard']){

@@ -21,7 +21,7 @@ for(let i=0;i<160;i++){
     'Invalid opcode must have exactly one centralized failure path');
   assert.doesNotMatch(out,/else nativeError\("BLACKMAMER V3 invalid opcode"\)/,
     'No nested repeated invalid-opcode else clauses allowed');
-  assert.match(out,/if not _d[a-f0-9]{10} then nativeError\("BLACKMAMER V3 invalid opcode"\) end/,
+  assert.match(out,/if not _d[a-f0-9]{10} then nativeError\("BLACKMAMER V3 invalid opcode"\)\s*end/,
     'Invalid opcode guard must be retained');
   if(forced==='tree'){
     assert.equal(matches.length,0,'Tree dispatcher must not use modulo shards');

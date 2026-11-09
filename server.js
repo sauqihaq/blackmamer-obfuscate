@@ -147,7 +147,7 @@ app.post('/api/obfuscate', async (req, res) => {
         superInstructions: body.superInstructions !== false
       });
       return res.json({
-        obfuscated: BANNER + result.code,
+        obfuscated: '--[[BLACKMAMER STUDIO]]' + result.code,
         engine: result.engine,
         target: 'LuaU',
         protection: { antiTamper: result.antiTamper, antiDebug: result.antiDebug },

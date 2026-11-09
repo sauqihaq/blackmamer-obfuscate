@@ -22,3 +22,12 @@ Based on Prometheus by Elias Oelschner, https://github.com/prometheus-lua/Promet
 BLACKMAMER STUDIO tetap menggunakan Prometheus. Lisensi upstream mewajibkan atribusi jelas pada website publik SaaS (contoh: footer atau halaman About). README backend saja tidak menggantikan kewajiban itu.
 
 Lisensi: https://github.com/wcrddn/Prometheus/blob/master/LICENSE
+
+## BLACKMAMER VM V2 (experimental)
+
+- Default remains V1. For V2, send `vmMode: "hybrid-v2"` in the POST JSON.
+- V2 compiles **selected untyped, single-line `local x = expression` initializers** with numeric operations, comparisons, variables, and Luau `if ... then ... else ...` expressions into a custom **register VM**.
+- Its instruction dispatcher uses randomized opcodes, randomized register starts, and explicit conditional jumps. This is real execution of supported expressions, **not whole-program virtualization**.
+- Strings and other source syntax are still handled by V1 / Prometheus. Unsupported constructs are left unchanged.
+- Compatibility with all Roblox/Luau types and engine APIs is not yet proven. Test in Roblox Studio before merging the PR; do not claim Luraph-level resistance.
+- When `vmMode` is experimental, the response includes `blackmamerVM.virtualizedExpressions`, `blackmamerVM.vmInstructions`, and `blackmamerVM.mode`.

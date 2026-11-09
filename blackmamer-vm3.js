@@ -731,7 +731,7 @@ function compile(source, options={}) {
       seen.add(id);outerOpIds[name]=id;
     }
     outerSeed=rand(60000)+1000;
-    outerBranchMul=7+rand(17);
+    outerBranchMul=7+2*rand(9); // odd: both runtime paths are reachable across PCs
     outerBranchBias=1+rand(49);
     const rows=[
       ['PREP',0],['FETCH',0],['BRANCH',0],

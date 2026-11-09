@@ -160,10 +160,20 @@ class Parser {
       this.must('end');
       return {t:'if',branches,otherwise};
     }
+    if (this.take('for')) {
+      const name=this.name();this.must('=');const start=this.expr();this.must(',');const limit=this.expr();
+      const step=this.take(',')?this.expr():{t:'num',value:1};this.must('do');
+      const body=this.block(new Set(['end']));this.must('end');
+      return {t:'fornum',name,start,limit,step,body};
+    }
     if (this.take('while')) {
       const condition=this.expr();this.must('do');
       const body=this.block(new Set(['end']));this.must('end');
       return {t:'while',condition,body};
+    }
+    if (this.take('repeat')) {
+      const body=this.block(new Set(['until']));this.must('until');
+      const condition=this.expr();return {t:'repeat',body,condition};
     }
     if (this.take('do')) {
       const body=this.block(new Set(['end']));this.must('end');
@@ -201,7 +211,12 @@ class Parser {
   expr(min=0) {
     let node;
     const t=this.tok();
-    if(this.take('nil')) node={t:'nil'};
+    if(this.take('if')) {
+      const branches=[];
+      do {const condition=this.expr();this.must('then');const value=this.expr();branches.push({condition,value});}while(this.take('elseif'));
+      this.must('else');node={t:'ifexpr',branches,otherwise:this.expr()};
+    }
+    else if(this.take('nil')) node={t:'nil'};
     else if(this.take('true')) node={t:'bool',value:true};
     else if(this.take('false')) node={t:'bool',value:false};
     else if(t.type==='num'){this.i++;node={t:'num',value:t.value};}
@@ -235,7 +250,7 @@ class Parser {
   }
   parse(){const body=this.block(new Set());this.must('<eof>');return body;}
 }
-const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN'];
+const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO'];
 function compile(source, options={}) {
   if(typeof source!=='string') throw new TypeError('Expected Luau source string');
   if(Buffer.byteLength(source)>128*1024) throw new SyntaxErrorV3('V3 source limit: 128 KB');
@@ -275,6 +290,18 @@ function compile(source, options={}) {
       if(n.t==='unary'){
         const from=expr(n.x),dst=reg();
         emit({'-':'NEG','not':'NOT','#':'LEN'}[n.op],dst,from);return dst;
+      }
+      if(n.t==='ifexpr'){
+        const dst=reg(),ends=[];
+        for(const branch of n.branches){
+          const cond=expr(branch.condition),skip=emit('JF',cond,0);
+          const value=expr(branch.value);emit('MOV',dst,value);
+          ends.push(emit('JUMP',0));builder.ins[skip-1][2]=builder.ins.length+1;
+        }
+        const other=expr(n.otherwise);emit('MOV',dst,other);
+        const end=builder.ins.length+1;
+        for(const j of ends)builder.ins[j-1][1]=end;
+        return dst;
       }
       if(n.t==='binary'){
         const a=expr(n.left),dst=reg();
@@ -319,6 +346,39 @@ function compile(source, options={}) {
             const end=builder.ins.length+1;
             for(const j of endJumps)builder.ins[j-1][1]=end;
             break;
+          }
+          case 'fornum':{
+            emit('ENTER');builder.depth++;
+            const startR=expr(n.start),limitR=expr(n.limit),stepR=expr(n.step);
+            emit('NONZERO',stepR);
+            const hidden='__bmv3_loop_'+crypto.randomBytes(6).toString('hex');
+            emit('DECL',key(hidden),startR);
+            const start=builder.ins.length+1;
+            const curr=expr({t:'var',name:hidden}),test=reg();
+            emit('FORCONT',argSets.push([test,curr,limitR,stepR]));
+            const exit=emit('JF',test,0);
+            const loop={breaks:[],depth:builder.depth};builder.loops.push(loop);
+            emit('ENTER');builder.depth++;
+            const current=expr({t:'var',name:hidden});emit('DECL',key(n.name),current);
+            statements(n.body);
+            builder.depth--;emit('EXIT');
+            const next=reg();emit('ADD',next,curr,stepR);emit('SET',key(hidden),next);
+            emit('JUMP',start);
+            const end=builder.ins.length+1;
+            builder.ins[exit-1][2]=end;
+            for(const j of loop.breaks)builder.ins[j-1][1]=end;
+            builder.loops.pop();builder.depth--;emit('EXIT');break;
+          }
+          case 'repeat':{
+            const start=builder.ins.length+1;
+            const loop={breaks:[],depth:builder.depth};builder.loops.push(loop);
+            emit('ENTER');builder.depth++;
+            statements(n.body);
+            const test=expr(n.condition);
+            builder.depth--;emit('EXIT');emit('JF',test,start);
+            const end=builder.ins.length+1;
+            for(const j of loop.breaks)builder.ins[j-1][1]=end;
+            builder.loops.pop();break;
           }
           case 'while':{
             const start=builder.ins.length+1;
@@ -466,6 +526,9 @@ function compile(source, options={}) {
     '      elseif op==O.NEG then R[a]=-R[b]',
     '      elseif op==O.NOT then R[a]=not R[b]',
     '      elseif op==O.LEN then R[a]=#R[b]',
+    '      elseif op==O.NONZERO then if R[a]==0 then nativeError("BLACKMAMER V3: for step is zero") end',
+    '      elseif op==O.FORCONT then local list=A[a];local i=R[list[2]];local limit=R[list[3]];local step=R[list[4]]',
+    '        R[list[1]]=(step>=0 and i<=limit) or (step<0 and i>=limit)'
     '      else nativeError("BLACKMAMER V3 invalid opcode") end',
     '      pc=nextpc',
     '    end',

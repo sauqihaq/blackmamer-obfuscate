@@ -368,7 +368,7 @@ function compile(source, options={}) {
   for(const args of data.a){mix(args.length);args.forEach(mix);}
   const opsAsLua=OPS.map(o=>o+'='+codes[o]).join(',');
   const code=[
-    '-- BLACKMAMER VM V3 / Native Luau dispatcher / NOT Prometheus Vmify',
+    '-- BLACKMAMER VM V3 / Independent native Luau bytecode dispatcher',
     'return (function(...)',
     '  local P=' + JSON.stringify(data.f).replace(/\[/g,'{').replace(/\]/g,'}'),
     '  local Q=' + JSON.stringify(data.p).replace(/\[/g,'{').replace(/\]/g,'}'),

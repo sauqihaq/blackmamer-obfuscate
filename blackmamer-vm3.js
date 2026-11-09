@@ -761,6 +761,7 @@ function compile(source, options={}) {
     mix(typ);mix(seed);mix(bytes.length);bytes.forEach(mix);
   }
   mix(maskedInverse.length);maskedInverse.forEach(mix);
+  mix(salt);mix(sboxMask);
   for(const args of argSets){mix(args.length);args.forEach(mix);}
   const lines=[
     '-- BLACKMAMER VM V3.4',
@@ -814,6 +815,7 @@ function compile(source, options={}) {
     '    for _,f in ipairs(E)do mix(f[1]);mix(#f[2]);for j=1,#f[2]do mix(nativeByte(f[2],j))end end',
     '    for _,v in ipairs(Q)do mix(v[1]);mix(v[2]);mix(#v[3]);for j=1,#v[3]do mix(nativeByte(v[3],j))end end',
     '    mix(#'+inverseName+');for j=1,#'+inverseName+' do mix(nativeByte('+inverseName+',j)) end',
+    '    mix(SALT);mix(SBOX_MASK)',
     '    for _,ar in ipairs(A)do mix(#ar);for _,v in ipairs(ar)do mix(v)end end',
     '    if '+(options.antiTamper===false?'false':'true')+' and h~=CHECK then nativeError("BLACKMAMER V3: bytecode integrity failed") end',
     '    if '+(options.antiDebug===false?'false':'true')+' then',

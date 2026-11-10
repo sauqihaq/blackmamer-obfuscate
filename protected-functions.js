@@ -98,7 +98,7 @@ function runtimeLines(){
     '        local s1=efXor(efRor(q,17),efRor(q,19),efRsh(q,10))',
     '        w[i]=(w[i-16]+s0+w[i-7]+s1)%efMod',
     '      end',
-    '      local a,b,c,d,e,f,g,h=table.unpack(state)',
+    '      local a,b,c,d,e,f,g,h=nativeUnpack(state)',
     '      for i=0,63 do',
     '        local big1=efXor(efRor(e,6),efRor(e,11),efRor(e,25))',
     '        local choose=efXor(efBand(e,f),efBand(efNot(e),g))',

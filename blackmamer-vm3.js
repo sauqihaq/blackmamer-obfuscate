@@ -292,21 +292,182 @@ class Parser {
     }
   }
 }
+
+// Independently implemented AST decoys and bytecode CFG flattening.
+// No Prometheus source code is used: both transforms operate on BLACKMAMER's
+// own parser AST and IR and are verified by runtime differential tests.
+const V4_PROFILES=Object.freeze({
+  Minify:{deadChance:0,astFlatten:0,flatten:false,nested:false,fusion:false},
+  Light:{deadChance:0.06,astFlatten:0,flatten:false,nested:false,fusion:true},
+  Medium:{deadChance:0.13,astFlatten:0.14,flatten:true,nested:true,fusion:true},
+  Strong:{deadChance:0.23,astFlatten:0.34,flatten:true,nested:true,fusion:true},
+  Maximum:{deadChance:0.36,astFlatten:0.75,flatten:true,nested:true,fusion:true}
+});
+
+function flattenSimpleAstSequences(root,chance){
+  if(chance<=0)return 0;
+  let groups=0;
+  const visit=obj=>{
+    if(!obj||typeof obj!=='object')return;
+    if(Array.isArray(obj)){obj.forEach(visit);return;}
+    for(const [key,value] of Object.entries(obj)){
+      if((key==='body'||key==='otherwise') && Array.isArray(value))
+        visitBlock(value);
+      else visit(value);
+    }
+  };
+  const eligible=node=>node&&(node.t==='assign'||node.t==='callstmt');
+  const visitBlock=block=>{
+    for(const n of block)visit(n);
+    const output=[];
+    for(let i=0;i<block.length;){
+      let end=i;
+      while(end<block.length&&eligible(block[end])&&end<i+4)end++;
+      const length=end-i;
+      if(length<2||rand(1000)>=Math.floor(chance*1000)){
+        output.push(block[i++]);continue;
+      }
+      const chunk=block.slice(i,end);
+      const state='__bm_cf_'+crypto.randomBytes(6).toString('hex');
+      const testValue=k=>({t:'binary',op:'==',left:{t:'var',name:state},
+        right:{t:'num',value:k}});
+      const branches=chunk.map((stmt,j)=>({
+        condition:testValue(j+1),
+        body:[stmt,{t:'assign',target:{t:'var',name:state},
+          value:{t:'num',value:j+2}}]
+      }));
+      output.push({t:'do',body:[
+        {t:'local',name:state,value:{t:'num',value:1}},
+        {t:'while',condition:{t:'binary',op:'<=',
+          left:{t:'var',name:state},right:{t:'num',value:chunk.length}},
+          body:[{t:'if',branches,otherwise:[]}]}
+      ]});
+      groups++;i=end;
+    }
+    block.splice(0,block.length,...output);
+  };
+  visitBlock(root);
+  return groups;
+}
+
+function addDeadAstBranches(root,chance){
+  if(chance<=0)return 0;
+  let injected=0;
+  const seen=new WeakSet();
+  const visit=obj=>{
+    if(!obj || typeof obj!=='object' || seen.has(obj))return;
+    seen.add(obj);
+    if(Array.isArray(obj)){obj.forEach(visit);return;}
+    for(const [name,value] of Object.entries(obj)){
+      if((name==='body'||name==='otherwise')&&Array.isArray(value)){
+        visitBlock(value);
+      }else visit(value);
+    }
+  };
+  const visitBlock=block=>{
+    for(const node of block)visit(node);
+    const next=[];
+    for(const node of block){
+      next.push(node);
+      if(rand(1000)>=Math.floor(chance*1000))continue;
+      const variable='__bmd_'+crypto.randomBytes(6).toString('hex');
+      // This AST branch is compiled into genuine VM instructions. It is
+      // provably dead but requires CFG reconstruction to discard.
+      next.push({t:'if',branches:[{
+        condition:{t:'bool',value:false},
+        body:[{t:'local',name:variable,value:{t:'num',value:rand(1000000)+1}}]
+      }],otherwise:[]});
+      injected++;
+    }
+    block.splice(0,block.length,...next);
+  };
+  visitBlock(root);
+  return injected;
+}
+function flattenCfgInstructions(rows,codes){
+  if(rows.length<3)return {rows,blocks:0,bridges:0};
+  const starts=new Set([1]);
+  const len=rows.length;
+  for(let i=1;i<=len;i++){
+    const op=rows[i-1][0];
+    if(op===codes.JUMP || op===codes.JF || op===codes.JT){
+      const target=rows[i-1][op===codes.JUMP?1:2];
+      if(Number.isInteger(target)&&target>=1&&target<=len)starts.add(target);
+    }
+    if([codes.JUMP,codes.JF,codes.JT,codes.RET,codes.RETM,codes.RETVOID].includes(op) && i<len)
+      starts.add(i+1);
+  }
+  const begin=[...starts].sort((a,b)=>a-b);
+  if(begin.length<2)return {rows,blocks:1,bridges:0};
+  const blocks=begin.map((start,index)=>{
+    const end=(begin[index+1]||len+1)-1;
+    const op=rows[end-1][0];
+    const terminal=[codes.JUMP,codes.RET,codes.RETM,codes.RETVOID].includes(op);
+    return {start,end,bridge:!terminal && end<len};
+  });
+  const order=[blocks[0],...blocks.slice(1)];
+  for(let i=order.length-1;i>1;i--){const j=1+rand(i);[order[i],order[j]]=[order[j],order[i]];}
+  const pcMap=new Map();
+  let cursor=1;
+  for(const block of order){
+    for(let old=block.start;old<=block.end;old++)pcMap.set(old,cursor++);
+    if(block.bridge)cursor++;
+  }
+  const result=[];
+  let bridges=0;
+  for(const block of order){
+    for(let old=block.start;old<=block.end;old++){
+      const row=rows[old-1].slice();
+      if(row[0]===codes.JUMP){
+        row[1]=pcMap.get(row[1]);
+      }else if(row[0]===codes.JF || row[0]===codes.JT){
+        row[2]=pcMap.get(row[2]);
+      }
+      if([codes.JUMP,codes.JF,codes.JT].includes(row[0]) &&
+        (!Number.isInteger(row[row[0]===codes.JUMP?1:2])))
+        throw new Error('CFG flattening encountered invalid branch target');
+      result.push(row);
+    }
+    if(block.bridge){
+      const next=pcMap.get(block.end+1);
+      if(!next)throw new Error('CFG flattening missing fallthrough');
+      result.push([codes.JUMP,next,0,0]);
+      bridges++;
+    }
+  }
+  return {rows:result,blocks:blocks.length,bridges};
+}
+
 const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','RETVOID','RETM','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV'];
 function compile(source, options={}) {
   if(typeof source!=='string') throw new TypeError('Expected Luau source string');
   if(Buffer.byteLength(source)>128*1024) throw new SyntaxErrorV3('V3 source limit: 128 KB');
+  const target=options.target||'LuaU';
+  const lua51=target==='Lua51'||target==='LuaJIT';
+  if(!['LuaU','Lua51','LuaJIT'].includes(target))
+    throw new SyntaxErrorV3('Unsupported VM target '+target);
+  const profileName=options.hardened ? (options.protectionLevel||'Strong') : 'Strong'; // preserve archived V3 compiler fusion
+  const profile=V4_PROFILES[profileName];
+  if(!profile)throw new SyntaxErrorV3('V4 protectionLevel must be Minify, Light, Medium, Strong, or Maximum');
+  if(lua51){
+    const unsupported=new Set(['+=','-=','*=','/=','//=','%=','^=','..=','//','continue','::','->']);
+    for(const t of lex(source))if(unsupported.has(t.value))
+      throw new SyntaxErrorV3('Lua 5.1/LuaJIT target cannot compile Luau-only syntax: '+t.value);
+  }
   const parsed=new Parser(source).parse();
+  const astFlattenedGroups=options.hardened?flattenSimpleAstSequences(parsed,profile.astFlatten):0;
+  const injectedAstBranches=options.hardened?addDeadAstBranches(parsed,profile.deadChance):0;
   // V4 defaults to a second independent register-bytecode interpreter.
   // The outer micro-VM decodes every inner VM instruction before dispatch.
   // V3 keeps its original single-VM execution path.
-  const nestedVM=options.hardened===true && options.nestedVM!==false;
-  // Opt-in automated function encryption. External-key mode skips the entry
-  // bootstrap so the user script can install its server-side key provider.
+  const nestedVM=options.hardened===true && options.nestedVM!==false && profile.nested;
+  // Opt-in encryption. "external" preserves entry for legacy compatibility.
+  // "external-full" encrypts the entry too and requires a trusted key
+  // provider BEFORE execution (Roblox ServerScriptService or host global).
   // Standalone can encrypt the entry as the decryption key ships with output.
   const autoMode=options.autoFunctionEncryption===undefined?'off':options.autoFunctionEncryption;
-  if(!['off','external','standalone'].includes(autoMode))
-    throw new SyntaxErrorV3('autoFunctionEncryption must be off, external, or standalone');
+  if(!['off','external','external-full','standalone'].includes(autoMode))
+    throw new SyntaxErrorV3('autoFunctionEncryption must be off, external, external-full, or standalone');
   if(autoMode!=='off'&&!options.hardened)
     throw new SyntaxErrorV3('Auto Function Encryption requires NativeV4');
   const autoId='BMAUTO_V4';
@@ -616,7 +777,7 @@ function compile(source, options={}) {
   // It makes naive one-to-one opcode lifting less universal, but it is still
   // invertible with runtime instrumentation; no client-side VM is a secret.
   const fusionCounts={GETK:0,KGET:0,KK:0,KDECL:0};
-  if(options.superInstructions!==false){
+  if(options.superInstructions!==false && profile.fusion){
     for(const fn of funcs){
       const before=fn.ins;
       const targets=new Set();
@@ -661,6 +822,15 @@ function compile(source, options={}) {
     }
   }
   const fusionTotal=Object.values(fusionCounts).reduce((a,b)=>a+b,0);
+  let flattenedBlocks=0,flattenedBridges=0;
+  if(options.hardened && profile.flatten){
+    for(const fn of funcs){
+      const flattened=flattenCfgInstructions(fn.ins,codes);
+      fn.ins=flattened.rows;
+      flattenedBlocks+=flattened.blocks;
+      flattenedBridges+=flattened.bridges;
+    }
+  }
 
 
   // A function index must not disclose the root prototype or lexical order.
@@ -1035,6 +1205,60 @@ function compile(source, options={}) {
     '    end',
     '  end'
   ]:[];
+
+  const lua51BitOps=lua51?[
+    '  -- Standard Lua 5.1 has no bit32. Portable integer-bit fallback.',
+    '  local function bmBitPair(a,b,kind)',
+    '    a=a%4294967296;b=b%4294967296',
+    '    local result=0;local bitvalue=1',
+    '    for i=1,32 do',
+    '      local x=a%2;local y=b%2',
+    '      local take=(kind==1 and x~=y) or (kind==2 and x==1 and y==1) or',
+    '        (kind==3 and (x==1 or y==1))',
+    '      if take then result=result+bitvalue end',
+    '      a=math.floor(a/2);b=math.floor(b/2);bitvalue=bitvalue*2',
+    '    end',
+    '    return result',
+    '  end',
+    '  local bit32={}',
+    '  bit32.bxor=function(a,b,...)',
+    '    local v=bmBitPair(a,b,1)',
+    '    for i=1,select("#",...)do v=bmBitPair(v,select(i,...),1)end',
+    '    return v',
+    '  end',
+    '  bit32.band=function(a,b,...)',
+    '    local v=bmBitPair(a,b,2)',
+    '    for i=1,select("#",...)do v=bmBitPair(v,select(i,...),2)end',
+    '    return v',
+    '  end',
+    '  bit32.bor=function(a,b,...)',
+    '    local v=bmBitPair(a,b,3)',
+    '    for i=1,select("#",...)do v=bmBitPair(v,select(i,...),3)end',
+    '    return v',
+    '  end',
+    '  bit32.bnot=function(a)return 4294967295-a%4294967296 end',
+    '  bit32.rshift=function(a,n)return math.floor((a%4294967296)/2^n)end',
+    '  bit32.rrotate=function(a,n)',
+    '    n=n%32;a=a%4294967296',
+    '    if n==0 then return a end',
+    '    return (math.floor(a/2^n)+(a%2^n)*2^(32-n))%4294967296',
+    '  end'
+  ]:[];
+  const lua51Buffers=lua51?[
+    '  local bufFrom=function(bytes)return bytes end',
+    '  local bufRead=function(bytes,index)return nativeByte(bytes,index+1)end',
+    '  local bufRead32=function(bytes,index)',
+    '    local a,b,c,d=nativeByte(bytes,index+1,index+4)',
+    '    if not d then nativeError("BLACKMAMER V4 invalid Lua51 bytecode")end',
+    '    return a+b*256+c*65536+d*16777216',
+    '  end'
+  ]:[
+    '  local bufFrom=buffer and buffer.fromstring',
+    '  local bufRead=buffer and buffer.readu8',
+    '  local bufRead32=buffer and buffer.readu32',
+    '  if nativeType(bufFrom)~="function" or nativeType(bufRead)~="function" or nativeType(bufRead32)~="function" then',
+    '    nativeError("BLACKMAMER V4 requires Roblox Luau buffer API") end'
+  ];
   const lines=[
     options.hardened?'-- BLACKMAMER VM V4.0':'-- BLACKMAMER VM V3.4',
     'return (function(...)',
@@ -1047,6 +1271,7 @@ function compile(source, options={}) {
     '  local '+inverseRefsName+'='+luaInverse,
     '  local modulus=' + modulus + '; local hmod=' + hashMod + '; local hseed=' + hashSeed + '; local hmul=' + hashMul + '; local hadd=' + hashAdd,
     '  local nativeByte=string.byte; local nativeChar=string.char; local nativeConcat=table.concat',
+    ...lua51BitOps,
     '  local nativeUnpack=table.unpack or unpack; local bxor=bit32 and bit32.bxor',
     '  local nativePack=table.pack or function(...)return {n=select("#",...),...}end',
     '  local nativeType=type; local nativePcall=pcall; local nativeError=error',
@@ -1147,11 +1372,7 @@ function compile(source, options={}) {
     ...(protectedKeys.size?protectedRuntimeLines():[]),
     ...outerRuntime,
     '  local P={}',
-    '  local bufFrom=buffer and buffer.fromstring',
-    '  local bufRead=buffer and buffer.readu8',
-    '  local bufRead32=buffer and buffer.readu32',
-    '  if nativeType(bufFrom)~="function" or nativeType(bufRead)~="function" or nativeType(bufRead32)~="function" then',
-    '    nativeError("BLACKMAMER V3.3 requires Roblox Luau buffer API") end',
+    ...lua51Buffers,
 
     '  local function prototype(fid)',
     '    local cached=P[fid];if cached then return cached end',
@@ -1165,7 +1386,7 @@ function compile(source, options={}) {
         '      if bundle[3]=="'+autoId+'" then keyHex=embeddedAutoKey else'
       ]:[]),
       '      local provider=globals.BLACKMAMER_KEY_PROVIDER',
-      ...(autoMode==='external'&&autoFunctionCount>0?[
+      ...((autoMode==='external'||autoMode==='external-full')&&autoFunctionCount>0?[
         '      if bundle[3]=="'+autoId+'" and nativeType(provider)~="function" then',
         '        local ok,loaded=nativePcall(function()',
         '          local service=game:GetService("ServerScriptService")',
@@ -1472,6 +1693,9 @@ function compile(source, options={}) {
   const code='--[[BLACKMAMER VM '+(options.hardened?'V4.0':'V3.4')+']]'+compactLuau(expanded);
   return {code,engine:options.hardened?'BLACKMAMER V4 Native VM':'BLACKMAMER V3 Native VM',
     hardened:options.hardened===true,nativeSealer:sealedBatch.nativeUsed,
+    target,protectionLevel:profileName,injectedAstBranches,astFlattenedGroups,
+    cfgFlattenedBlocks:flattenedBlocks,cfgBridgeJumps:flattenedBridges,
+    stringEncryption:true,
     nestedVM,outerVmInstructions:nestedVM?outerProgram[2]:0,
     runtimeBootstrap:options.hardened===true,
     opaquePredicates:nestedVM,

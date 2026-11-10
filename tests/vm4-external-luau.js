@@ -126,6 +126,21 @@ try {
     assert.equal(result.stdout,original.stdout);
     runs++;
   }
+  const wholeScript='local function add(n) return n+2 end\nprint(add(40))';
+  const whole=compile(wholeScript,{hardened:true,protectionLevel:'Strong',
+    nestedVM:true,autoFunctionEncryption:'external-full'});
+  assert.equal(whole.autoEncryptedFunctions,whole.virtualizedFunctions);
+  assert.equal(whole.generatedKeys.length,1);
+  const secret=whole.generatedKeys[0].key;
+  assert.equal(whole.code.includes(secret),false);
+  const host='BLACKMAMER_KEY_PROVIDER=function(id) return '+
+    JSON.stringify(secret)+' end\n';
+  const wholeGood=execute(host+whole.code,'external-full-root');
+  assert.equal(wholeGood.status,0,wholeGood.stderr);
+  assert.equal(wholeGood.stdout,'42\n');
+  const wholeNoKey=execute(whole.code,'external-full-root-missing');
+  assert.notEqual(wholeNoKey.status,0);
+  runs++;
   console.log('Native V4 external-function encryption: '+runs+
     ' full Luau output comparisons; missing and wrong keys rejected');
 } finally {fs.rmSync(temp,{recursive:true,force:true})}

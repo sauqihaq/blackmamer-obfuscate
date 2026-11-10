@@ -191,6 +191,7 @@ print(&quot;Hello World&quot;)"></textarea>
               <label for="autoFunctionEncryption">Auto Function Encryption (V4)</label>
               <select id="autoFunctionEncryption">
                 <option value="standalone" selected>Standalone — satu script, siap copy-paste</option>
+                <option value="external-full">External Full — Root + functions keyed by trusted server</option>
                 <option value="external">External Key — ModuleScript server Roblox</option>
                 <option value="off">Off — manual BM_ENCFUNC saja</option>
               </select>
@@ -398,7 +399,9 @@ print(&quot;Hello World&quot;)"></textarea>
 $('target').addEventListener('change',()=>{warnPreset();clearOutput()});
      $('autoFunctionEncryption').addEventListener('change', () => {
        const mode=$('autoFunctionEncryption').value;
-       $('autoEncryptionHint').textContent=mode==='external'
+       $('autoEncryptionHint').textContent=mode==='external-full'
+          ? 'External Full: seluruh bytecode fungsi termasuk entry memerlukan key provider luar sebelum eksekusi.'
+          : mode==='external'
          ? 'External: Roblox ServerScriptService atau BLACKMAMER_KEY_PROVIDER pada host Lua5.1/LuaJIT.'
          : mode==='standalone'
          ? 'Standalone: semua fungsi otomatis dienkripsi di satu script; kunci bisa direkonstruksi dari hasil.'

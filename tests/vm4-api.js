@@ -42,6 +42,14 @@ async function main() {
   assert.equal(first.data.blackmamerVM.runtimeBootstrap,true);
   assert.equal(first.data.blackmamerVM.opaquePredicates,true);
   assert.equal(first.data.blackmamerVM.periodicRuntimeGuard,true);
+  assert.equal(first.data.blackmamerVM.perFunctionOpcodePalette,true);
+  assert.equal(first.data.blackmamerVM.perInstructionOperandRotation,true);
+  assert.ok(first.data.blackmamerVM.opcodePaletteSize>=40);
+  assert.equal(first.data.blackmamerVM.dispatchStructure,'per-function-palette');
+  assert.ok(first.data.obfuscated.includes('spec[8]['),
+    'Handler identifiers must depend on executing function prototype');
+  assert.doesNotMatch(first.data.obfuscated,/\bif op==\d+\b/,
+    'Hardcoded V4 op==numeric dispatch exposes a global opcode mapping');
   assert.ok(first.data.obfuscated.includes('local BOOT=0'));
   assert.ok(first.data.obfuscated.includes('control-flow guard failed'));
   assert.ok(first.data.obfuscated.includes('runtime API modified'));

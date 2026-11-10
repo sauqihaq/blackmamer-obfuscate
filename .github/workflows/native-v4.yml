@@ -14,6 +14,7 @@ on:
       - 'netlify-frontend/**'
       - 'tests/native-sealer.js'
       - 'tests/vm4-luau.js'
+      - 'tests/vm4-structural-audit.js'
       - '.github/workflows/native-v4.yml'
   push:
     branches: [main, feature/native-v4-cpp-hardening]
@@ -29,6 +30,7 @@ on:
       - 'netlify-frontend/**'
       - 'tests/native-sealer.js'
       - 'tests/vm4-luau.js'
+      - 'tests/vm4-structural-audit.js'
       - '.github/workflows/native-v4.yml'
 
 jobs:
@@ -45,6 +47,7 @@ jobs:
           node --check native-sealer.js
           node --check protected-functions.js
           node tests/vm4-external-keys.js
+          node tests/vm4-structural-audit.js
           node --check server.js
           node tests/frontend-smoke.js
       - name: Build native C++17 sealer (warnings treated as errors)

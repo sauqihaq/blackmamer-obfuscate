@@ -685,8 +685,20 @@ function compile(source, options={}) {
   // Build-scoped opcode ids are further masked per function and instruction PC.
   // A static row no longer carries an opcode that can be mapped with one
   // global subtraction. This is polymorphism, not secret encryption.
+  // V4's opcode interpretation varies per prototype, not just per build.
+  // The palette is part of each sealed function's binary header. A generic
+  // decoder needs each prototype's palette rather than one global ID map.
+  const opcodeIndex=new Map(OPS.map((name,index)=>[codes[name],index]));
   const packed=funcs.map(f=>{
     const opSeed=rand(255)+1;
+    let palette=null;
+    if(options.hardened){
+      const pool=Array.from({length:256},(_,i)=>i);
+      for(let i=pool.length-1;i>0;i--){
+        const j=rand(i+1);[pool[i],pool[j]]=[pool[j],pool[i]];
+      }
+      palette=pool.slice(0,OPS.length);
+    }
     const ins=f.ins.map((row,idx)=>row.map((n,j)=>{
       const pc=idx+1;
       const opcodeMask=options.hardened
@@ -694,10 +706,11 @@ function compile(source, options={}) {
         : (opSeed+pc*41)%256;
       const instructionTweak=options.hardened
         ? (opSeed*97+(pc*(pc%131))*31)%modulus : 0;
-      const masked=j===0 ? (n ^ opcodeMask) : n;
+      const value=options.hardened&&j===0?palette[opcodeIndex.get(n)]:n;
+      const masked=j===0 ? (value ^ opcodeMask) : value;
       return (masked+salt+instructionTweak+5*(j+1)+modulus)%modulus;
     }));
-    return {p:f.p,ins,opSeed,protectedId:f.protectedId};
+    return {p:f.p,ins,opSeed,palette,protectedId:f.protectedId};
   });
   // Independent S-Box per build; a full inverse table travels with standalone
   // output, so this adds static-analysis work, not secret key confidentiality.
@@ -748,11 +761,18 @@ function compile(source, options={}) {
     pack16(f.p.length,raw);
     pack16(f.ins.length,raw);
     raw.push(f.opSeed,width,...offsets);
+    if(options.hardened)raw.push(...f.palette);
     for(const v of f.p)pack32(v,raw);
-    for(const row of f.ins){
-      for(const slot of slots){
-        if(width===3)pack24(row[slot],raw);
-        else pack32(row[slot],raw);
+    for(let index=0;index<f.ins.length;index++){
+      const row=f.ins[index],pc=index+1;
+      // Every inner instruction rotates the physical order of its four
+      // operands, not only the function's fixed permutation.
+      const rotation=options.hardened?
+        (f.opSeed+pc*7+(pc*pc%13))%4:0;
+      for(let position=0;position<4;position++){
+        const logical=slots[(position-rotation+4)%4];
+        if(width===3)pack24(row[logical],raw);
+        else pack32(row[logical],raw);
       }
     }
     const seed=rand(60000)+1000;
@@ -1168,10 +1188,18 @@ function compile(source, options={}) {
     '    local packed=bufFrom(nativeConcat(chars))',
     '    local pn=bufRead(packed,0)+256*bufRead(packed,1)',
     '    local count=bufRead(packed,2)+256*bufRead(packed,3)',
-    '    local opSeed=bufRead(packed,4);local width=bufRead(packed,5);local off=10',
+    '    local opSeed=bufRead(packed,4);local width=bufRead(packed,5);local off='+(options.hardened?10+OPS.length:10),
     '    if width~=3 and width~=4 then nativeError("BLACKMAMER V3 invalid instruction width") end',
     '    local offsets={}',
     '    for j=1,4 do offsets[j]=bufRead(packed,5+j) end',
+    ...(options.hardened?[
+      '    local palette={};local paletteSeen={}',
+      '    for j=1,'+OPS.length+' do',
+      '      local value=bufRead(packed,9+j)',
+      '      if paletteSeen[value]then nativeError("BLACKMAMER V4 duplicate opcode palette")end',
+      '      paletteSeen[value]=true;palette[j]=value',
+      '    end'
+    ]:[]),
     '    local seen={};for j=1,4 do',
     '      if offsets[j]>3 or seen[offsets[j]] then nativeError("BLACKMAMER V3 invalid operand map") end',
     '      seen[offsets[j]]=true',
@@ -1179,7 +1207,7 @@ function compile(source, options={}) {
     '    local params={}',
     '    for j=1,pn do params[j]=bufRead32(packed,off);off=off+4 end',
     '    -- Each prototype independently chooses compact/wide and operand order.',
-    '    local spec={params,packed,opSeed,off,count,width,offsets}',
+    '    local spec={params,packed,opSeed,off,count,width,offsets'+(options.hardened?',palette':'')+'}',
     '    P[fid]=spec;return spec',
     '  end',
     '  -- A constant stays sealed until the executing function first references it.',
@@ -1211,7 +1239,9 @@ function compile(source, options={}) {
     '    local R={};local pc=1;local ticks=0;local stream=spec[2];local off=spec[4];local length=spec[5]',
     '    local width=spec[6];local offsets=spec[7]',
     '    local function field(at,logical)',
-    '      local p=at+offsets[logical]*width',
+    '      local p=at+'+(options.hardened?
+      '((offsets[logical]+(spec[3]+pc*7+(pc*pc%13))%4)%4)*width':
+      'offsets[logical]*width'),
     '      if width==4 then return bufRead32(stream,p) end',
     '      return bufRead(stream,p)+bufRead(stream,p+1)*256+bufRead(stream,p+2)*65536',
     '    end',
@@ -1360,7 +1390,17 @@ function compile(source, options={}) {
     (options.dispatchMode!=='shard'&&rand(2)===0);
   const dispatch=['      local '+guardedName+'=false'];
   let dispatchStructure;
-  if(useTree){
+  if(options.hardened){
+    // Numeric opcode constants are absent from the V4 dispatcher. Instead
+    // each handler compares against the executing function's sealed palette.
+    // The branch order is still independently randomized on every build.
+    for(let i=0;i<handlers.length;i++)
+      dispatch.push(...emitHandler(handlers[i],
+        (i===0?'if':'elseif')+' op==O.'+opcodeName(handlers[i])+' then',
+        '      '));
+    dispatch.push('      end');
+    dispatchStructure='per-function-palette';
+  }else if(useTree){
     // A sorted decision tree has a different structure from modulo shards;
     // nodes change when per-build opcode IDs are permuted.
     const sorted=[...handlers].sort((x,y)=>
@@ -1424,7 +1464,7 @@ function compile(source, options={}) {
   lines.splice(dispatchStart,dispatchEnd-dispatchStart+1,...dispatch);
   const expanded=lines.join('\n').replace(/\bO\.([A-Z]+)\b/g,(_,name)=>{
     if(!Object.hasOwn(codes,name)) throw new Error('Unknown VM opcode '+name);
-    return String(codes[name]);
+    return options.hardened?'spec[8]['+(OPS.indexOf(name)+1)+']':String(codes[name]);
   });
   // Deliberately publish the runtime as a dense single-line Luau chunk.
   // Retain a compact block-comment identifier so newline comments never
@@ -1446,6 +1486,14 @@ function compile(source, options={}) {
     bytecodeWidths:{compact:sealedFunctions.filter(f=>f[2]===3).length,
       wide:sealedFunctions.filter(f=>f[2]===4).length},
     dispatchStructure,
+    perFunctionOpcodePalette:options.hardened===true,
+    perInstructionOperandRotation:options.hardened===true,
+    opcodePaletteSize:options.hardened?OPS.length:0,
+    ...(options.auditPalettes===true?{
+      // Test-only structural fingerprints; never written into the Lua chunk.
+      opcodePaletteFingerprints:packed.map(f=>f.palette?
+        crypto.createHash('sha256').update(Buffer.from(f.palette)).digest('hex'):null)
+    }:{}),
     fusedInstructions:fusionTotal,superInstructionKinds:fusionCounts,
     vmInstructions:funcs.reduce((n,f)=>n+f.ins.length,0),
     antiTamper: options.antiTamper!==false, antiDebug: options.antiDebug!==false};

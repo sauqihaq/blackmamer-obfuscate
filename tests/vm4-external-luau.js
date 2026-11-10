@@ -69,6 +69,49 @@ try {
     'VM global assignment must work: '+assignmentResult.stderr);
   assert.equal(assignmentResult.stdout,'42\n');
   runs++;
+  // Automatic external-key mode protects nested function prototypes,
+  // leaving only the root bootstrap able to install its server key provider.
+  const autoSource='BLACKMAMER_KEY_PROVIDER=BLACKMAMER_EXTERNAL_PROVIDER\n'+
+    'local function double(n) return n*2 end\nprint(double(21))';
+  const autoExternal=compile(autoSource,{hardened:true,nestedVM:true,
+    autoFunctionEncryption:'external'});
+  assert.equal(autoExternal.autoEncryptedFunctions,1);
+  assert.equal(autoExternal.generatedKeys.length,1);
+  assert.equal(autoExternal.generatedKeys[0].id,'BMAUTO_V4');
+  const extKey=autoExternal.generatedKeys[0].key;
+  assert.equal(autoExternal.code.includes(extKey),false);
+  const extWrapper='BLACKMAMER_EXTERNAL_PROVIDER=function(id) return '+
+    JSON.stringify(extKey)+' end\n';
+  const autoResult=execute(extWrapper+autoExternal.code,'auto-external-good');
+  assert.equal(autoResult.status,0,autoResult.stderr);
+  assert.equal(autoResult.stdout,'42\n');
+  const extMissing=execute(autoExternal.code,'auto-external-missing');
+  assert.notEqual(extMissing.status,0);
+  const extWrong=execute('BLACKMAMER_EXTERNAL_PROVIDER=function(id) return '+
+    JSON.stringify(crypto.randomBytes(32).toString('hex'))+' end\n'+
+    autoExternal.code,'auto-external-badkey');
+  assert.notEqual(extWrong.status,0);
+  runs++;
+
+  // Standalone mode protects the root too, and ships a reconstructible
+  // split key: never requires any external module or server key.
+  for(const script of [
+    'print("standalone-root")',
+    'local function square(n) return n*n end\nprint(square(7))',
+    'local function outer(a) return function(b) return a+b end end\nprint(outer(11)(31))'
+  ]){
+    const encoded=compile(script,{hardened:true,nestedVM:true,autoFunctionEncryption:'standalone'});
+    assert.equal(encoded.generatedKeys.length,0);
+    assert.equal(encoded.autoEncryptedFunctions,encoded.virtualizedFunctions);
+    assert.match(encoded.code,/embeddedAutoKey/);
+    const name='auto-standalone-'+runs;
+    const original=execute(script,name+'-src');
+    assert.equal(original.status,0,original.stderr);
+    const result=execute(encoded.code,name+'-compiled');
+    assert.equal(result.status,0,result.stderr);
+    assert.equal(result.stdout,original.stdout);
+    runs++;
+  }
   console.log('Native V4 external-function encryption: '+runs+
     ' full Luau output comparisons; missing and wrong keys rejected');
 } finally {fs.rmSync(temp,{recursive:true,force:true})}

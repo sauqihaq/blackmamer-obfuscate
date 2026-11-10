@@ -41,6 +41,10 @@ try {
       assert.equal(compiled.hardened,true);
       assert.equal(compiled.nestedVM,true);
       assert.ok(compiled.outerVmInstructions>=10);
+      assert.equal(compiled.runtimeBootstrap,true);
+      assert.equal(compiled.opaquePredicates,true);
+      assert.equal(compiled.periodicRuntimeGuard,true);
+      assert.ok(compiled.code.includes('local BOOT=0'));
       assert.match(compiled.code,/BLACKMAMER V4 outer VM/);
       assert.match(compiled.code,/BLACKMAMER VM V4\.0/);
       assert.doesNotMatch(compiled.code,/local SALT=\d+;local CHECK=\d+/);

@@ -93,6 +93,20 @@ try {
   assert.notEqual(extWrong.status,0);
   runs++;
 
+  // Auto provider resolution from Roblox ServerScriptService requires no
+  // source edits. The Luau CLI host is mocked to exercise this exact path.
+  const bareAuto=compile('local function half(n)return n/2 end\nprint(half(84))',
+    {hardened:true,nestedVM:true,autoFunctionEncryption:'external'});
+  const bareKey=bareAuto.generatedKeys[0].key;
+  const mockRoblox='game={GetService=function(self,name) return '+
+    '{FindFirstChild=function(self,item) return {key=true} end} end}\n'+
+    'require=function(module) return function(id) return '+
+    JSON.stringify(bareKey)+' end end\n';
+  const automatic=execute(mockRoblox+bareAuto.code,'auto-server-provider-resolution');
+  assert.equal(automatic.status,0,automatic.stderr);
+  assert.equal(automatic.stdout,'42\n');
+  runs++;
+
   // Standalone mode protects the root too, and ships a reconstructible
   // split key: never requires any external module or server key.
   for(const script of [

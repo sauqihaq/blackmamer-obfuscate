@@ -14,6 +14,8 @@ on:
       - 'netlify-frontend/**'
       - 'tests/native-sealer.js'
       - 'tests/vm4-luau.js'
+      - 'tests/vm4-lua51.js'
+      - 'tests/vm4-only-api.js'
       - 'tests/vm4-structural-audit.js'
       - '.github/workflows/native-v4.yml'
   push:
@@ -57,8 +59,7 @@ jobs:
       - name: Run regression suites and V3/V4 API integration
         run: |
           npm install --omit=dev
-          node tests/vm3-api.js
-          node tests/vm4-api.js
+          node tests/vm4-only-api.js
       - name: Docker build including C++ native binary
         run: docker build -t blackmamer-native-v4 .
 
@@ -73,7 +74,7 @@ jobs:
       - name: Compile official Luau CLI
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++ make
+          sudo apt-get install -y cmake g++ make lua5.1 luajit
           git clone --depth 1 https://github.com/luau-lang/luau.git luau-src
           cmake -S luau-src -B luau-build -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_TESTS=OFF
           cmake --build luau-build --target Luau.Repl.CLI --parallel 2
@@ -85,3 +86,4 @@ jobs:
         run: |
           node tests/vm4-luau.js
           node tests/vm4-external-luau.js
+          node tests/vm4-lua51.js

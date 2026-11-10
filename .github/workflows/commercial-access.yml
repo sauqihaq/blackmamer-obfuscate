@@ -1,0 +1,38 @@
+name: BLACKMAMER Commercial Access
+
+on:
+  pull_request:
+    paths:
+      - 'commercial-access.js'
+      - 'server.js'
+      - 'package.json'
+      - 'Dockerfile'
+      - 'tests/commercial-access-smoke.js'
+      - '.github/workflows/commercial-access.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'commercial-access.js'
+      - 'server.js'
+      - 'package.json'
+      - 'Dockerfile'
+      - 'tests/commercial-access-smoke.js'
+      - '.github/workflows/commercial-access.yml'
+
+jobs:
+  access-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install backend dependencies
+        run: npm install --omit=dev --no-audit --no-fund
+      - name: Validate syntax and secure fallback behavior
+        run: |
+          node --check commercial-access.js
+          node --check server.js
+          node tests/commercial-access-smoke.js
+      - name: Verify container image includes commercial module
+        run: docker build -t blackmamer-commercial-access .

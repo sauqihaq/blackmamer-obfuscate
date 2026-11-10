@@ -49,7 +49,8 @@ app.post('/api/obfuscate',licenseGate,(req,res)=>{
  const body=req.body||{};
  const source=body.script;
  const preset=body.preset||'NativeV4';
- const level=body.protectionLevel||body.presetLevel||'Strong';
+ const oneClick=body.oneClick===true;
+ const level=oneClick?'Maximum':(body.protectionLevel||body.presetLevel||'Strong');
  const requestedTarget=body.target||'LuaU';
  const target=TARGETS.get(requestedTarget);
  if(typeof source!=='string'||!source.trim())
@@ -69,12 +70,12 @@ app.post('/api/obfuscate',licenseGate,(req,res)=>{
      hardened:true,
      target,
      protectionLevel:level,
-     antiTamper:body.antiTamper!==false,
-     antiDebug:body.antiDebug!==false&&!['Minify','Light'].includes(level),
-     nestedVM:body.nestedVM,
-     superInstructions:body.superInstructions,
-     autoFunctionEncryption:body.autoFunctionEncryption||'off',
-     functionKeys:body.functionKeys
+     antiTamper:oneClick||body.antiTamper!==false,
+     antiDebug:oneClick||(body.antiDebug!==false&&!['Minify','Light'].includes(level)),
+     nestedVM:oneClick?true:body.nestedVM,
+     superInstructions:oneClick?true:body.superInstructions,
+     autoFunctionEncryption:oneClick?'standalone':(body.autoFunctionEncryption||'off'),
+     functionKeys:oneClick?undefined:body.functionKeys
    });
    res.json({
      obfuscated:BANNER+result.code,engine:result.engine,target,
@@ -82,6 +83,7 @@ app.post('/api/obfuscate',licenseGate,(req,res)=>{
      protection:{antiTamper:result.antiTamper,antiDebug:result.antiDebug},
      blackmamerVM:{
        enabled:true,applied:true,mode:'native-v4',hardened:true,
+       oneClick,profileLabel:oneClick?'BLACKMAMER V4 Unified Protection':'Custom API',
        protectionLevel:result.protectionLevel,
        target:result.target,
        astDeadBranches:result.injectedAstBranches,

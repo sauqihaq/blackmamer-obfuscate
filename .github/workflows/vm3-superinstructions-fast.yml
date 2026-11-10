@@ -35,5 +35,4 @@ jobs:
         run: node tests/vm3-dispatch.js
       - name: Install backend dependencies
         run: npm install --omit=dev
-      - name: Run V3 API tests
-        run: node tests/vm3-api.js
+      # V3 API is retired; V3 compiler regression remains for historical parity.

@@ -38,7 +38,9 @@ const fetchMock = async (url, options) => {
     { ok:true, json:async () => ({
       obfuscated:'-- test output\nreturn true',
       engine:'Prometheus',
-      blackmamerVM:{ enabled:true, applied:true, virtualizedExpressions:1, fallback:false }
+      blackmamerVM:{ enabled:true, applied:true, virtualizedExpressions:1, fallback:false },
+      externalKeys: options?.body && JSON.parse(options.body).script.includes('BM_ENCFUNC')
+        ? [{id:'premium',key:'a1'.repeat(32)}] : []
     }) };
 };
 const sandbox = {
@@ -100,6 +102,16 @@ compiled.runInContext(vm.createContext(sandbox));
   assert.equal(v4.vmMode, 'native-v4');
   assert.equal(v4.target, 'LuaU');
   assert.equal(byId('hybrid').disabled, true);
+
+  await byId('sampleProtected').click();
+  assert.equal(byId('preset').value, 'NativeV4');
+  assert.match(byId('source').value,/BM_ENCFUNC/);
+  await byId('obfuscate').click();
+  assert.equal(byId('keysPanel').hidden, false);
+  assert.match(byId('keysResult').value,/BlackmamerKeyProvider/);
+  assert.match(byId('keysResult').value,/a1a1a1a1/);
+  byId('clear').click();
+  assert.equal(byId('keysPanel').hidden, true);
 
   byId('source').value = '';
   calls = [];

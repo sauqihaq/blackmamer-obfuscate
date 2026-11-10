@@ -126,6 +126,7 @@ print(&quot;Hello World&quot;)"></textarea>
               <button class="btn" type="button" id="upload">↑ Upload .lua / .luau</button>
               <input class="file" type="file" id="file" accept=".lua,.luau,.txt,text/plain">
               <button class="btn subtle" type="button" id="sample">Contoh</button>
+              <button class="btn subtle" type="button" id="sampleProtected">Contoh BM_ENCFUNC</button>
             </div>
             <button class="btn subtle" type="button" id="clear">Bersihkan</button>
           </div>
@@ -150,6 +151,17 @@ print(&quot;Hello World&quot;)"></textarea>
             <div class="metric">VM applied: <strong id="appliedMetric">—</strong></div>
             <div class="metric">Fallback: <strong id="fallbackMetric">—</strong></div>
           </div>
+        </section>
+        <section class="card output" id="keysPanel" hidden>
+          <div class="card-head"><div class="card-title"><b>03</b> External Function Keys</div></div>
+          <div class="editor-wrap"><textarea id="keysResult" class="editor" readonly aria-label="Kunci rahasia server"></textarea></div>
+          <div class="toolbar">
+            <button type="button" class="btn" id="copyKeys">⧉ Salin Key Provider</button>
+            <button type="button" class="btn primary" id="downloadKeys">↓ Download Key Provider</button>
+          </div>
+          <div class="presets" style="margin:12px">Simpan ModuleScript <b>BlackmamerKeyProvider</b>
+          di <b>ServerScriptService</b>. Jangan ditaruh di LocalScript / ReplicatedStorage.
+          Kunci dibuat hanya sekali untuk request ini dan tidak tersimpan di backend.</div>
         </section>
       </div>
       <aside class="card" aria-label="Pengaturan obfuscate">
@@ -212,6 +224,7 @@ print(&quot;Hello World&quot;)"></textarea>
     const result = $('result');
     let lastMode = 'LuaU';
     let running = false;
+     let issuedKeyProvider = '';
 
     function bytes(text) { return new Blob([text]).size; }
     function readable(number) {
@@ -227,6 +240,9 @@ print(&quot;Hello World&quot;)"></textarea>
     function setStatus(text) { $('taskStatus').textContent = text; }
     function clearOutput() {
       result.value = '';
+       issuedKeyProvider = '';
+       $('keysResult').value = '';
+       $('keysPanel').hidden = true;
       $('copy').disabled = true;
       $('download').disabled = true;
       $('outputStats').textContent = 'Belum diproses';
@@ -236,7 +252,27 @@ print(&quot;Hello World&quot;)"></textarea>
     function updateStats() {
       $('inputStats').textContent = source.value.length.toLocaleString('id-ID') + ' karakter • ' + readable(bytes(source.value));
     }
-    function warnPreset() {
+    function buildProvider(entries) {
+       const lines = ['-- BLACKMAMER external keys SERVER ONLY',
+         '-- ModuleScript in ServerScriptService/BlackmamerKeyProvider',
+         'local keys = {'];
+       for (const entry of entries) {
+         if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(entry.id) ||
+             !/^[a-fA-F0-9]{64}$/.test(entry.key))throw new Error('Invalid external keys');
+         lines.push('    ['+JSON.stringify(entry.id)+'] = '+JSON.stringify(entry.key)+',');
+       }
+       lines.push('}', 'return function(id)', '    local key=keys[id]',
+         '    if not key then error("Protected key unavailable: "..tostring(id)) end',
+         '    return key','end');
+       return lines.join('\n');
+     }
+     function downloadText(filename,value) {
+       const url=URL.createObjectURL(new Blob([value],{type:'text/plain;charset=utf-8'}));
+       const a=document.createElement('a');a.href=url;a.download=filename;
+       document.body.appendChild(a);a.click();a.remove();
+       setTimeout(()=>URL.revokeObjectURL(url),1000);
+     }
+     function warnPreset() {
       const preset = $('preset').value;
       const labels = {
         Weak: 'Proteksi lebih ringan, lebih cepat.',
@@ -244,7 +280,7 @@ print(&quot;Hello World&quot;)"></textarea>
         Strong: 'VM Prometheus bertingkat. Berpotensi lebih berat atau tidak stabil untuk sebagian script Luau.',
         RobloxStrong: 'Full-program VM Prometheus satu lapis + proteksi konstanta; enkripsi string dan anti-tamper upstream dimatikan karena masalah kompatibilitas.',
         NativeV3: 'Compiler dan interpreter bytecode BLACKMAMER sendiri. Eksperimental: belum mendukung seluruh sintaks Luau, tanpa fallback Prometheus.',
-        NativeV4: 'VM native Luau dengan opcode/operand masking nonlinier, checksum berbeda per build, dan sealing C++ di backend jika tersedia. Eksperimental, tidak menjamin anti-deobfuscation.'
+        NativeV4: 'Nested VM + BM_ENCFUNC("id", function(...) ... end). Fungsi terlindungi memakai kunci eksternal yang wajib tersedia di Script Server Roblox.'
       };
       $('presetHint').textContent = labels[preset];
       const isNative = preset === 'NativeV3' || preset === 'NativeV4';
@@ -329,6 +365,14 @@ print(&quot;Hello World&quot;)"></textarea>
         }
 
         result.value = data.obfuscated;
+         issuedKeyProvider='';
+         $('keysResult').value='';
+         $('keysPanel').hidden=true;
+         if(Array.isArray(data.externalKeys)&&data.externalKeys.length){
+           issuedKeyProvider=buildProvider(data.externalKeys);
+           $('keysResult').value=issuedKeyProvider;
+           $('keysPanel').hidden=false;
+         }
         lastMode = payload.target;
         $('copy').disabled = false;
         $('download').disabled = false;
@@ -346,7 +390,9 @@ print(&quot;Hello World&quot;)"></textarea>
         } else if (payload.vmMode === 'hybrid-v2' && !(m.virtualizedExpressions > 0)) {
           feedback('Obfuscation selesai. VM V2 tidak menemukan ekspresi yang memenuhi syarat untuk divirtualisasi; hasil tetap diproses Prometheus.', 'warn');
         } else {
-          feedback('Script berhasil diproses. Tetap uji output di Roblox Studio sebelum dipakai.', '');
+          feedback(issuedKeyProvider
+             ? 'External function keys ada di panel 03. Simpan Key Provider ke ServerScriptService.'
+             : 'Script berhasil diproses. Tetap uji output di Roblox Studio sebelum dipakai.', '');
         }
       } catch (err) {
         clearOutput();
@@ -361,7 +407,7 @@ print(&quot;Hello World&quot;)"></textarea>
     $('obfuscate').addEventListener('click', obfuscate);
     $('healthButton').addEventListener('click', healthCheck);
     $('preset').addEventListener('change', warnPreset);
-    source.addEventListener('input', updateStats);
+    source.addEventListener('input', () => { updateStats(); clearOutput(); });
     $('upload').addEventListener('click', () => $('file').click());
     $('file').addEventListener('change', async event => {
       const file = event.target.files && event.target.files[0];
@@ -378,7 +424,27 @@ print(&quot;Hello World&quot;)"></textarea>
       source.value = 'local damage = 20 * 5\nlocal bonus = if damage > 50 then 10 else 0\nprint("Hello World", damage + bonus)';
       updateStats(); clearOutput();
     });
-    $('clear').addEventListener('click', () => {
+    $('sampleProtected').addEventListener('click', () => {
+       $('preset').value='NativeV4';warnPreset();
+       source.value=[
+         '-- Script SERVER saja, bukan LocalScript',
+         'BLACKMAMER_KEY_PROVIDER = require(game:GetService("ServerScriptService"):WaitForChild("BlackmamerKeyProvider"))',
+         'local premium = BM_ENCFUNC("premium", function(n)',
+         '  return n * 7',
+         'end)',
+         'print("BLACKMAMER protected:", premium(6))'
+       ].join('\n');updateStats();clearOutput();
+     });
+     $('copyKeys').addEventListener('click', async () => {
+       if(!issuedKeyProvider)return;
+       try{await navigator.clipboard.writeText(issuedKeyProvider);
+         feedback('Key Provider disalin. Simpan hanya di server.', '');
+       }catch{$('keysResult').focus();$('keysResult').select();}
+     });
+     $('downloadKeys').addEventListener('click', () => {
+       if(issuedKeyProvider)downloadText('BlackmamerKeyProvider.lua',issuedKeyProvider);
+     });
+     $('clear').addEventListener('click', () => {
       source.value = '';
       updateStats(); clearOutput(); source.focus();
     });

@@ -226,3 +226,9 @@ Native V4 secara default sekarang menggunakan **dua interpreter berbasis bytecod
 Contoh permintaan: `{"script":"print('test')","preset":"NativeV4","target":"LuaU","vmMode":"native-v4","antiTamper":true,"antiDebug":true}`. Tidak perlu pembaruan frontend bila situs sudah mengirim preset `NativeV4`.
 
 **Batasan penting:** ini lapisan interpreter luar untuk **decoding instruksi VM utama**, bukan dua virtualisasi penuh seluruh semantik Luau. VM bertingkat menambah overhead startup dan eksekusi; uji game nyata, terutama loop besar dan frame-sensitive callbacks. Bytecode, interpreter, dan semua bahan pembentukan kunci tetap tersedia pada klien: tidak mungkin menjamin perlindungan dari analisis dinamis, dan ini belum terbukti setara Luraph. Jangan mengandalkan obfuscation untuk rahasia server, kontrol ekonomi, atau otorisasi.
+
+## Native V4 — BM_ENCFUNC external function keys
+
+Native V4 supports `BM_ENCFUNC("premium", function(...) ... end)` to compile an annotated function and all child prototypes as externally keyed, authenticated encrypted bytecode. The resulting code calls `BLACKMAMER_KEY_PROVIDER("premium")` when the function is first executed. Keys are issued once by the API, are NOT stored by the backend and are never embedded in generated Luau.
+
+**For Roblox use Server Script + ServerScriptService ModuleScript only**; keys must not be sent to clients. Read the security and setup instructions at [External Function Keys](docs/EXTERNAL_FUNCTION_KEYS.md). Generated keys shown in the website can be downloaded as a server-only provider. This does not provide a hosted license server or guarantee security if the executing server is compromised.

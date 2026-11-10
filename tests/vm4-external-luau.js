@@ -1,0 +1,74 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const os=require('node:os');
+const path=require('node:path');
+const crypto=require('node:crypto');
+const {spawnSync}=require('node:child_process');
+const {compile}=require('../blackmamer-vm3');
+const luau=process.env.LUAU_BIN||'luau';
+const temp=fs.mkdtempSync(path.join(os.tmpdir(),'blackmamer-external-key-'));
+let runs=0;
+function execute(code,name){
+  const file=path.join(temp,name+'.luau');
+  fs.writeFileSync(file,code,'utf8');
+  return spawnSync(luau,[file],{encoding:'utf8',timeout:30000,maxBuffer:1024*1024});
+}
+function provider(keys){
+  const cases=Object.entries(keys).map(([id,key])=>
+    'if id==' + JSON.stringify(id) + ' then return ' + JSON.stringify(key) + ' end').join(';');
+  return 'BLACKMAMER_KEY_PROVIDER=function(id) '+cases+
+    ';error("key unavailable") end\n';
+}
+const cases=[
+  {name:'multiply',id:'multiply',source:
+   'local secure=BM_ENCFUNC("multiply",function(n)return n*7 end)\nprint(secure(6))',expected:'42\n'},
+  {name:'captured',id:'inner',source:
+   'local secure=BM_ENCFUNC("inner",function(a) local function child(b) return a+b end return child(19) end)\nprint(secure(23))',expected:'42\n'},
+  {name:'two-calls',id:'calls',source:
+   'local s=BM_ENCFUNC("calls",function(a,b)return a+b end)\nprint(s(5,9),s(1,4))',expected:'14\t5\n'},
+  {name:'multi-return',id:'results',source:
+   'local s=BM_ENCFUNC("results",function()return "a",9 end)\nlocal a,b=s()\nprint(a,b)',expected:'a\t9\n'},
+  {name:'recursive',id:'factorial',source:
+   'local s=BM_ENCFUNC("factorial",function(n) local function fact(x) if x<=1 then return 1 end return x*fact(x-1) end return fact(n) end)\nprint(s(5))',expected:'120\n'}
+];
+try {
+  for(const testcase of cases){
+    for(let iteration=0;iteration<2;iteration++){
+      const encoded=compile(testcase.source,{hardened:true,nestedVM:true,antiTamper:true});
+      assert.equal(encoded.generatedKeys.length,1);
+      const id=encoded.generatedKeys[0].id;
+      assert.equal(id,testcase.id);
+      const key=encoded.generatedKeys[0].key;
+      assert.equal(encoded.code.includes(key),false);
+      const good=execute(provider({[id]:key})+encoded.code,
+        testcase.name+'-'+iteration+'-good');
+      assert.equal(good.status,0,
+        testcase.name+' failed: '+good.stderr+' '+good.stdout);
+      assert.equal(good.stdout,testcase.expected,
+        testcase.name+' output mismatch');
+      runs++;
+      const missing=execute(encoded.code,testcase.name+'-'+iteration+'-missing');
+      assert.notEqual(missing.status,0,'No provider must fail');
+      const wrong=execute(provider({[id]:crypto.randomBytes(32).toString('hex')})+
+        encoded.code,testcase.name+'-'+iteration+'-wrong');
+      assert.notEqual(wrong.status,0,'Wrong key must fail');
+      assert.match(wrong.stderr+wrong.stdout,/invalid|ciphertext|key/i);
+    }
+  }
+  // Verify the Roblox-style provider assignment INSIDE the virtualized
+  // source can reference a server-only provider supplied by its host.
+  const assignedSource='BLACKMAMER_KEY_PROVIDER=BLACKMAMER_EXTERNAL_PROVIDER\n'+
+    'local s=BM_ENCFUNC("runtime",function(n)return n+4 end)\nprint(s(38))';
+  const assigned=compile(assignedSource,{hardened:true,nestedVM:true});
+  const assignedKey=assigned.generatedKeys[0].key;
+  const wrapper='BLACKMAMER_EXTERNAL_PROVIDER=function(id) return '+
+    JSON.stringify(assignedKey)+' end\n';
+  const assignmentResult=execute(wrapper+assigned.code,'provider-assigned-from-source');
+  assert.equal(assignmentResult.status,0,
+    'VM global assignment must work: '+assignmentResult.stderr);
+  assert.equal(assignmentResult.stdout,'42\n');
+  runs++;
+  console.log('Native V4 external-function encryption: '+runs+
+    ' full Luau output comparisons; missing and wrong keys rejected');
+} finally {fs.rmSync(temp,{recursive:true,force:true})}

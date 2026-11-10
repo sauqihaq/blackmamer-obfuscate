@@ -1145,6 +1145,17 @@ function compile(source, options={}) {
         '      if bundle[3]=="'+autoId+'" then keyHex=embeddedAutoKey else'
       ]:[]),
       '      local provider=globals.BLACKMAMER_KEY_PROVIDER',
+      ...(autoMode==='external'&&autoFunctionCount>0?[
+        '      if bundle[3]=="'+autoId+'" and nativeType(provider)~="function" then',
+        '        local ok,loaded=nativePcall(function()',
+        '          local service=game:GetService("ServerScriptService")',
+        '          local module=service:FindFirstChild("BlackmamerKeyProvider")',
+        '          if not module then return nil end',
+        '          return require(module)',
+        '        end)',
+        '        if ok and nativeType(loaded)=="function" then provider=loaded end',
+        '      end'
+      ]:[]),
       '      if nativeType(provider)~="function" then nativeError("BLACKMAMER external key provider missing")end',
       '      keyHex=provider(bundle[3])',
       ...(embeddedAutoKey?['      end']:[]),

@@ -39,6 +39,12 @@ async function main() {
   assert.equal(first.data.blackmamerVM.hardened,true);
   assert.equal(first.data.blackmamerVM.nestedVM,true);
   assert.ok(first.data.blackmamerVM.outerVmInstructions>=10);
+  assert.equal(first.data.blackmamerVM.runtimeBootstrap,true);
+  assert.equal(first.data.blackmamerVM.opaquePredicates,true);
+  assert.equal(first.data.blackmamerVM.periodicRuntimeGuard,true);
+  assert.ok(first.data.obfuscated.includes('local BOOT=0'));
+  assert.ok(first.data.obfuscated.includes('control-flow guard failed'));
+  assert.ok(first.data.obfuscated.includes('runtime API modified'));
   assert.ok(first.data.obfuscated.includes('BLACKMAMER V4 outer VM'),
     'A genuine second interpreter must be emitted in NativeV4');
   assert.equal(first.data.blackmamerVM.nativeSealer,available());

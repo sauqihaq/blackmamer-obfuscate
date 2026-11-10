@@ -856,7 +856,21 @@ function compile(source, options={}) {
   const randomName=()=>('_'+Array.from({length:7},()=>String.fromCharCode(97+rand(26))).join(''));
   const blobName=randomName(),alphabetName=randomName(),mapName=randomName(),unpackName=randomName();
   const inverseName=randomName(),inverseRefsName=randomName();
-  const sboxMaskScrambled=sboxMask^(salt%256);
+  // Bootstrap material is derived from the *actual sealed payload* at
+  // runtime. It is portable and tamper-coupled, not secret key material.
+  let bootstrap=0;
+  const mixBoot=(len,seed,kind)=>{
+    bootstrap=(bootstrap+len*131+(seed%65521)*17+kind*7)%16777216;
+  };
+  for(let i=0;i<sealedFunctions.length;i++)
+    mixBoot(sealedFunctions[i][1].length,sealedFunctionRefs[i][0],3);
+  for(let i=0;i<sealedConstants.length;i++)
+    mixBoot(sealedConstants[i][2].length,sealedConstantRefs[i][1],sealedConstantRefs[i][0]);
+  mixBoot(maskedInverse.length,0,11);
+  if(nestedVM)mixBoot(sealedOuter[1].length,outerRefs[0],13);
+  // The runtime bootstrap protects portable masking against simple literal
+  // search. Since all material ships to the client it remains reconstructible.
+  const sboxMaskScrambled=sboxMask^(salt%256)^(options.hardened?(bootstrap%256):0);
   const luaArgs=JSON.stringify(argSets).replace(/\[/g,'{').replace(/\]/g,'}');
   // V4 varies the integrity polynomial by build rather than publishing a
   // universal digest recipe. This is tamper evidence, NOT a MAC or a secret.
@@ -884,14 +898,26 @@ function compile(source, options={}) {
   }
   const saltShare=rand(1<<30), checkShare=rand(1<<30);
   const runtimeSaltCheck=options.hardened
-    ? '  local SALT=bit32.bxor('+saltShare+','+(salt^saltShare)+'); local CHECK=bit32.bxor('+checkShare+','+(digest^checkShare)+')'
-    : '  local SALT='+salt+'; local CHECK='+digest;
+    ? [
+      '  local BOOT=0',
+      '  local function mixBoot(n,k,t) BOOT=(BOOT+n*131+(k%65521)*17+t*7)%16777216 end',
+      '  for _,f in ipairs(E)do mixBoot(#f[2],f[1],3)end',
+      '  for _,v in ipairs(Q)do mixBoot(#v[3],v[2],v[1])end',
+      '  mixBoot(#'+inverseName+',0,11)',
+      ...(nestedVM?['  mixBoot(#H[2],H[1],13)']:[]),
+      '  local SALT=bit32.bxor('+saltShare+','+(salt^saltShare^bootstrap)+',BOOT)',
+      '  local CHECK=bit32.bxor('+checkShare+','+(digest^checkShare^bootstrap)+',BOOT)'
+    ]
+    : ['  local SALT='+salt+'; local CHECK='+digest];
   const runtimeTweak=options.hardened
     ? '((spec[3]*97+(pc*(pc%131))*31)%modulus)' : '0';
   const runtimeOpcodeMask=options.hardened
     ? '((spec[3]+pc*41+(pc*pc%251)*17)%256)'
     : '((spec[3]+pc*41)%256)';
 
+  // Per-build opaque polynomial guard: true for all integer PCs, but is
+  // evaluated from runtime state and interleaved into the second VM.
+  const predFactor=31+2*rand(85),predBias=rand(65521);
   const outerRuntime=nestedVM?[
     '  -- Outer VM has a separate sealed instruction stream and interpreter.',
     '  local outerSeed=bxor(H[1],(SALT+(3+3)*7919+1543)%65536)',
@@ -908,6 +934,9 @@ function compile(source, options={}) {
     '  outerData=nil;H=nil',
     '  local function outerVM(spec,pc,at,field)',
     '    local regs={};local ip=1;local steps=0',
+    '    local challenge=(pc*'+predFactor+'+spec[3]*37+at+'+predBias+')%65536',
+    '    if ((challenge*challenge+challenge)%2)~=0 then',
+    '      nativeError("BLACKMAMER V4 control-flow guard failed")end',
     '    while true do',
     '      steps=steps+1;if steps>32 then nativeError("BLACKMAMER V4 outer VM step overflow")end',
     '      local instruction=outerProgram[ip]',
@@ -950,8 +979,6 @@ function compile(source, options={}) {
     ...(nestedVM?['  local H='+luaOuter]:[]),
     '  local A=' + luaArgs,
     '  local '+inverseRefsName+'='+luaInverse,
-    runtimeSaltCheck,
-    '  local SBOX_MASK=bit32.bxor(SALT%256,'+sboxMaskScrambled+')',
     '  local modulus=' + modulus + '; local hmod=' + hashMod + '; local hseed=' + hashSeed + '; local hmul=' + hashMul + '; local hadd=' + hashAdd,
     '  local nativeByte=string.byte; local nativeChar=string.char; local nativeConcat=table.concat',
     '  local nativeUnpack=table.unpack or unpack; local bxor=bit32 and bit32.bxor',
@@ -988,6 +1015,8 @@ function compile(source, options={}) {
     '  for _,b in ipairs(Q)do b[3]='+unpackName+'(b[3])end',
     ...(nestedVM?['  H[2]='+unpackName+'(H[2])']:[]),
     '  local '+inverseName+'='+unpackName+'('+inverseRefsName+')',
+    ...runtimeSaltCheck,
+    '  local SBOX_MASK=bit32.bxor(SALT%256,'+sboxMaskScrambled+(options.hardened?',BOOT%256':'')+')',
     '  '+blobName+'=nil;'+alphabetName+'=nil;'+mapName+'=nil;'+inverseRefsName+'=nil',
     '  local function verify()',
     '    local h=hseed;local function mix(v)h=(h*hmul+v+hadd)%hmod end',
@@ -1015,6 +1044,27 @@ function compile(source, options={}) {
     '    end',
     '  end',
     '  verify()',
+    ...(options.hardened&&options.antiDebug!==false?[
+      '  -- Runtime sanity checks are best-effort; no claim of universal debugger detection.',
+      '  local function runtimeGuard()',
+      '    if nativeByte~=string.byte or nativeChar~=string.char or',
+      '      nativeConcat~=table.concat or nativeType~=type or bxor~=bit32.bxor then',
+      '      nativeError("BLACKMAMER V4 runtime API modified")end',
+      '    if nativeByte("AB",2)~=66 or nativeChar(66,77)~="BM" or',
+      '      bxor(0x5a,0xa5)~=255 then nativeError("BLACKMAMER V4 API self-test failed")end',
+      '    local info=dbg and dbg.info',
+      '    if nativeType(info)=="function" then',
+      '      local function probe(n)return n*3+7 end',
+      '      local ok,func=nativePcall(info,probe,"f")',
+      '      if not ok or func~=probe or probe(9)~=34 then',
+      '        nativeError("BLACKMAMER V4 debug.info function metadata invalid")end',
+      '      local okA,arity,variadic=nativePcall(info,probe,"a")',
+      '      if not okA or arity~=1 or variadic~=false then',
+      '        nativeError("BLACKMAMER V4 debug.info signature modified")end',
+      '    end',
+      '  end',
+      '  runtimeGuard()'
+    ]:[]),
     '  local function unseal(blob,seed)',
     '    local state=seed;local prev=0;local out={}',
     '    for j=1,#blob do',
@@ -1114,6 +1164,8 @@ function compile(source, options={}) {
     '    end',
     '    while true do',
     '      ticks=ticks+1; if ticks>1000000 then nativeError("BLACKMAMER V3 instruction limit") end',
+    ...(options.hardened&&options.antiDebug!==false?
+      ['      if ticks%251==0 then runtimeGuard()end']:[]),
     '      if pc<1 or pc>length then nativeError("BLACKMAMER V3 bad PC") end',
     '      local at=off+(pc-1)*4*width',
     ...(nestedVM?[
@@ -1318,6 +1370,9 @@ function compile(source, options={}) {
   return {code,engine:options.hardened?'BLACKMAMER V4 Native VM':'BLACKMAMER V3 Native VM',
     hardened:options.hardened===true,nativeSealer:sealedBatch.nativeUsed,
     nestedVM,outerVmInstructions:nestedVM?outerProgram[2]:0,
+    runtimeBootstrap:options.hardened===true,
+    opaquePredicates:nestedVM,
+    periodicRuntimeGuard:options.hardened===true&&options.antiDebug!==false,
     protectedFunctions:[...protectedKeys.keys()],generatedKeys,
     virtualizedFunctions:funcs.length,
     bytecodeLayout:'per-prototype-shuffled-12-or-16',

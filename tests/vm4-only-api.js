@@ -72,6 +72,24 @@ async function api(route,body){
     full.data.blackmamerVM.virtualizedFunctions);
   assert.equal(full.data.externalKeys.length,1);
   assert.equal(full.data.obfuscated.includes(full.data.externalKeys[0].key),false);
+  const oneClick=await api('/api/obfuscate',{
+    preset:'NativeV4',target:'LuaU',oneClick:true,
+    protectionLevel:'Minify',antiTamper:false,antiDebug:false,
+    nestedVM:false,autoFunctionEncryption:'off',functionKeys:{premium:'bad'},
+    script:'local function secure(n)return n*2 end;print(secure(21))'
+  });
+  assert.equal(oneClick.status,200,JSON.stringify(oneClick.data).slice(0,950));
+  assert.equal(oneClick.data.blackmamerVM.oneClick,true);
+  assert.equal(oneClick.data.blackmamerVM.protectionLevel,'Maximum');
+  assert.equal(oneClick.data.blackmamerVM.nestedVM,true);
+  assert.equal(oneClick.data.blackmamerVM.autoFunctionEncryption,'standalone');
+  assert.equal(oneClick.data.blackmamerVM.autoEncryptedFunctions,
+    oneClick.data.blackmamerVM.virtualizedFunctions);
+  assert.deepEqual(oneClick.data.externalKeys,[]);
+  assert.equal(oneClick.data.protection.antiDebug,true);
+  assert.equal(oneClick.data.protection.antiTamper,true);
+  assert.match(oneClick.data.obfuscated,/_unfold/);
+  assert.doesNotMatch(oneClick.data.obfuscated,/embeddedAutoKey/);
   console.log('V4-only API smoke: 20 target/preset combinations, licensing bypass in preview, external keys, and legacy rejection passed');
  }finally{backend.kill()}
 })().catch(e=>{console.error(e);process.exitCode=1;backend.kill()});

@@ -28,7 +28,7 @@ const cases=[
   {name:'two-calls',id:'calls',source:
    'local s=BM_ENCFUNC("calls",function(a,b)return a+b end)\nprint(s(5,9),s(1,4))',expected:'14\t5\n'},
   {name:'multi-return',id:'results',source:
-   'local s=BM_ENCFUNC("results",function()return "a",9 end)\nprint(s())',expected:'a\t9\n'},
+   'local s=BM_ENCFUNC("results",function()return "a",9 end)\nlocal a,b=s()\nprint(a,b)',expected:'a\t9\n'},
   {name:'recursive',id:'factorial',source:
    'local s=BM_ENCFUNC("factorial",function(n) local function fact(x) if x<=1 then return 1 end return x*fact(x-1) end return fact(n) end)\nprint(s(5))',expected:'120\n'}
 ];

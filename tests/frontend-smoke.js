@@ -75,7 +75,7 @@ compiled.runInContext(vm.createContext(sandbox));
  badKeys=true;await byId('obfuscate').click();
  assert.equal(byId('download').disabled,true);
  assert.equal(byId('result').value,'');
- assert.match(byId('feedback').textContent,/kunci eksternal/);
+ assert.match(byId('feedback').textContent,/provider key tambahan/);
  badKeys=false;
  byId('clear').click();
  calls=[];await byId('obfuscate').click();

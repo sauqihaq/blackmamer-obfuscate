@@ -1,12 +1,14 @@
 {
   "name": "blackmamer-obfuscate",
   "version": "1.0.0",
-  "description": "Backend API buat obfuscate script Lua pakai Prometheus",
+  "description": "Independent BLACKMAMER Native V4 VM obfuscator for Lua 5.1, LuaJIT and Luau",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "test": "node test-vm2.js",
-    "test:luau": "node tests/luau-smoke.js"
+    "test:luau": "node tests/luau-smoke.js",
+    "test:v4": "node tests/vm4-only-api.js",
+    "test:lua51": "node tests/vm4-lua51.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

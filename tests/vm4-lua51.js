@@ -67,6 +67,21 @@ try{
   const missing=run(binary,external.code,target+'-missing');
   assert.notEqual(missing.status,0);
   checks++;
+  // Full external mode also encrypts entry point: the provider lives outside
+  // the output; neither root bytecode nor its authentication key is standalone.
+  const full=compile(encryptedSource,{hardened:true,target,
+    protectionLevel:'Strong',autoFunctionEncryption:'external-full'});
+  assert.equal(full.autoEncryptedFunctions,full.virtualizedFunctions);
+  assert.equal(full.generatedKeys.length,1);
+  assert.equal(full.code.includes(full.generatedKeys[0].key),false);
+  const fullProvider='BLACKMAMER_KEY_PROVIDER=function(id) return '+
+    JSON.stringify(full.generatedKeys[0].key)+' end\n';
+  const fullResult=run(binary,fullProvider+full.code,target+'-external-full');
+  assert.equal(fullResult.status,0,fullResult.stderr);
+  assert.equal(fullResult.stdout,'42\n');
+  const fullMissing=run(binary,full.code,target+'-external-full-missing');
+  assert.notEqual(fullMissing.status,0);
+  checks++;
  }
  for(const script of ['local n=1;n+=1','local i=0;while i<9 do i+=1 end','print(9//2)']){
   assert.throws(()=>compile(script,{hardened:true,target:'Lua51'}),/Lua 5.1\/LuaJIT target/);

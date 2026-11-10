@@ -521,8 +521,11 @@ function compile(source, options={}) {
           throw new SyntaxErrorV3('BM_ENCFUNC expects ("id", function(...) ... end)');
         const id=n.args[0].value;
         if(id===autoId)throw new SyntaxErrorV3('BM_ENCFUNC id BMAUTO_V4 is reserved');
-        try{keyFor(id)}catch(error){throw new SyntaxErrorV3(error.message)}
-        const fun=n.args[1];const fnid=makeBuilder(fun.body,fun.params,id);
+        // One-script mode absorbs manual markers into the common standalone
+        // key, avoiding surprise external modules even for older sources.
+        const effectiveId=autoMode==='standalone'?autoId:id;
+        try{keyFor(effectiveId)}catch(error){throw new SyntaxErrorV3(error.message)}
+        const fun=n.args[1];const fnid=makeBuilder(fun.body,fun.params,effectiveId);
         const dst=reg();emit('CLOSURE',dst,fnid);return dst;
       }
       if(n.t==='call' || n.t==='method'){
@@ -1088,24 +1091,32 @@ function compile(source, options={}) {
   const luaArgs=JSON.stringify(argSets).replace(/\[/g,'{').replace(/\]/g,'}');
   const embeddedAutoKey=autoMode==='standalone'&&autoFunctionCount>0
     ? protectedKeys.get(autoId):null;
-  let keyShareOne=null,keyShareTwo=null;
+  // Reconstructible standalone material: three permuted additive shares
+  // tied to the sealed-function bootstrap, instead of a single A XOR B
+  // literal. This adds variation to static key extractors, not secrecy.
+  let standaloneKeyLine=[];
   if(embeddedAutoKey){
     const keyData=Buffer.from(embeddedAutoKey,'hex');
-    const mask=crypto.randomBytes(32);
-    keyShareOne=mask.toString('hex');
-    keyShareTwo=Buffer.from(keyData.map((v,i)=>v^mask[i])).toString('hex');
+    const left=crypto.randomBytes(32),right=crypto.randomBytes(32);
+    const mixed=Buffer.alloc(32),stride=1+2*rand(16),offset=rand(32);
+    for(let i=0;i<32;i++){
+      const p=(i*stride+offset)%32;
+      mixed[p]=(keyData[i]+(left[p]^right[p])+(((i+1)*17+bootstrap)%256))%256;
+    }
+    standaloneKeyLine=[
+      '  local function _unfold()',
+      '    local _s={'+[left,right,mixed].map(b=>JSON.stringify(b.toString('hex'))).join(',')+'}',
+      '    local function _oct(t,p) local q=(p-1)*2+1',
+      '      return tonumber(string.sub(_s[t],q,q+1),16)end',
+      '    local _out={};for i=1,32 do',
+      '      local p=((i-1)*'+stride+'+'+offset+')%32+1',
+      '      local x=_oct(1,p);local y=_oct(2,p);local z=_oct(3,p)',
+      '      _out[i]=string.format("%02x",(z-bxor(x,y)-((i*17+BOOT)%256))%256)',
+      '    end;return nativeConcat(_out)',
+      '  end',
+      '  local _BK=_unfold()'
+    ];
   }
-  const standaloneKeyLine=embeddedAutoKey?[
-    '  local function recoverAutoKey()',
-    '    local a='+JSON.stringify(keyShareOne)+';local b='+JSON.stringify(keyShareTwo),
-    '    local result={};for i=1,64,2 do',
-    '      local x=tonumber(string.sub(a,i,i+1),16)',
-    '      local y=tonumber(string.sub(b,i,i+1),16)',
-    '      result[#result+1]=string.format("%02x",bxor(x,y))',
-    '    end;return nativeConcat(result)',
-    '  end',
-    '  local embeddedAutoKey=recoverAutoKey()'
-  ]:[];
   // If antiTamper remains enabled, all encrypted function ciphertext and
   // metadata are still included in the V4 integrity digest.
   // V4 varies the integrity polynomial by build rather than publishing a
@@ -1277,7 +1288,6 @@ function compile(source, options={}) {
     '  local nativeType=type; local nativePcall=pcall; local nativeError=error',
     '  local dbg=debug; local globals=(getfenv and getfenv()) or _ENV or _G',
     '  if nativeType(bxor)~="function" then nativeError("BLACKMAMER V3 requires Luau bit32") end',
-    ...standaloneKeyLine,
     '  local '+mapName+'={}',
     '  for i=1,#'+alphabetName+' do '+mapName+'[nativeByte('+alphabetName+',i)]=i-1 end',
     '  local function '+unpackName+'(ids)',
@@ -1308,6 +1318,7 @@ function compile(source, options={}) {
     ...(nestedVM?['  H[2]='+unpackName+'(H[2])']:[]),
     '  local '+inverseName+'='+unpackName+'('+inverseRefsName+')',
     ...runtimeSaltCheck,
+    ...standaloneKeyLine,
     '  local SBOX_MASK=bit32.bxor(SALT%256,'+sboxMaskScrambled+(options.hardened?',BOOT%256':'')+')',
     '  '+blobName+'=nil;'+alphabetName+'=nil;'+mapName+'=nil;'+inverseRefsName+'=nil',
     '  local function verify()',
@@ -1383,7 +1394,7 @@ function compile(source, options={}) {
       '    if bundle[3]then',
       '      local keyHex',
       ...(embeddedAutoKey?[
-        '      if bundle[3]=="'+autoId+'" then keyHex=embeddedAutoKey else'
+        '      if bundle[3]=="'+autoId+'" then keyHex=_BK else'
       ]:[]),
       '      local provider=globals.BLACKMAMER_KEY_PROVIDER',
       ...((autoMode==='external'||autoMode==='external-full')&&autoFunctionCount>0?[

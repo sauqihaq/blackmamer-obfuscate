@@ -301,6 +301,15 @@ function compile(source, options={}) {
   // The outer micro-VM decodes every inner VM instruction before dispatch.
   // V3 keeps its original single-VM execution path.
   const nestedVM=options.hardened===true && options.nestedVM!==false;
+  // Opt-in automated function encryption. External-key mode skips the entry
+  // bootstrap so the user script can install its server-side key provider.
+  // Standalone can encrypt the entry as the decryption key ships with output.
+  const autoMode=options.autoFunctionEncryption===undefined?'off':options.autoFunctionEncryption;
+  if(!['off','external','standalone'].includes(autoMode))
+    throw new SyntaxErrorV3('autoFunctionEncryption must be off, external, or standalone');
+  if(autoMode!=='off'&&!options.hardened)
+    throw new SyntaxErrorV3('Auto Function Encryption requires NativeV4');
+  const autoId='BMAUTO_V4';
   const used=new Set(), codes={};
   for(const op of OPS){let id;do{id=rand(220)+17;}while(used.has(id));used.add(id);codes[op]=id;}
   const consts=[], constKeys=new Map(), funcs=[], argSets=[];
@@ -316,7 +325,10 @@ function compile(source, options={}) {
       if(Object.prototype.hasOwnProperty.call(optionsKeys,id)){
         requireKey(optionsKeys[id]);hex=optionsKeys[id].toLowerCase();
       } else {
-        hex=crypto.randomBytes(32).toString('hex');generatedKeys.push({id,key:hex});
+        hex=crypto.randomBytes(32).toString('hex');
+        // A standalone key is bundled (split into two shares) in Luau.
+        // Never report it as a secret external key.
+        if(!(id===autoId&&autoMode==='standalone'))generatedKeys.push({id,key:hex});
       }
       protectedKeys.set(id,hex);
     }
@@ -347,6 +359,7 @@ function compile(source, options={}) {
         if(n.args.length!==2 || n.args[0].t!=='str' || n.args[1].t!=='fun')
           throw new SyntaxErrorV3('BM_ENCFUNC expects ("id", function(...) ... end)');
         const id=n.args[0].value;
+        if(id===autoId)throw new SyntaxErrorV3('BM_ENCFUNC id BMAUTO_V4 is reserved');
         try{keyFor(id)}catch(error){throw new SyntaxErrorV3(error.message)}
         const fun=n.args[1];const fnid=makeBuilder(fun.body,fun.params,id);
         const dst=reg();emit('CLOSURE',dst,fnid);return dst;
@@ -584,6 +597,17 @@ function compile(source, options={}) {
     return id;
   };
   const initialEntry=makeBuilder(parsed,[]);
+  let autoFunctionCount=0;
+  if(autoMode!=='off'){
+    for(let i=0;i<funcs.length;i++){
+      const fn=funcs[i];
+      if(fn.protectedId)continue; // explicit BM_ENCFUNC always retains its own external key
+      if(autoMode==='external'&&i+1===initialEntry)continue;
+      fn.protectedId=autoId;
+      autoFunctionCount++;
+    }
+    if(autoFunctionCount>0)keyFor(autoId);
+  }
   // Compile-time superinstruction pass: coalesce adjacent, independent loads
   // or a constant initialization + local declaration. JUMP/JF/JT destination
   // indices are relocated after the rewrite. Never fuse across a branch target.
@@ -872,6 +896,28 @@ function compile(source, options={}) {
   // search. Since all material ships to the client it remains reconstructible.
   const sboxMaskScrambled=sboxMask^(salt%256)^(options.hardened?(bootstrap%256):0);
   const luaArgs=JSON.stringify(argSets).replace(/\[/g,'{').replace(/\]/g,'}');
+  const embeddedAutoKey=autoMode==='standalone'&&autoFunctionCount>0
+    ? protectedKeys.get(autoId):null;
+  let keyShareOne=null,keyShareTwo=null;
+  if(embeddedAutoKey){
+    const keyData=Buffer.from(embeddedAutoKey,'hex');
+    const mask=crypto.randomBytes(32);
+    keyShareOne=mask.toString('hex');
+    keyShareTwo=Buffer.from(keyData.map((v,i)=>v^mask[i])).toString('hex');
+  }
+  const standaloneKeyLine=embeddedAutoKey?[
+    '  local function recoverAutoKey()',
+    '    local a='+JSON.stringify(keyShareOne)+';local b='+JSON.stringify(keyShareTwo),
+    '    local result={};for i=1,64,2 do',
+    '      local x=tonumber(string.sub(a,i,i+1),16)',
+    '      local y=tonumber(string.sub(b,i,i+1),16)',
+    '      result[#result+1]=string.format("%02x",bxor(x,y))',
+    '    end;return nativeConcat(result)',
+    '  end',
+    '  local embeddedAutoKey=recoverAutoKey()'
+  ]:[];
+  // If antiTamper remains enabled, all encrypted function ciphertext and
+  // metadata are still included in the V4 integrity digest.
   // V4 varies the integrity polynomial by build rather than publishing a
   // universal digest recipe. This is tamper evidence, NOT a MAC or a secret.
   const hashSeed=options.hardened?rand(1000000000):17;
@@ -986,6 +1032,7 @@ function compile(source, options={}) {
     '  local nativeType=type; local nativePcall=pcall; local nativeError=error',
     '  local dbg=debug; local globals=(getfenv and getfenv()) or _ENV or _G',
     '  if nativeType(bxor)~="function" then nativeError("BLACKMAMER V3 requires Luau bit32") end',
+    ...standaloneKeyLine,
     '  local '+mapName+'={}',
     '  for i=1,#'+alphabetName+' do '+mapName+'[nativeByte('+alphabetName+',i)]=i-1 end',
     '  local function '+unpackName+'(ids)',
@@ -1093,9 +1140,14 @@ function compile(source, options={}) {
     '    local raw=unseal(bundle[2],realSeed);local chars={}',
     ...(protectedKeys.size?[
       '    if bundle[3]then',
+      '      local keyHex',
+      ...(embeddedAutoKey?[
+        '      if bundle[3]=="'+autoId+'" then keyHex=embeddedAutoKey else'
+      ]:[]),
       '      local provider=globals.BLACKMAMER_KEY_PROVIDER',
       '      if nativeType(provider)~="function" then nativeError("BLACKMAMER external key provider missing")end',
-      '      local keyHex=provider(bundle[3])',
+      '      keyHex=provider(bundle[3])',
+      ...(embeddedAutoKey?['      end']:[]),
       '      for j,b in ipairs(raw)do chars[j]=nativeChar(b)end',
       '      local plain=efDecrypt(nativeConcat(chars),keyHex,bundle[3],bundle[4],bundle[5])',
       '      raw={};chars={};for j=1,#plain do raw[j]=nativeByte(plain,j)end',
@@ -1374,6 +1426,10 @@ function compile(source, options={}) {
     opaquePredicates:nestedVM,
     periodicRuntimeGuard:options.hardened===true&&options.antiDebug!==false,
     protectedFunctions:[...protectedKeys.keys()],generatedKeys,
+    autoFunctionEncryption:autoMode,
+    autoEncryptedFunctions:autoFunctionCount,
+    externallyKeyedFunctions:funcs.filter(f=>f.protectedId&&
+      !(autoMode==='standalone'&&f.protectedId===autoId)).length,
     virtualizedFunctions:funcs.length,
     bytecodeLayout:'per-prototype-shuffled-12-or-16',
     bytecodeWidths:{compact:sealedFunctions.filter(f=>f[2]===3).length,

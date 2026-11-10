@@ -195,6 +195,15 @@ print(&quot;Hello World&quot;)"></textarea>
             <label class="toggle" for="antiTamper"><input id="antiTamper" type="checkbox" checked><span><strong>Anti-Tamper</strong><span>Validasi checksum bytecode saat script dijalankan.</span></span></label>
             <div style="height:9px"></div>
             <label class="toggle" for="antiDebug"><input id="antiDebug" type="checkbox" checked><span><strong>Anti-Debug / Anti-Hook</strong><span>Periksa modifikasi fungsi runtime dan metadata debug; bukan jaminan melawan semua debugger.</span></span></label>
+            <div id="autoEncryptSettings" hidden style="padding-top:14px">
+              <label for="autoFunctionEncryption">Auto Function Encryption (V4)</label>
+              <select id="autoFunctionEncryption">
+                <option value="standalone" selected>Standalone — satu script, siap copy-paste</option>
+                <option value="external">External Key — ModuleScript server Roblox</option>
+                <option value="off">Off — manual BM_ENCFUNC saja</option>
+              </select>
+              <p class="help" id="autoEncryptionHint">Standalone otomatis mengenkripsi semua fungsi; kunci tetap bisa direkonstruksi.</p>
+            </div>
           </div>
           <hr class="rule">
           <div class="presets" id="info">
@@ -285,6 +294,7 @@ print(&quot;Hello World&quot;)"></textarea>
       $('presetHint').textContent = labels[preset];
       const isNative = preset === 'NativeV3' || preset === 'NativeV4';
       $('v3Options').hidden = !isNative;
+       $('autoEncryptSettings').hidden = preset !== 'NativeV4';
       $('hybrid').disabled = isNative;
       $('target').disabled = isNative;
       if (isNative) $('target').value = 'LuaU';
@@ -338,7 +348,8 @@ print(&quot;Hello World&quot;)"></textarea>
         blackmamerVM: true,
         vmMode: $('preset').value === 'NativeV4' ? 'native-v4' : ($('preset').value === 'NativeV3' ? 'native-v3' : ($('hybrid').checked ? 'hybrid-v2' : 'v1')),
         antiTamper: $('antiTamper').checked,
-        antiDebug: $('antiDebug').checked
+        antiDebug: $('antiDebug').checked,
+         autoFunctionEncryption: $('preset').value==='NativeV4' ? $('autoFunctionEncryption').value : 'off'
       };
       setBusy(true);
       setStatus('Menghubungkan ke backend dan memproses script...');
@@ -407,6 +418,15 @@ print(&quot;Hello World&quot;)"></textarea>
     $('obfuscate').addEventListener('click', obfuscate);
     $('healthButton').addEventListener('click', healthCheck);
     $('preset').addEventListener('change', warnPreset);
+     $('autoFunctionEncryption').addEventListener('change', () => {
+       const mode=$('autoFunctionEncryption').value;
+       $('autoEncryptionHint').textContent=mode==='external'
+         ? 'External: unduh ModuleScript Key Provider panel 03 dan simpan di ServerScriptService. Script asli tak perlu diedit.'
+         : mode==='standalone'
+         ? 'Standalone: semua fungsi otomatis dienkripsi di satu script; kunci bisa direkonstruksi dari hasil.'
+         : 'Off: VM V4 biasa; BM_ENCFUNC manual tetap tersedia.';
+       clearOutput();
+     });
     source.addEventListener('input', () => { updateStats(); clearOutput(); });
     $('upload').addEventListener('click', () => $('file').click());
     $('file').addEventListener('change', async event => {

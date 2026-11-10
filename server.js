@@ -85,6 +85,7 @@ app.post('/api/obfuscate',licenseGate,(req,res)=>{
        protectionLevel:result.protectionLevel,
        target:result.target,
        astDeadBranches:result.injectedAstBranches,
+       astFlattenedGroups:result.astFlattenedGroups,
        cfgFlattenedBlocks:result.cfgFlattenedBlocks,
        cfgBridgeJumps:result.cfgBridgeJumps,
        stringEncryption:result.stringEncryption,

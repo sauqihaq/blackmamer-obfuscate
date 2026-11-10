@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#07121d">
-  <meta name="description" content="BLACKMAMER STUDIO — Lua/Luau obfuscator dengan preset RobloxStrong dan experimental Hybrid VM V2.">
+  <meta name="description" content="BLACKMAMER STUDIO — Native V4-only Lua 5.1, LuaJIT and Luau with layered protection.">
   <title>BLACKMAMER STUDIO — Native VM V4 Luau Obfuscator</title>
   <style>
     :root {
@@ -102,11 +102,11 @@
       <div>
         <p class="eyebrow">LUAU / LUA • OBFUSCATION PLATFORM</p>
         <h1>Protect your code.<br><span>BLACKMAMER VM.</span></h1>
-        <p class="subtitle">Obfuscator script Lua dan Roblox Luau dengan Prometheus serta layer BLACKMAMER VM eksperimental. Upload script, pilih preset, dan proses langsung dari browser.</p>
+        <p class="subtitle">Obfuscator BLACKMAMER Native V4 untuk vanilla Lua 5.1, LuaJIT, dan Luau. Lima tingkat proteksi, Nested VM, dan C++ bytecode sealing.</p>
       </div>
       <div class="notice">
-        <strong>RobloxStrong • Experimental</strong>
-        Preset berbasis full-program Prometheus VM untuk Luau. Ketahanan setara Luraph belum terbukti. Tes di Roblox Studio sebelum dipakai pada game produksi.
+        <strong>Native V4 • Lua 5.1 / Luau</strong>
+        VM mandiri buatan BLACKMAMER. Pilih level Minify sampai Maximum dan uji output pada runtime target sebelum produksi.
       </div>
     </header>
 
@@ -179,7 +179,7 @@ print(&quot;Hello World&quot;)"></textarea>
           <div class="field">
             <label for="target">Target runtime</label>
             <select id="target"><option value="LuaU" selected>Roblox / Luau</option>
-<option value="Lua51">Lua 5.1 vanilla</option><option value="LuaJIT">LuaJIT</option></select>
+<option value="Lua">Lua (5.1-compatible)</option><option value="Lua51">Lua 5.1 vanilla</option><option value="LuaJIT">LuaJIT</option></select>
           </div>
           <p class="help">Native V4 only: AST dead branches, basic-block flattening, sealed strings and Nested VM.</p>
           <div id="v3Options" hidden>
@@ -208,7 +208,7 @@ print(&quot;Hello World&quot;)"></textarea>
     </main>
     <footer class="footer">
       <span>© BLACKMAMER STUDIO • Lua/Luau obfuscation</span>
-      <span>Uses <a href="https://github.com/wcrddn/Prometheus" target="_blank" rel="noopener noreferrer">Prometheus (Elias Oelschner)</a> as the upstream obfuscation engine.</span>
+      <span>Independent BLACKMAMER Native V4 VM engine • Lua 5.1, LuaJIT, Luau.</span>
     </footer>
   </div>
 
@@ -312,8 +312,8 @@ print(&quot;Hello World&quot;)"></textarea>
       feedback('', '');
       const script = source.value;
       if (!script.trim()) { feedback('Masukkan script terlebih dahulu.', 'bad'); source.focus(); return; }
-      if (['NativeV3', 'NativeV4'].includes($('preset').value) && bytes(script) > 128 * 1024) {
-        feedback('Native V3/V4 saat ini mendukung script hingga 128 KB.', 'bad'); return;
+      if (bytes(script) > 128 * 1024) {
+        feedback('Native V4 mendukung script hingga 128 KB.', 'bad'); return;
       }
       if (bytes(script) > MAX_SCRIPT_BYTES) {
         feedback('Ukuran script maksimal 1 MB untuk backend saat ini.', 'bad'); return;
@@ -375,8 +375,8 @@ print(&quot;Hello World&quot;)"></textarea>
 
         if (m.fallback) {
           feedback('Obfuscation selesai, tetapi backend menggunakan fallback. Lapisan BLACKMAMER VM tidak seluruhnya diterapkan.', 'warn');
-        } else if (payload.vmMode === 'hybrid-v2' && !(m.virtualizedExpressions > 0)) {
-          feedback('Obfuscation selesai. VM V2 tidak menemukan ekspresi yang memenuhi syarat untuk divirtualisasi; hasil tetap diproses Prometheus.', 'warn');
+        } else if (m.cfgFlattenedBlocks>0) {
+           feedback('Nested VM + AST/CFG transform diterapkan. Uji output pada runtime target.', '');
         } else {
           feedback(issuedKeyProvider
              ? 'External function keys ada di panel 03. Simpan Key Provider ke ServerScriptService.'

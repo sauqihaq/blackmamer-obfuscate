@@ -1489,6 +1489,11 @@ function compile(source, options={}) {
     perFunctionOpcodePalette:options.hardened===true,
     perInstructionOperandRotation:options.hardened===true,
     opcodePaletteSize:options.hardened?OPS.length:0,
+    ...(options.auditPalettes===true?{
+      // Test-only structural fingerprints; never written into the Lua chunk.
+      opcodePaletteFingerprints:packed.map(f=>f.palette?
+        crypto.createHash('sha256').update(Buffer.from(f.palette)).digest('hex'):null)
+    }:{}),
     fusedInstructions:fusionTotal,superInstructionKinds:fusionCounts,
     vmInstructions:funcs.reduce((n,f)=>n+f.ins.length,0),
     antiTamper: options.antiTamper!==false, antiDebug: options.antiDebug!==false};

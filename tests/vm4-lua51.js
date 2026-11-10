@@ -10,6 +10,7 @@ const runtimes=[['Lua51',process.env.LUA51_BIN||'lua5.1'],['LuaJIT',process.env.
 const levels=['Minify','Light','Medium','Strong','Maximum'];
 const programs=[
   ['math','local a=19;local b=5;print(a+b,a*b)'],
+  ['ast-state','local x=1;x=x+1;x=x*3;print(x);print("ok")'],
   ['string','local s="hello";print(s.." world",#s)'],
   ['nested','local function plus(x) return function(y) return x+y end end;print(plus(18)(24))'],
   ['if','local i=5;if i>3 then i=i+2 else i=i-2 end;print(i)'],

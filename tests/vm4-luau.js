@@ -45,6 +45,12 @@ try {
       assert.equal(compiled.runtimeBootstrap,true);
       assert.equal(compiled.opaquePredicates,true);
       assert.equal(compiled.periodicRuntimeGuard,true);
+      assert.equal(compiled.perFunctionOpcodePalette,true);
+      assert.equal(compiled.perInstructionOperandRotation,true);
+      assert.equal(compiled.dispatchStructure,'per-function-palette');
+      assert.ok(compiled.opcodePaletteSize>=40);
+      assert.match(compiled.code,/spec\[8\]\[/);
+      assert.doesNotMatch(compiled.code,/\bif op==\d+\b/);
       assert.ok(compiled.code.includes('local BOOT=0'));
       assert.match(compiled.code,/BLACKMAMER V4 outer VM/);
       assert.match(compiled.code,/BLACKMAMER VM V4\.0/);

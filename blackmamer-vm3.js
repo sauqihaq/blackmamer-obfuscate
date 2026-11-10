@@ -292,15 +292,127 @@ class Parser {
     }
   }
 }
+
+// Independently implemented AST decoys and bytecode CFG flattening.
+// No Prometheus source code is used: both transforms operate on BLACKMAMER's
+// own parser AST and IR and are verified by runtime differential tests.
+const V4_PROFILES=Object.freeze({
+  Minify:{deadChance:0,flatten:false,nested:false,fusion:false},
+  Light:{deadChance:0.06,flatten:false,nested:false,fusion:true},
+  Medium:{deadChance:0.13,flatten:true,nested:true,fusion:true},
+  Strong:{deadChance:0.23,flatten:true,nested:true,fusion:true},
+  Maximum:{deadChance:0.36,flatten:true,nested:true,fusion:true}
+});
+function addDeadAstBranches(root,chance){
+  if(chance<=0)return 0;
+  let injected=0;
+  const seen=new WeakSet();
+  const visit=obj=>{
+    if(!obj || typeof obj!=='object' || seen.has(obj))return;
+    seen.add(obj);
+    if(Array.isArray(obj)){obj.forEach(visit);return;}
+    for(const [name,value] of Object.entries(obj)){
+      if((name==='body'||name==='otherwise')&&Array.isArray(value)){
+        visitBlock(value);
+      }else visit(value);
+    }
+  };
+  const visitBlock=block=>{
+    for(const node of block)visit(node);
+    const next=[];
+    for(const node of block){
+      next.push(node);
+      if(rand(1000)>=Math.floor(chance*1000))continue;
+      const variable='__bmd_'+crypto.randomBytes(6).toString('hex');
+      // This AST branch is compiled into genuine VM instructions. It is
+      // provably dead but requires CFG reconstruction to discard.
+      next.push({t:'if',branches:[{
+        condition:{t:'bool',value:false},
+        body:[{t:'local',name:variable,value:{t:'num',value:rand(1000000)+1}}]
+      }],otherwise:[]});
+      injected++;
+    }
+    block.splice(0,block.length,...next);
+  };
+  visitBlock(root);
+  return injected;
+}
+function flattenCfgInstructions(rows,codes){
+  if(rows.length<3)return {rows,blocks:0,bridges:0};
+  const starts=new Set([1]);
+  const len=rows.length;
+  for(let i=1;i<=len;i++){
+    const op=rows[i-1][0];
+    if(op===codes.JUMP || op===codes.JF || op===codes.JT){
+      const target=rows[i-1][op===codes.JUMP?1:2];
+      if(Number.isInteger(target)&&target>=1&&target<=len)starts.add(target);
+    }
+    if([codes.JUMP,codes.JF,codes.JT,codes.RET,codes.RETM,codes.RETVOID].includes(op) && i<len)
+      starts.add(i+1);
+  }
+  const begin=[...starts].sort((a,b)=>a-b);
+  if(begin.length<2)return {rows,blocks:1,bridges:0};
+  const blocks=begin.map((start,index)=>{
+    const end=(begin[index+1]||len+1)-1;
+    const op=rows[end-1][0];
+    const terminal=[codes.JUMP,codes.RET,codes.RETM,codes.RETVOID].includes(op);
+    return {start,end,bridge:!terminal && end<len};
+  });
+  const order=[blocks[0],...blocks.slice(1)];
+  for(let i=order.length-1;i>1;i--){const j=1+rand(i);[order[i],order[j]]=[order[j],order[i]];}
+  const pcMap=new Map();
+  let cursor=1;
+  for(const block of order){
+    for(let old=block.start;old<=block.end;old++)pcMap.set(old,cursor++);
+    if(block.bridge)cursor++;
+  }
+  const result=[];
+  let bridges=0;
+  for(const block of order){
+    for(let old=block.start;old<=block.end;old++){
+      const row=rows[old-1].slice();
+      if(row[0]===codes.JUMP){
+        row[1]=pcMap.get(row[1]);
+      }else if(row[0]===codes.JF || row[0]===codes.JT){
+        row[2]=pcMap.get(row[2]);
+      }
+      if([codes.JUMP,codes.JF,codes.JT].includes(row[0]) &&
+        (!Number.isInteger(row[row[0]===codes.JUMP?1:2])))
+        throw new Error('CFG flattening encountered invalid branch target');
+      result.push(row);
+    }
+    if(block.bridge){
+      const next=pcMap.get(block.end+1);
+      if(!next)throw new Error('CFG flattening missing fallthrough');
+      result.push([codes.JUMP,next,0,0]);
+      bridges++;
+    }
+  }
+  return {rows:result,blocks:blocks.length,bridges};
+}
+
 const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','RETVOID','RETM','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV'];
 function compile(source, options={}) {
   if(typeof source!=='string') throw new TypeError('Expected Luau source string');
   if(Buffer.byteLength(source)>128*1024) throw new SyntaxErrorV3('V3 source limit: 128 KB');
+  const target=options.target||'LuaU';
+  const lua51=target==='Lua51'||target==='LuaJIT';
+  if(!['LuaU','Lua51','LuaJIT'].includes(target))
+    throw new SyntaxErrorV3('Unsupported VM target '+target);
+  const profileName=options.hardened ? (options.protectionLevel||'Strong') : 'Minify';
+  const profile=V4_PROFILES[profileName];
+  if(!profile)throw new SyntaxErrorV3('V4 protectionLevel must be Minify, Light, Medium, Strong, or Maximum');
+  if(lua51){
+    const unsupported=new Set(['+=','-=','*=','/=','//=','%=','^=','..=','//','continue','::','->']);
+    for(const t of lex(source))if(unsupported.has(t.value))
+      throw new SyntaxErrorV3('Lua 5.1/LuaJIT target cannot compile Luau-only syntax: '+t.value);
+  }
   const parsed=new Parser(source).parse();
+  const injectedAstBranches=options.hardened?addDeadAstBranches(parsed,profile.deadChance):0;
   // V4 defaults to a second independent register-bytecode interpreter.
   // The outer micro-VM decodes every inner VM instruction before dispatch.
   // V3 keeps its original single-VM execution path.
-  const nestedVM=options.hardened===true && options.nestedVM!==false;
+  const nestedVM=options.hardened===true && options.nestedVM!==false && profile.nested;
   // Opt-in automated function encryption. External-key mode skips the entry
   // bootstrap so the user script can install its server-side key provider.
   // Standalone can encrypt the entry as the decryption key ships with output.
@@ -616,7 +728,7 @@ function compile(source, options={}) {
   // It makes naive one-to-one opcode lifting less universal, but it is still
   // invertible with runtime instrumentation; no client-side VM is a secret.
   const fusionCounts={GETK:0,KGET:0,KK:0,KDECL:0};
-  if(options.superInstructions!==false){
+  if(options.superInstructions!==false && profile.fusion){
     for(const fn of funcs){
       const before=fn.ins;
       const targets=new Set();
@@ -661,6 +773,15 @@ function compile(source, options={}) {
     }
   }
   const fusionTotal=Object.values(fusionCounts).reduce((a,b)=>a+b,0);
+  let flattenedBlocks=0,flattenedBridges=0;
+  if(options.hardened && profile.flatten){
+    for(const fn of funcs){
+      const flattened=flattenCfgInstructions(fn.ins,codes);
+      fn.ins=flattened.rows;
+      flattenedBlocks+=flattened.blocks;
+      flattenedBridges+=flattened.bridges;
+    }
+  }
 
 
   // A function index must not disclose the root prototype or lexical order.
@@ -1472,6 +1593,9 @@ function compile(source, options={}) {
   const code='--[[BLACKMAMER VM '+(options.hardened?'V4.0':'V3.4')+']]'+compactLuau(expanded);
   return {code,engine:options.hardened?'BLACKMAMER V4 Native VM':'BLACKMAMER V3 Native VM',
     hardened:options.hardened===true,nativeSealer:sealedBatch.nativeUsed,
+    target,protectionLevel:profileName,injectedAstBranches,
+    cfgFlattenedBlocks:flattenedBlocks,cfgBridgeJumps:flattenedBridges,
+    stringEncryption:true,
     nestedVM,outerVmInstructions:nestedVM?outerProgram[2]:0,
     runtimeBootstrap:options.hardened===true,
     opaquePredicates:nestedVM,

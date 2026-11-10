@@ -6,12 +6,14 @@ const vm=require('node:vm');
 const file=path.resolve(__dirname,'../netlify-frontend/index.html');
 const html=fs.readFileSync(file,'utf8');
 assert.match(html,/BLACKMAMER STUDIO/);
+assert.match(html,/MAXIMUM V4 • AUTO/);
 assert.match(html,/value="NativeV4"/);
-assert.match(html,/id="protectionLevel"/);
-assert.match(html,/value="Maximum"/);
 assert.match(html,/value="Lua51"/);
 assert.match(html,/value="LuaJIT"/);
-assert.doesNotMatch(html,/value="NativeV3"|value="RobloxStrong"|value="Weak"/);
+for(const legacy of ['id="protectionLevel"','id="autoFunctionEncryption"',
+  'id="keysPanel"','id="sampleProtected"','id="antiTamper"','id="antiDebug"']){
+ assert.ok(!html.includes(legacy),'One-click user must not see '+legacy);
+}
 const match=html.match(/<script>\s*([\s\S]*?)<\/script>/);
 assert.ok(match,'Missing embedded frontend script');
 const compiled=new vm.Script(match[1],{filename:file});
@@ -27,12 +29,8 @@ function byId(id){
  return elements.get(id);
 }
 byId('preset').value='NativeV4';
-byId('protectionLevel').value='Strong';
 byId('target').value='LuaU';
-byId('autoFunctionEncryption').value='standalone';
-byId('antiTamper').checked=true;
-byId('antiDebug').checked=true;
-let calls=[];
+let calls=[],badKeys=false;
 const fetchMock=async(url,options)=>{
  calls.push({url,options});
  return url.includes('/api/health')?
@@ -40,10 +38,9 @@ const fetchMock=async(url,options)=>{
   {ok:true,json:async()=>({
     obfuscated:'-- BLACKMAMER V4 output\nreturn true',
     engine:'BLACKMAMER V4 Native VM',
-    blackmamerVM:{enabled:true,applied:true,nestedVM:true,protectionLevel:'Strong',
-      vmInstructions:15,fallback:false},
-    externalKeys: options?.body && JSON.parse(options.body).script.includes('BM_ENCFUNC')?
-      [{id:'premium',key:'a1'.repeat(32)}]:[]
+    blackmamerVM:{oneClick:true,protectionLevel:'Maximum',autoFunctionEncryption:'standalone',
+      nestedVM:true,autoEncryptedFunctions:2,applied:true,fallback:false},
+    externalKeys:badKeys?[{id:'premium',key:'a1'.repeat(32)}]:[]
   })};
 };
 const sandbox={
@@ -62,29 +59,26 @@ compiled.runInContext(vm.createContext(sandbox));
  let p=JSON.parse(request.options.body);
  assert.equal(p.preset,'NativeV4');
  assert.equal(p.vmMode,'native-v4');
- assert.equal(p.protectionLevel,'Strong');
+ assert.equal(p.oneClick,true);
  assert.equal(p.target,'LuaU');
- assert.equal(p.autoFunctionEncryption,'standalone');
+ assert.equal(p.protectionLevel,undefined);
+ assert.equal(p.autoFunctionEncryption,undefined);
+ assert.equal(p.antiDebug,undefined);
  assert.equal(byId('download').disabled,false);
  assert.equal(byId('result').value,'-- BLACKMAMER V4 output\nreturn true');
  byId('target').value='Lua51';
- byId('protectionLevel').value='Maximum';
- byId('protectionLevel').handlers.change();
- assert.equal(byId('target').disabled,false);
+ byId('target').handlers.change();
  calls=[];await byId('obfuscate').click();
  request=calls.find(x=>x.url.endsWith('/api/obfuscate'));
  p=JSON.parse(request.options.body);
  assert.equal(p.target,'Lua51');
- assert.equal(p.protectionLevel,'Maximum');
- await byId('sampleProtected').click();
- assert.match(byId('source').value,/BM_ENCFUNC/);
- await byId('obfuscate').click();
- assert.equal(byId('keysPanel').hidden,false);
- assert.match(byId('keysResult').value,/BlackmamerKeyProvider/);
+ badKeys=true;await byId('obfuscate').click();
+ assert.equal(byId('download').disabled,true);
+ assert.equal(byId('result').value,'');
+ assert.match(byId('feedback').textContent,/kunci eksternal/);
+ badKeys=false;
  byId('clear').click();
- assert.equal(byId('keysPanel').hidden,true);
- byId('source').value='';
  calls=[];await byId('obfuscate').click();
  assert.equal(calls.filter(x=>x.url.endsWith('/api/obfuscate')).length,0);
- console.log('V4-only frontend smoke: engine, 5 levels, Lua51 target, output and external keys passed');
+ console.log('V4 one-click frontend: Maximum-only UI, Luau/Lua51, no external key panel, rejected key leakage PASS');
 })().catch(e=>{console.error(e);process.exitCode=1});

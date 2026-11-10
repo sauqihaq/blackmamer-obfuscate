@@ -63,6 +63,15 @@ async function api(route,body){
   assert.equal(external.data.externalKeys.length,1);
   assert.equal(external.data.obfuscated.includes(external.data.externalKeys[0].key),false);
   assert.ok(external.data.blackmamerVM.cfgFlattenedBlocks>=1);
+  const full=await api('/api/obfuscate',{
+    preset:'NativeV4',target:'Lua51',protectionLevel:'Strong',
+    script:'local function secure(x)return x*2 end;print(secure(21))',
+    autoFunctionEncryption:'external-full'});
+  assert.equal(full.status,200,JSON.stringify(full.data).slice(0,950));
+  assert.equal(full.data.blackmamerVM.autoEncryptedFunctions,
+    full.data.blackmamerVM.virtualizedFunctions);
+  assert.equal(full.data.externalKeys.length,1);
+  assert.equal(full.data.obfuscated.includes(full.data.externalKeys[0].key),false);
   console.log('V4-only API smoke: 20 target/preset combinations, licensing bypass in preview, external keys, and legacy rejection passed');
  }finally{backend.kill()}
 })().catch(e=>{console.error(e);process.exitCode=1;backend.kill()});

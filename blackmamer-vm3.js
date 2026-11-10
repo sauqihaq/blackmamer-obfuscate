@@ -461,12 +461,13 @@ function compile(source, options={}) {
   // The outer micro-VM decodes every inner VM instruction before dispatch.
   // V3 keeps its original single-VM execution path.
   const nestedVM=options.hardened===true && options.nestedVM!==false && profile.nested;
-  // Opt-in automated function encryption. External-key mode skips the entry
-  // bootstrap so the user script can install its server-side key provider.
+  // Opt-in encryption. "external" preserves entry for legacy compatibility.
+  // "external-full" encrypts the entry too and requires a trusted key
+  // provider BEFORE execution (Roblox ServerScriptService or host global).
   // Standalone can encrypt the entry as the decryption key ships with output.
   const autoMode=options.autoFunctionEncryption===undefined?'off':options.autoFunctionEncryption;
-  if(!['off','external','standalone'].includes(autoMode))
-    throw new SyntaxErrorV3('autoFunctionEncryption must be off, external, or standalone');
+  if(!['off','external','external-full','standalone'].includes(autoMode))
+    throw new SyntaxErrorV3('autoFunctionEncryption must be off, external, external-full, or standalone');
   if(autoMode!=='off'&&!options.hardened)
     throw new SyntaxErrorV3('Auto Function Encryption requires NativeV4');
   const autoId='BMAUTO_V4';
@@ -1385,7 +1386,7 @@ function compile(source, options={}) {
         '      if bundle[3]=="'+autoId+'" then keyHex=embeddedAutoKey else'
       ]:[]),
       '      local provider=globals.BLACKMAMER_KEY_PROVIDER',
-      ...(autoMode==='external'&&autoFunctionCount>0?[
+      ...((autoMode==='external'||autoMode==='external-full')&&autoFunctionCount>0?[
         '      if bundle[3]=="'+autoId+'" and nativeType(provider)~="function" then',
         '        local ok,loaded=nativePcall(function()',
         '          local service=game:GetService("ServerScriptService")',

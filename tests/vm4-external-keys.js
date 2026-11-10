@@ -37,7 +37,7 @@ assert.equal(result.generatedKeys.length,1);
 assert.equal(result.generatedKeys[0].id,'premium');
 assert.match(result.generatedKeys[0].key,/^[a-f0-9]{64}$/);
 assert.equal(result.code.includes(result.generatedKeys[0].key),false);
-assert.ok(result.code.includes('external function key provider missing'));
+assert.ok(result.code.includes('external key provider missing'));
 assert.equal(result.nestedVM,true);
 assert.equal(result.virtualizedFunctions>=3,true);
 const again=compile(source,{hardened:true,functionKeys:{premium:result.generatedKeys[0].key}});

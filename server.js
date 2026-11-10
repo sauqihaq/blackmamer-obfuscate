@@ -150,7 +150,8 @@ app.post('/api/obfuscate', async (req, res) => {
         antiDebug: body.antiDebug !== false,
         superInstructions: body.superInstructions !== false,
         hardened: useNativeV4,
-        nestedVM: useNativeV4 && body.nestedVM !== false
+        nestedVM: useNativeV4 && body.nestedVM !== false,
+        functionKeys: body.functionKeys
       });
       return res.json({
         // Keep the VM payload compact, but restore the original large
@@ -158,6 +159,10 @@ app.post('/api/obfuscate', async (req, res) => {
         obfuscated: BANNER + result.code,
         engine: result.engine,
         target: 'LuaU',
+        // Generated keys are returned once with this response. The VM output
+        // intentionally contains only function ids, nonces and MACs.
+        externalKeys: result.generatedKeys,
+        protectedFunctionIds: result.protectedFunctions,
         protection: { antiTamper: result.antiTamper, antiDebug: result.antiDebug },
         blackmamerVM: {
           enabled: true,
@@ -167,6 +172,7 @@ app.post('/api/obfuscate', async (req, res) => {
           hardened: result.hardened,
           nestedVM: result.nestedVM,
           outerVmInstructions: result.outerVmInstructions,
+          protectedFunctions: result.protectedFunctions.length,
           virtualizedFunctions: result.virtualizedFunctions,
           bytecodeLayout: result.bytecodeLayout,
           bytecodeWidths: result.bytecodeWidths,

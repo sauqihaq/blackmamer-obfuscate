@@ -399,7 +399,7 @@ function compile(source, options={}) {
   const lua51=target==='Lua51'||target==='LuaJIT';
   if(!['LuaU','Lua51','LuaJIT'].includes(target))
     throw new SyntaxErrorV3('Unsupported VM target '+target);
-  const profileName=options.hardened ? (options.protectionLevel||'Strong') : 'Minify';
+  const profileName=options.hardened ? (options.protectionLevel||'Strong') : 'Strong'; // preserve archived V3 compiler fusion
   const profile=V4_PROFILES[profileName];
   if(!profile)throw new SyntaxErrorV3('V4 protectionLevel must be Minify, Light, Medium, Strong, or Maximum');
   if(lua51){

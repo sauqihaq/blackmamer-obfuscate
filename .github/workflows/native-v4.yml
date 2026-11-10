@@ -6,6 +6,9 @@ on:
       - 'blackmamer-vm3.js'
       - 'native/**'
       - 'native-sealer.js'
+      - 'protected-functions.js'
+      - 'tests/vm4-external-keys.js'
+      - 'tests/vm4-external-luau.js'
       - 'server.js'
       - 'Dockerfile'
       - 'netlify-frontend/**'
@@ -18,6 +21,9 @@ on:
       - 'blackmamer-vm3.js'
       - 'native/**'
       - 'native-sealer.js'
+      - 'protected-functions.js'
+      - 'tests/vm4-external-keys.js'
+      - 'tests/vm4-external-luau.js'
       - 'server.js'
       - 'Dockerfile'
       - 'netlify-frontend/**'
@@ -37,6 +43,8 @@ jobs:
         run: |
           node --check blackmamer-vm3.js
           node --check native-sealer.js
+          node --check protected-functions.js
+          node tests/vm4-external-keys.js
           node --check server.js
           node tests/frontend-smoke.js
       - name: Build native C++17 sealer (warnings treated as errors)
@@ -69,4 +77,6 @@ jobs:
       - name: Run hardened V4 execution and tamper regression
         env:
           LUAU_BIN: ./luau-build/luau
-        run: node tests/vm4-luau.js
+        run: |
+          node tests/vm4-luau.js
+          node tests/vm4-external-luau.js

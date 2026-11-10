@@ -41,6 +41,8 @@ async function api(route,body){
     assert.equal(info.protectionLevel,level);
     assert.equal(info.target,target==='Lua'?'Lua51':target);
     assert.equal(info.stringEncryption,true);
+    assert.equal(typeof info.astFlattenedGroups,'number');
+    if(level==='Minify'||level==='Light')assert.equal(info.astFlattenedGroups,0);
     assert.ok(result.data.obfuscated.includes('BLACKMAMER VM V4.0'));
    }
   }

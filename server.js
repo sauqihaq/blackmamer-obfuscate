@@ -9,6 +9,7 @@ const { transform } = require('./blackmamer-vm');
 const { generate: compileBlackmamerVM2 } = require('./blackmamer-vm2');
 const { compile: compileBlackmamerVM3 } = require('./blackmamer-vm3');
 const { available: nativeSealerAvailable } = require('./native-sealer');
+const { registerRoutes: registerCommercialRoutes, gate: licenseGate } = require('./commercial-access');
 
 const app = express();
 const execFileAsync = promisify(execFile);
@@ -38,6 +39,7 @@ const MAX_SCRIPT_BYTES = 1024 * 1024;
 
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
+registerCommercialRoutes(app);
 
 app.get('/', (_req, res) => {
   res.json({
@@ -110,7 +112,7 @@ app.get('/api/health', async (_req, res) => {
   });
 });
 
-app.post('/api/obfuscate', async (req, res) => {
+app.post('/api/obfuscate', licenseGate, async (req, res) => {
   const body = req.body || {};
   const code = body.script;
   const preset = body.preset || 'Medium';

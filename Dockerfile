@@ -14,7 +14,7 @@ WORKDIR /app
 RUN git clone --depth 1 https://github.com/wcrddn/Prometheus.git /app/prometheus
 
 COPY server.js blackmamer-vm.js blackmamer-vm2.js blackmamer-vm3.js \
-  lua-output-compact.js native-sealer.js protected-functions.js package.json roblox-strong.lua ./
+  lua-output-compact.js native-sealer.js protected-functions.js commercial-access.js package.json roblox-strong.lua ./
 COPY --from=native-build /build/bm-sealer /app/native/bm-sealer
 RUN chmod +x /app/native/bm-sealer && npm install --omit=dev
 

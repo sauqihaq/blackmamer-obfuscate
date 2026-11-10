@@ -117,7 +117,9 @@ try {
     const encoded=compile(script,{hardened:true,nestedVM:true,autoFunctionEncryption:'standalone'});
     assert.equal(encoded.generatedKeys.length,0);
     assert.equal(encoded.autoEncryptedFunctions,encoded.virtualizedFunctions);
-    assert.match(encoded.code,/embeddedAutoKey/);
+    assert.match(encoded.code,/_unfold/);
+    assert.match(encoded.code,/local _BK=/);
+    assert.doesNotMatch(encoded.code,/embeddedAutoKey/);
     const name='auto-standalone-'+runs;
     const original=execute(script,name+'-src');
     assert.equal(original.status,0,original.stderr);
@@ -126,6 +128,32 @@ try {
     assert.equal(result.stdout,original.stdout);
     runs++;
   }
+  // The one-click build works as Script, LocalScript-shaped code, or a
+  // ModuleScript returning an object without any key provider.
+  const profiles=[
+    ['server','local function f(x)return x+2 end;print(f(40))','42\n'],
+    ['client','local state=21;local function localOnly()return state*2 end;print(localOnly())','42\n'],
+    ['module','return {get=function()return 42 end}', '42\n']
+  ];
+  for(const [kind,source,expected] of profiles){
+    const b=compile(source,{hardened:true,protectionLevel:'Maximum',
+      autoFunctionEncryption:'standalone',antiTamper:true,antiDebug:true,nestedVM:true});
+    assert.deepEqual(b.generatedKeys,[]);
+    assert.equal(b.autoEncryptedFunctions,b.virtualizedFunctions);
+    const program=kind==='module'?
+      'local m=(function(...)\n'+b.code+'\nend)()\nprint(m.get())':b.code;
+    const res=execute(program,'oneclick-'+kind);
+    assert.equal(res.status,0,kind+': '+res.stderr);
+    assert.equal(res.stdout,expected);
+    runs++;
+  }
+  const marked=compile('local f=BM_ENCFUNC("premium",function(n)return n*7 end)\nprint(f(6))',
+    {hardened:true,protectionLevel:'Maximum',autoFunctionEncryption:'standalone'});
+  assert.deepEqual(marked.generatedKeys,[]);
+  const markedResult=execute(marked.code,'oneclick-previous-manual-marker');
+  assert.equal(markedResult.status,0,markedResult.stderr);
+  assert.equal(markedResult.stdout,'42\n');
+  runs++;
   const wholeScript='local function add(n) return n+2 end\nprint(add(40))';
   const whole=compile(wholeScript,{hardened:true,protectionLevel:'Strong',
     nestedVM:true,autoFunctionEncryption:'external-full'});

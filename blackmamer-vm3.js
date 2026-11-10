@@ -4,6 +4,7 @@
 const crypto = require('node:crypto');
 const {compactLuau} = require('./lua-output-compact');
 const {sealBatch} = require('./native-sealer');
+const {requireKey,requireId,encryptBytes,runtimeLines:protectedRuntimeLines} = require('./protected-functions');
 const rand = max => crypto.randomInt(max);
 
 class SyntaxErrorV3 extends Error {
@@ -303,6 +304,24 @@ function compile(source, options={}) {
   const used=new Set(), codes={};
   for(const op of OPS){let id;do{id=rand(220)+17;}while(used.has(id));used.add(id);codes[op]=id;}
   const consts=[], constKeys=new Map(), funcs=[], argSets=[];
+  const protectedKeys=new Map(), generatedKeys=[];
+  const optionsKeys=options.functionKeys===undefined?{}:options.functionKeys;
+  if(!optionsKeys || typeof optionsKeys!=='object' || Array.isArray(optionsKeys))
+    throw new SyntaxErrorV3('functionKeys must be an object mapping protected ids to hex keys');
+  const keyFor=id=>{
+    requireId(id);
+    if(!protectedKeys.has(id)){
+      if(protectedKeys.size>=32) throw new SyntaxErrorV3('Maximum 32 protected function ids per compilation');
+      let hex;
+      if(Object.prototype.hasOwnProperty.call(optionsKeys,id)){
+        requireKey(optionsKeys[id]);hex=optionsKeys[id].toLowerCase();
+      } else {
+        hex=crypto.randomBytes(32).toString('hex');generatedKeys.push({id,key:hex});
+      }
+      protectedKeys.set(id,hex);
+    }
+    return protectedKeys.get(id);
+  };
   const key=(value)=>{
     const type=value===null?'nil':typeof value;
     const label=type+':'+String(value);
@@ -311,7 +330,7 @@ function compile(source, options={}) {
     constKeys.set(label,idx);consts.push(value);return idx;
   };
   const builders=[];
-  const makeBuilder=(ast,params)=>{
+  const makeBuilder=(ast,params,protectedId=null)=>{
     const id=funcs.length+1;const builder={id,ins:[],regs:0,depth:0,loops:[]};
     funcs.push(null);builders.push(builder);
     const reg=()=>{if(++builder.regs>2048)throw new SyntaxErrorV3('V3 register limit exceeded');return builder.regs;};
@@ -322,7 +341,16 @@ function compile(source, options={}) {
       if(n.t==='var'){const dst=reg();emit('GET',dst,key(n.name));return dst;}
       if(n.t==='index'){const obj=expr(n.obj),k=expr(n.key),dst=reg();emit('INDEX',dst,obj,k);return dst;}
       if(n.t==='table'){const dst=reg();emit('TABLE',dst);for(const f of n.fields){const a=expr(f.key),b=expr(f.value);emit('PUT',dst,a,b);}return dst;}
-      if(n.t==='fun'){const fnid=makeBuilder(n.body,n.params),dst=reg();emit('CLOSURE',dst,fnid);return dst;}
+      if(n.t==='fun'){const fnid=makeBuilder(n.body,n.params,protectedId),dst=reg();emit('CLOSURE',dst,fnid);return dst;}
+      if(n.t==='call' && n.fn.t==='var' && n.fn.name==='BM_ENCFUNC'){
+        if(!options.hardened)throw new SyntaxErrorV3('BM_ENCFUNC requires NativeV4');
+        if(n.args.length!==2 || n.args[0].t!=='str' || n.args[1].t!=='fun')
+          throw new SyntaxErrorV3('BM_ENCFUNC expects ("id", function(...) ... end)');
+        const id=n.args[0].value;
+        try{keyFor(id)}catch(error){throw new SyntaxErrorV3(error.message)}
+        const fun=n.args[1];const fnid=makeBuilder(fun.body,fun.params,id);
+        const dst=reg();emit('CLOSURE',dst,fnid);return dst;
+      }
       if(n.t==='call' || n.t==='method'){
         let fn,regs=[];
         if(n.t==='method'){
@@ -552,7 +580,7 @@ function compile(source, options={}) {
       }
     };
     statements(ast);emit('RETVOID');
-    funcs[id-1]={p:params.map(key),ins:builder.ins};
+    funcs[id-1]={p:params.map(key),ins:builder.ins,protectedId};
     return id;
   };
   const initialEntry=makeBuilder(parsed,[]);
@@ -645,7 +673,7 @@ function compile(source, options={}) {
       const masked=j===0 ? (n ^ opcodeMask) : n;
       return (masked+salt+instructionTweak+5*(j+1)+modulus)%modulus;
     }));
-    return {p:f.p,ins,opSeed};
+    return {p:f.p,ins,opSeed,protectedId:f.protectedId};
   });
   // Independent S-Box per build; a full inverse table travels with standalone
   // output, so this adds static-analysis work, not secret key confidentiality.
@@ -704,7 +732,11 @@ function compile(source, options={}) {
       }
     }
     const seed=rand(60000)+1000;
-    return [seed,raw,width];
+    if(f.protectedId){
+      const result=encryptBytes(raw,keyFor(f.protectedId),f.protectedId);
+      return [seed,result.bytes,width,{id:f.protectedId,nonce:result.nonce,tag:result.tag}];
+    }
+    return [seed,raw,width,null];
   });
   const rawConstants=consts.map(value=>{
     const typ=value===null?5:typeof value==='string'?1:typeof value==='number'?2:value===true?3:4;
@@ -761,8 +793,8 @@ function compile(source, options={}) {
     ...rawConstants.map(([,seed,raw])=>[seed,raw]),
     ...(nestedVM?[[outerProgram[0],outerProgram[1]]]:[])
   ],sbox,seal);
-  const sealedFunctions=rawFunctions.map(([seed,,width],i)=>
-    [seed,sealedBatch.sealed[i],width]);
+  const sealedFunctions=rawFunctions.map(([seed,,width,meta],i)=>
+    [seed,sealedBatch.sealed[i],width,meta]);
   const sealedConstants=rawConstants.map(([typ,seed],i)=>
     [typ,seed,sealedBatch.sealed[rawFunctions.length+i]]);
   const sealedOuter=nestedVM
@@ -800,8 +832,8 @@ function compile(source, options={}) {
     }
     return parts;
   };
-  const sealedFunctionRefs=sealedFunctions.map(([seed,bytes],i)=>
-    [seed^seedMask(1,i+1),segment(bytes)]);
+  const sealedFunctionRefs=sealedFunctions.map(([seed,bytes,,meta],i)=>
+    [seed^seedMask(1,i+1),segment(bytes),meta]);
   const sealedConstantRefs=sealedConstants.map(([typ,seed,bytes],i)=>
     [typ,seed^seedMask(2,i+1),segment(bytes)]);
   const outerRefs=nestedVM
@@ -815,7 +847,9 @@ function compile(source, options={}) {
   const positions=new Map(segmentOrder.map((old,i)=>[old,i+1]));
   const refs=parts=>'{'+parts.map(id=>positions.get(id)).join(',')+'}';
   const luaFragments='{'+segmentOrder.map(id=>JSON.stringify(fragments[id])).join(',')+'}';
-  const luaFunctions='{'+sealedFunctionRefs.map(([seed,parts])=>'{'+seed+','+refs(parts)+'}').join(',')+'}';
+  const luaFunctions='{'+sealedFunctionRefs.map(([seed,parts,meta])=>
+    '{'+seed+','+refs(parts)+(meta?','+JSON.stringify(meta.id)+','+
+      JSON.stringify(meta.nonce)+','+JSON.stringify(meta.tag):'')+'}').join(',')+'}';
   const luaConstants='{'+sealedConstantRefs.map(([typ,seed,parts])=>'{'+typ+','+seed+','+refs(parts)+'}').join(',')+'}';
   const luaOuter=nestedVM?'{'+outerRefs[0]+','+refs(outerRefs[1])+'}':null;
   const luaInverse=refs(inverseParts);
@@ -838,6 +872,10 @@ function compile(source, options={}) {
     mix(typ);mix(seed);mix(bytes.length);bytes.forEach(mix);
   }
   mix(maskedInverse.length);maskedInverse.forEach(mix);
+  const mixString=str=>{const raw=Buffer.from(str,'utf8');mix(raw.length);raw.forEach(mix);};
+  for(const [, ,meta] of sealedFunctionRefs)if(meta){
+    mixString(meta.id);mixString(meta.nonce);mixString(meta.tag);
+  }
   mix(salt);mix(sboxMask);
   for(const args of argSets){mix(args.length);args.forEach(mix);}
   if(nestedVM){
@@ -956,6 +994,10 @@ function compile(source, options={}) {
     '    for _,f in ipairs(E)do mix(f[1]);mix(#f[2]);for j=1,#f[2]do mix(nativeByte(f[2],j))end end',
     '    for _,v in ipairs(Q)do mix(v[1]);mix(v[2]);mix(#v[3]);for j=1,#v[3]do mix(nativeByte(v[3],j))end end',
     '    mix(#'+inverseName+');for j=1,#'+inverseName+' do mix(nativeByte('+inverseName+',j)) end',
+    ...(protectedKeys.size?[
+      '    for _,f in ipairs(E)do if f[3]then for k=3,5 do local v=f[k]',
+      '      mix(#v);for j=1,#v do mix(nativeByte(v,j))end end end end'
+    ]:[]),
     '    mix(SALT);mix(SBOX_MASK)',
     '    for _,ar in ipairs(A)do mix(#ar);for _,v in ipairs(ar)do mix(v)end end',
     ...(nestedVM?['    mix(H[1]);mix(#H[2]);for j=1,#H[2]do mix(nativeByte(H[2],j))end']:[]),
@@ -985,6 +1027,7 @@ function compile(source, options={}) {
     '    end',
     '    return out',
     '  end',
+    ...(protectedKeys.size?protectedRuntimeLines():[]),
     ...outerRuntime,
     '  local P={}',
     '  local bufFrom=buffer and buffer.fromstring',
@@ -998,6 +1041,16 @@ function compile(source, options={}) {
     '    local bundle=E[fid];if not bundle then nativeError("BLACKMAMER V3 invalid function")end',
     '    local realSeed=bxor(bundle[1],(SALT+(1+3)*7919+fid*1543)%65536)',
     '    local raw=unseal(bundle[2],realSeed);local chars={}',
+    ...(protectedKeys.size?[
+      '    if bundle[3]then',
+      '      local provider=globals.BLACKMAMER_KEY_PROVIDER',
+      '      if nativeType(provider)~="function" then nativeError("BLACKMAMER external key provider missing")end',
+      '      local keyHex=provider(bundle[3])',
+      '      for j,b in ipairs(raw)do chars[j]=nativeChar(b)end',
+      '      local plain=efDecrypt(nativeConcat(chars),keyHex,bundle[3],bundle[4],bundle[5])',
+      '      raw={};chars={};for j=1,#plain do raw[j]=nativeByte(plain,j)end',
+      '    end'
+    ]:[]),
     '    for j,b in ipairs(raw)do chars[j]=nativeChar(b)end',
     '    local packed=bufFrom(nativeConcat(chars))',
     '    local pn=bufRead(packed,0)+256*bufRead(packed,1)',
@@ -1265,6 +1318,7 @@ function compile(source, options={}) {
   return {code,engine:options.hardened?'BLACKMAMER V4 Native VM':'BLACKMAMER V3 Native VM',
     hardened:options.hardened===true,nativeSealer:sealedBatch.nativeUsed,
     nestedVM,outerVmInstructions:nestedVM?outerProgram[2]:0,
+    protectedFunctions:[...protectedKeys.keys()],generatedKeys,
     virtualizedFunctions:funcs.length,
     bytecodeLayout:'per-prototype-shuffled-12-or-16',
     bytecodeWidths:{compact:sealedFunctions.filter(f=>f[2]===3).length,

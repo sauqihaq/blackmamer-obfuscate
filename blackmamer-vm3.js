@@ -1156,6 +1156,60 @@ function compile(source, options={}) {
     '    end',
     '  end'
   ]:[];
+
+  const lua51BitOps=lua51?[
+    '  -- Standard Lua 5.1 has no bit32. Portable integer-bit fallback.',
+    '  local function bmBitPair(a,b,kind)',
+    '    a=a%4294967296;b=b%4294967296',
+    '    local result=0;local bitvalue=1',
+    '    for i=1,32 do',
+    '      local x=a%2;local y=b%2',
+    '      local take=(kind==1 and x~=y) or (kind==2 and x==1 and y==1) or',
+    '        (kind==3 and (x==1 or y==1))',
+    '      if take then result=result+bitvalue end',
+    '      a=math.floor(a/2);b=math.floor(b/2);bitvalue=bitvalue*2',
+    '    end',
+    '    return result',
+    '  end',
+    '  local bit32={}',
+    '  bit32.bxor=function(a,b,...)',
+    '    local v=bmBitPair(a,b,1)',
+    '    for i=1,select("#",...)do v=bmBitPair(v,select(i,...),1)end',
+    '    return v',
+    '  end',
+    '  bit32.band=function(a,b,...)',
+    '    local v=bmBitPair(a,b,2)',
+    '    for i=1,select("#",...)do v=bmBitPair(v,select(i,...),2)end',
+    '    return v',
+    '  end',
+    '  bit32.bor=function(a,b,...)',
+    '    local v=bmBitPair(a,b,3)',
+    '    for i=1,select("#",...)do v=bmBitPair(v,select(i,...),3)end',
+    '    return v',
+    '  end',
+    '  bit32.bnot=function(a)return 4294967295-a%4294967296 end',
+    '  bit32.rshift=function(a,n)return math.floor((a%4294967296)/2^n)end',
+    '  bit32.rrotate=function(a,n)',
+    '    n=n%32;a=a%4294967296',
+    '    if n==0 then return a end',
+    '    return (math.floor(a/2^n)+(a%2^n)*2^(32-n))%4294967296',
+    '  end'
+  ]:[];
+  const lua51Buffers=lua51?[
+    '  local bufFrom=function(bytes)return bytes end',
+    '  local bufRead=function(bytes,index)return nativeByte(bytes,index+1)end',
+    '  local bufRead32=function(bytes,index)',
+    '    local a,b,c,d=nativeByte(bytes,index+1,index+4)',
+    '    if not d then nativeError("BLACKMAMER V4 invalid Lua51 bytecode")end',
+    '    return a+b*256+c*65536+d*16777216',
+    '  end'
+  ]:[
+    '  local bufFrom=buffer and buffer.fromstring',
+    '  local bufRead=buffer and buffer.readu8',
+    '  local bufRead32=buffer and buffer.readu32',
+    '  if nativeType(bufFrom)~="function" or nativeType(bufRead)~="function" or nativeType(bufRead32)~="function" then',
+    '    nativeError("BLACKMAMER V4 requires Roblox Luau buffer API") end'
+  ];
   const lines=[
     options.hardened?'-- BLACKMAMER VM V4.0':'-- BLACKMAMER VM V3.4',
     'return (function(...)',
@@ -1168,6 +1222,7 @@ function compile(source, options={}) {
     '  local '+inverseRefsName+'='+luaInverse,
     '  local modulus=' + modulus + '; local hmod=' + hashMod + '; local hseed=' + hashSeed + '; local hmul=' + hashMul + '; local hadd=' + hashAdd,
     '  local nativeByte=string.byte; local nativeChar=string.char; local nativeConcat=table.concat',
+    ...lua51BitOps,
     '  local nativeUnpack=table.unpack or unpack; local bxor=bit32 and bit32.bxor',
     '  local nativePack=table.pack or function(...)return {n=select("#",...),...}end',
     '  local nativeType=type; local nativePcall=pcall; local nativeError=error',
@@ -1268,11 +1323,7 @@ function compile(source, options={}) {
     ...(protectedKeys.size?protectedRuntimeLines():[]),
     ...outerRuntime,
     '  local P={}',
-    '  local bufFrom=buffer and buffer.fromstring',
-    '  local bufRead=buffer and buffer.readu8',
-    '  local bufRead32=buffer and buffer.readu32',
-    '  if nativeType(bufFrom)~="function" or nativeType(bufRead)~="function" or nativeType(bufRead32)~="function" then',
-    '    nativeError("BLACKMAMER V3.3 requires Roblox Luau buffer API") end',
+    ...lua51Buffers,
 
     '  local function prototype(fid)',
     '    local cached=P[fid];if cached then return cached end',

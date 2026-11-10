@@ -407,7 +407,7 @@ print(&quot;Hello World&quot;)"></textarea>
     $('obfuscate').addEventListener('click', obfuscate);
     $('healthButton').addEventListener('click', healthCheck);
     $('preset').addEventListener('change', warnPreset);
-    source.addEventListener('input', updateStats);
+    source.addEventListener('input', () => { updateStats(); clearOutput(); });
     $('upload').addEventListener('click', () => $('file').click());
     $('file').addEventListener('change', async event => {
       const file = event.target.files && event.target.files[0];

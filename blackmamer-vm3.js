@@ -297,12 +297,59 @@ class Parser {
 // No Prometheus source code is used: both transforms operate on BLACKMAMER's
 // own parser AST and IR and are verified by runtime differential tests.
 const V4_PROFILES=Object.freeze({
-  Minify:{deadChance:0,flatten:false,nested:false,fusion:false},
-  Light:{deadChance:0.06,flatten:false,nested:false,fusion:true},
-  Medium:{deadChance:0.13,flatten:true,nested:true,fusion:true},
-  Strong:{deadChance:0.23,flatten:true,nested:true,fusion:true},
-  Maximum:{deadChance:0.36,flatten:true,nested:true,fusion:true}
+  Minify:{deadChance:0,astFlatten:0,flatten:false,nested:false,fusion:false},
+  Light:{deadChance:0.06,astFlatten:0,flatten:false,nested:false,fusion:true},
+  Medium:{deadChance:0.13,astFlatten:0.14,flatten:true,nested:true,fusion:true},
+  Strong:{deadChance:0.23,astFlatten:0.34,flatten:true,nested:true,fusion:true},
+  Maximum:{deadChance:0.36,astFlatten:0.75,flatten:true,nested:true,fusion:true}
 });
+
+function flattenSimpleAstSequences(root,chance){
+  if(chance<=0)return 0;
+  let groups=0;
+  const visit=obj=>{
+    if(!obj||typeof obj!=='object')return;
+    if(Array.isArray(obj)){obj.forEach(visit);return;}
+    for(const [key,value] of Object.entries(obj)){
+      if((key==='body'||key==='otherwise') && Array.isArray(value))
+        visitBlock(value);
+      else visit(value);
+    }
+  };
+  const eligible=node=>node&&(node.t==='assign'||node.t==='callstmt');
+  const visitBlock=block=>{
+    for(const n of block)visit(n);
+    const output=[];
+    for(let i=0;i<block.length;){
+      let end=i;
+      while(end<block.length&&eligible(block[end])&&end<i+4)end++;
+      const length=end-i;
+      if(length<2||rand(1000)>=Math.floor(chance*1000)){
+        output.push(block[i++]);continue;
+      }
+      const chunk=block.slice(i,end);
+      const state='__bm_cf_'+crypto.randomBytes(6).toString('hex');
+      const testValue=k=>({t:'binary',op:'==',left:{t:'var',name:state},
+        right:{t:'num',value:k}});
+      const branches=chunk.map((stmt,j)=>({
+        condition:testValue(j+1),
+        body:[stmt,{t:'assign',target:{t:'var',name:state},
+          value:{t:'num',value:j+2}}]
+      }));
+      output.push({t:'do',body:[
+        {t:'local',name:state,value:{t:'num',value:1}},
+        {t:'while',condition:{t:'binary',op:'<=',
+          left:{t:'var',name:state},right:{t:'num',value:chunk.length}},
+          body:[{t:'if',branches,otherwise:[]}]}
+      ]});
+      groups++;i=end;
+    }
+    block.splice(0,block.length,...output);
+  };
+  visitBlock(root);
+  return groups;
+}
+
 function addDeadAstBranches(root,chance){
   if(chance<=0)return 0;
   let injected=0;
@@ -408,6 +455,7 @@ function compile(source, options={}) {
       throw new SyntaxErrorV3('Lua 5.1/LuaJIT target cannot compile Luau-only syntax: '+t.value);
   }
   const parsed=new Parser(source).parse();
+  const astFlattenedGroups=options.hardened?flattenSimpleAstSequences(parsed,profile.astFlatten):0;
   const injectedAstBranches=options.hardened?addDeadAstBranches(parsed,profile.deadChance):0;
   // V4 defaults to a second independent register-bytecode interpreter.
   // The outer micro-VM decodes every inner VM instruction before dispatch.
@@ -1644,7 +1692,7 @@ function compile(source, options={}) {
   const code='--[[BLACKMAMER VM '+(options.hardened?'V4.0':'V3.4')+']]'+compactLuau(expanded);
   return {code,engine:options.hardened?'BLACKMAMER V4 Native VM':'BLACKMAMER V3 Native VM',
     hardened:options.hardened===true,nativeSealer:sealedBatch.nativeUsed,
-    target,protectionLevel:profileName,injectedAstBranches,
+    target,protectionLevel:profileName,injectedAstBranches,astFlattenedGroups,
     cfgFlattenedBlocks:flattenedBlocks,cfgBridgeJumps:flattenedBridges,
     stringEncryption:true,
     nestedVM,outerVmInstructions:nestedVM?outerProgram[2]:0,

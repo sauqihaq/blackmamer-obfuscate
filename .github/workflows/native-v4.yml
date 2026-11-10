@@ -74,6 +74,8 @@ jobs:
           git clone --depth 1 https://github.com/luau-lang/luau.git luau-src
           cmake -S luau-src -B luau-build -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_TESTS=OFF
           cmake --build luau-build --target Luau.Repl.CLI --parallel 2
+      - name: Build native sealer for official Luau runtime tests
+        run: g++ -O2 -std=c++17 -Wall -Wextra -Werror native/sealer.cpp -o native/bm-sealer
       - name: Run hardened V4 execution and tamper regression
         env:
           LUAU_BIN: ./luau-build/luau

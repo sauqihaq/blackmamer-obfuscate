@@ -58,16 +58,16 @@ try {
   }
   // Verify the Roblox-style provider assignment INSIDE the virtualized
   // source can reference a server-only provider supplied by its host.
-  const assignedSource='BLACKMAMER_KEY_PROVIDER=BLACKMAMER_EXTERNAL_PROVIDER\\n'+
-    'local s=BM_ENCFUNC("runtime",function(n)return n+4 end)\\nprint(s(38))';
+  const assignedSource='BLACKMAMER_KEY_PROVIDER=BLACKMAMER_EXTERNAL_PROVIDER\n'+
+    'local s=BM_ENCFUNC("runtime",function(n)return n+4 end)\nprint(s(38))';
   const assigned=compile(assignedSource,{hardened:true,nestedVM:true});
   const assignedKey=assigned.generatedKeys[0].key;
   const wrapper='BLACKMAMER_EXTERNAL_PROVIDER=function(id) return '+
-    JSON.stringify(assignedKey)+' end\\n';
+    JSON.stringify(assignedKey)+' end\n';
   const assignmentResult=execute(wrapper+assigned.code,'provider-assigned-from-source');
   assert.equal(assignmentResult.status,0,
     'VM global assignment must work: '+assignmentResult.stderr);
-  assert.equal(assignmentResult.stdout,'42\\n');
+  assert.equal(assignmentResult.stdout,'42\n');
   runs++;
   console.log('Native V4 external-function encryption: '+runs+
     ' full Luau output comparisons; missing and wrong keys rejected');

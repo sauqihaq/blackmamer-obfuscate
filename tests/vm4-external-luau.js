@@ -141,7 +141,7 @@ try {
     assert.deepEqual(b.generatedKeys,[]);
     assert.equal(b.autoEncryptedFunctions,b.virtualizedFunctions);
     const program=kind==='module'?
-      'local m=(function()\n'+b.code+'\nend)()\nprint(m.get())':b.code;
+      'local m=(function(...)\n'+b.code+'\nend)()\nprint(m.get())':b.code;
     const res=execute(program,'oneclick-'+kind);
     assert.equal(res.status,0,kind+': '+res.stderr);
     assert.equal(res.stdout,expected);

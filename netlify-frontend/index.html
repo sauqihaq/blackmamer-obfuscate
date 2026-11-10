@@ -168,28 +168,20 @@ print(&quot;Hello World&quot;)"></textarea>
         <div class="card-head"><div class="card-title"><b>⚙</b> Protection Settings</div></div>
         <div class="options">
           <div class="field">
-            <label for="preset">Protection preset</label>
-            <select id="preset">
-              <option value="Weak">Weak — Ringan</option>
-              <option value="Medium" selected>Medium — Balanced</option>
-              <option value="Strong">Strong — Legacy (berat)</option>
-              <option value="RobloxStrong">RobloxStrong — Roblox VM (Prometheus)</option>
-              <option value="NativeV3">Native V3 — BLACKMAMER VM Asli</option>
-              <option value="NativeV4">Native V4 — C++ Sealed • Hardened VM (Eksperimental)</option>
-            </select>
+            <label>Protection engine</label><div class="presets"><strong>BLACKMAMER Native V4</strong> / Custom VM</div>
+<input type="hidden" id="preset" value="NativeV4">
+<label for="protectionLevel">Protection level</label><select id="protectionLevel">
+<option value="Minify">Minify</option><option value="Light">Light</option>
+<option value="Medium">Medium</option><option value="Strong" selected>Strong</option>
+<option value="Maximum">Maximum</option></select>
             <p id="presetHint" class="help">Mode yang lebih seimbang untuk penggunaan awal.</p>
           </div>
           <div class="field">
             <label for="target">Target runtime</label>
-            <select id="target">
-              <option value="LuaU" selected>Roblox / Luau</option>
-              <option value="Lua51">Lua 5.1</option>
-            </select>
+            <select id="target"><option value="LuaU" selected>Roblox / Luau</option>
+<option value="Lua51">Lua 5.1 vanilla</option><option value="LuaJIT">LuaJIT</option></select>
           </div>
-          <label class="toggle" for="hybrid">
-            <input id="hybrid" type="checkbox">
-            <span><strong>BLACKMAMER Hybrid VM V2</strong><span>Virtualisasi ekspresi tertentu dan opcode acak setiap build. Belum full-function VM.</span></span>
-          </label>
+          <p class="help">Native V4 only: AST dead branches, basic-block flattening, sealed strings and Nested VM.</p>
           <div id="v3Options" hidden>
             <hr class="rule">
             <label class="toggle" for="antiTamper"><input id="antiTamper" type="checkbox" checked><span><strong>Anti-Tamper</strong><span>Validasi checksum bytecode saat script dijalankan.</span></span></label>
@@ -206,9 +198,7 @@ print(&quot;Hello World&quot;)"></textarea>
             </div>
           </div>
           <hr class="rule">
-          <div class="presets" id="info">
-            <strong>Catatan kompatibilitas</strong><br>Mode <b>RobloxStrong</b> memakai VM penuh Prometheus. Lapisan BLACKMAMER V2 bersifat tambahan, bukan pengganti VM penuh tersebut.
-          </div>
+          <div class="presets" id="info">Lua 5.1 and LuaJIT use the portable bytecode interpreter. External keys require a host-side provider.</div>
         </div>
         <div class="actionzone">
           <button class="btn primary" type="button" id="obfuscate">◆ Obfuscate Script</button>
@@ -282,29 +272,16 @@ print(&quot;Hello World&quot;)"></textarea>
        setTimeout(()=>URL.revokeObjectURL(url),1000);
      }
      function warnPreset() {
-      const preset = $('preset').value;
-      const labels = {
-        Weak: 'Proteksi lebih ringan, lebih cepat.',
-        Medium: 'Preset bawaan, seimbang untuk pengujian awal.',
-        Strong: 'VM Prometheus bertingkat. Berpotensi lebih berat atau tidak stabil untuk sebagian script Luau.',
-        RobloxStrong: 'Full-program VM Prometheus satu lapis + proteksi konstanta; enkripsi string dan anti-tamper upstream dimatikan karena masalah kompatibilitas.',
-        NativeV3: 'Compiler dan interpreter bytecode BLACKMAMER sendiri. Eksperimental: belum mendukung seluruh sintaks Luau, tanpa fallback Prometheus.',
-        NativeV4: 'Nested VM + BM_ENCFUNC("id", function(...) ... end). Fungsi terlindungi memakai kunci eksternal yang wajib tersedia di Script Server Roblox.'
-      };
-      $('presetHint').textContent = labels[preset];
-      const isNative = preset === 'NativeV3' || preset === 'NativeV4';
-      $('v3Options').hidden = !isNative;
-       $('autoEncryptSettings').hidden = preset !== 'NativeV4';
-      $('hybrid').disabled = isNative;
-      $('target').disabled = isNative;
-      if (isNative) $('target').value = 'LuaU';
-      $('info').textContent = isNative
-        ? 'Native V3/V4 menggunakan interpreter Luau sendiri, bukan Vmify Prometheus. V4 dapat menggunakan C++ hanya di backend. Sintaks tidak didukung ditolak dengan HTTP 422, dan Roblox Studio tetap harus diuji.'
-        : preset === 'RobloxStrong'
-        ? 'RobloxStrong memakai VM Prometheus untuk seluruh program. VM V2 BLACKMAMER hanya memvirtualisasi subset ekspresi yang didukung.'
-        : 'Untuk script Roblox, gunakan target Roblox / Luau. Uji hasil di Roblox Studio sebelum dipakai publik.';
-    }
-    async function healthCheck() {
+       const level=$('protectionLevel').value;
+       const label={Minify:'V4 paling ringan.',Light:'Superinstructions + AST dead code ringan.',
+         Medium:'AST dead-code injection + CFG flattening + Nested VM.',
+         Strong:'Nested VM + AST/CFG + encrypted constants.',
+         Maximum:'Transformasi AST dan CFG paling padat. Benchmark runtime.'};
+       $('presetHint').textContent=label[level];
+       $('v3Options').hidden=false;$('autoEncryptSettings').hidden=false;
+       $('target').disabled=false;
+     }
+     async function healthCheck() {
       const chip = $('healthButton');
       const label = $('healthText');
       chip.className = 'chip';
@@ -346,10 +323,10 @@ print(&quot;Hello World&quot;)"></textarea>
         preset: $('preset').value,
         target: $('target').value,
         blackmamerVM: true,
-        vmMode: $('preset').value === 'NativeV4' ? 'native-v4' : ($('preset').value === 'NativeV3' ? 'native-v3' : ($('hybrid').checked ? 'hybrid-v2' : 'v1')),
+        vmMode:'native-v4', protectionLevel:$('protectionLevel').value,
         antiTamper: $('antiTamper').checked,
         antiDebug: $('antiDebug').checked,
-         autoFunctionEncryption: $('preset').value==='NativeV4' ? $('autoFunctionEncryption').value : 'off'
+         autoFunctionEncryption:$('autoFunctionEncryption').value
       };
       setBusy(true);
       setStatus('Menghubungkan ke backend dan memproses script...');
@@ -403,7 +380,7 @@ print(&quot;Hello World&quot;)"></textarea>
         } else {
           feedback(issuedKeyProvider
              ? 'External function keys ada di panel 03. Simpan Key Provider ke ServerScriptService.'
-             : 'Script berhasil diproses. Tetap uji output di Roblox Studio sebelum dipakai.', '');
+             : 'Script berhasil diproses. Uji output di target runtime yang dipilih.', '');
         }
       } catch (err) {
         clearOutput();
@@ -417,11 +394,12 @@ print(&quot;Hello World&quot;)"></textarea>
 
     $('obfuscate').addEventListener('click', obfuscate);
     $('healthButton').addEventListener('click', healthCheck);
-    $('preset').addEventListener('change', warnPreset);
+    $('protectionLevel').addEventListener('change',()=>{warnPreset();clearOutput()});
+$('target').addEventListener('change',()=>{warnPreset();clearOutput()});
      $('autoFunctionEncryption').addEventListener('change', () => {
        const mode=$('autoFunctionEncryption').value;
        $('autoEncryptionHint').textContent=mode==='external'
-         ? 'External: unduh ModuleScript Key Provider panel 03 dan simpan di ServerScriptService. Script asli tak perlu diedit.'
+         ? 'External: Roblox ServerScriptService atau BLACKMAMER_KEY_PROVIDER pada host Lua5.1/LuaJIT.'
          : mode==='standalone'
          ? 'Standalone: semua fungsi otomatis dienkripsi di satu script; kunci bisa direkonstruksi dari hasil.'
          : 'Off: VM V4 biasa; BM_ENCFUNC manual tetap tersedia.';
@@ -441,7 +419,7 @@ print(&quot;Hello World&quot;)"></textarea>
       event.target.value = '';
     });
     $('sample').addEventListener('click', () => {
-      source.value = 'local damage = 20 * 5\nlocal bonus = if damage > 50 then 10 else 0\nprint("Hello World", damage + bonus)';
+      source.value = 'local function double(n)return n*2 end\nprint("BLACKMAMER V4",double(42))';
       updateStats(); clearOutput();
     });
     $('sampleProtected').addEventListener('click', () => {

@@ -153,6 +153,7 @@ app.post('/api/obfuscate', licenseGate, async (req, res) => {
         superInstructions: body.superInstructions !== false,
         hardened: useNativeV4,
         nestedVM: useNativeV4 && body.nestedVM !== false,
+        autoFunctionEncryption: useNativeV4 ? (body.autoFunctionEncryption || 'off') : 'off',
         functionKeys: body.functionKeys
       });
       return res.json({
@@ -178,6 +179,9 @@ app.post('/api/obfuscate', licenseGate, async (req, res) => {
           opaquePredicates: result.opaquePredicates,
           periodicRuntimeGuard: result.periodicRuntimeGuard,
           protectedFunctions: result.protectedFunctions.length,
+          autoFunctionEncryption: result.autoFunctionEncryption,
+          autoEncryptedFunctions: result.autoEncryptedFunctions,
+          externallyKeyedFunctions: result.externallyKeyedFunctions,
           virtualizedFunctions: result.virtualizedFunctions,
           bytecodeLayout: result.bytecodeLayout,
           bytecodeWidths: result.bytecodeWidths,

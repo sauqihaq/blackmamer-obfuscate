@@ -102,11 +102,11 @@
       <div>
         <p class="eyebrow">LUAU / LUA • OBFUSCATION PLATFORM</p>
         <h1>Protect your code.<br><span>BLACKMAMER VM.</span></h1>
-        <p class="subtitle">Obfuscator BLACKMAMER Native V4 untuk vanilla Lua 5.1, LuaJIT, dan Luau. Lima tingkat proteksi, Nested VM, dan C++ bytecode sealing.</p>
+        <p class="subtitle">Obfuscator BLACKMAMER Native V4 untuk vanilla Lua 5.1, LuaJIT, dan Luau. Proteksi Maximum otomatis, Nested VM, dan C++ bytecode sealing.</p>
       </div>
       <div class="notice">
         <strong>Native V4 • Lua 5.1 / Luau</strong>
-        VM mandiri buatan BLACKMAMER. Pilih level Minify sampai Maximum dan uji output pada runtime target sebelum produksi.
+        VM mandiri buatan BLACKMAMER. Proteksi selalu otomatis: satu script keluaran tanpa Key Provider tambahan.
       </div>
     </header>
 
@@ -126,7 +126,7 @@ print(&quot;Hello World&quot;)"></textarea>
               <button class="btn" type="button" id="upload">↑ Upload .lua / .luau</button>
               <input class="file" type="file" id="file" accept=".lua,.luau,.txt,text/plain">
               <button class="btn subtle" type="button" id="sample">Contoh</button>
-              <button class="btn subtle" type="button" id="sampleProtected">Contoh BM_ENCFUNC</button>
+              
             </div>
             <button class="btn subtle" type="button" id="clear">Bersihkan</button>
           </div>
@@ -152,17 +152,7 @@ print(&quot;Hello World&quot;)"></textarea>
             <div class="metric">Fallback: <strong id="fallbackMetric">—</strong></div>
           </div>
         </section>
-        <section class="card output" id="keysPanel" hidden>
-          <div class="card-head"><div class="card-title"><b>03</b> External Function Keys</div></div>
-          <div class="editor-wrap"><textarea id="keysResult" class="editor" readonly aria-label="Kunci rahasia server"></textarea></div>
-          <div class="toolbar">
-            <button type="button" class="btn" id="copyKeys">⧉ Salin Key Provider</button>
-            <button type="button" class="btn primary" id="downloadKeys">↓ Download Key Provider</button>
-          </div>
-          <div class="presets" style="margin:12px">Simpan ModuleScript <b>BlackmamerKeyProvider</b>
-          di <b>ServerScriptService</b>. Jangan ditaruh di LocalScript / ReplicatedStorage.
-          Kunci dibuat hanya sekali untuk request ini dan tidak tersimpan di backend.</div>
-        </section>
+        
       </div>
       <aside class="card" aria-label="Pengaturan obfuscate">
         <div class="card-head"><div class="card-title"><b>⚙</b> Protection Settings</div></div>
@@ -170,11 +160,10 @@ print(&quot;Hello World&quot;)"></textarea>
           <div class="field">
             <label>Protection engine</label><div class="presets"><strong>BLACKMAMER Native V4</strong> / Custom VM</div>
 <input type="hidden" id="preset" value="NativeV4">
-<label for="protectionLevel">Protection level</label><select id="protectionLevel">
-<option value="Minify">Minify</option><option value="Light">Light</option>
-<option value="Medium">Medium</option><option value="Strong" selected>Strong</option>
-<option value="Maximum">Maximum</option></select>
-            <p id="presetHint" class="help">Mode yang lebih seimbang untuk penggunaan awal.</p>
+<div class="presets" style="border-color:#cb5470;background:linear-gradient(130deg,#381725,#111e2a)">
+  <strong>MAXIMUM V4 • AUTO</strong><p>Nested VM, AST + CFG, C++ sealing, enkripsi fungsi otomatis, serta pemeriksaan integritas.</p>
+  <small>Satu file • Langsung pakai di Script, LocalScript, atau ModuleScript</small>
+</div>
           </div>
           <div class="field">
             <label for="target">Target runtime</label>
@@ -182,24 +171,8 @@ print(&quot;Hello World&quot;)"></textarea>
 <option value="Lua">Lua (5.1-compatible)</option><option value="Lua51">Lua 5.1 vanilla</option><option value="LuaJIT">LuaJIT</option></select>
           </div>
           <p class="help">Native V4 only: AST dead branches, basic-block flattening, sealed strings and Nested VM.</p>
-          <div id="v3Options" hidden>
-            <hr class="rule">
-            <label class="toggle" for="antiTamper"><input id="antiTamper" type="checkbox" checked><span><strong>Anti-Tamper</strong><span>Validasi checksum bytecode saat script dijalankan.</span></span></label>
-            <div style="height:9px"></div>
-            <label class="toggle" for="antiDebug"><input id="antiDebug" type="checkbox" checked><span><strong>Anti-Debug / Anti-Hook</strong><span>Periksa modifikasi fungsi runtime dan metadata debug; bukan jaminan melawan semua debugger.</span></span></label>
-            <div id="autoEncryptSettings" hidden style="padding-top:14px">
-              <label for="autoFunctionEncryption">Auto Function Encryption (V4)</label>
-              <select id="autoFunctionEncryption">
-                <option value="standalone" selected>Standalone — satu script, siap copy-paste</option>
-                <option value="external-full">External Full — Root + functions keyed by trusted server</option>
-                <option value="external">External Key — ModuleScript server Roblox</option>
-                <option value="off">Off — manual BM_ENCFUNC saja</option>
-              </select>
-              <p class="help" id="autoEncryptionHint">Standalone otomatis mengenkripsi semua fungsi; kunci tetap bisa direkonstruksi.</p>
-            </div>
-          </div>
           <hr class="rule">
-          <div class="presets" id="info">Lua 5.1 and LuaJIT use the portable bytecode interpreter. External keys require a host-side provider.</div>
+          <div class="presets" id="info">Kunci Standalone digabung otomatis ke hasil. Jangan simpan rahasia server dalam LocalScript.</div>
         </div>
         <div class="actionzone">
           <button class="btn primary" type="button" id="obfuscate">◆ Obfuscate Script</button>
@@ -224,7 +197,7 @@ print(&quot;Hello World&quot;)"></textarea>
     const result = $('result');
     let lastMode = 'LuaU';
     let running = false;
-     let issuedKeyProvider = '';
+     
 
     function bytes(text) { return new Blob([text]).size; }
     function readable(number) {
@@ -240,9 +213,7 @@ print(&quot;Hello World&quot;)"></textarea>
     function setStatus(text) { $('taskStatus').textContent = text; }
     function clearOutput() {
       result.value = '';
-       issuedKeyProvider = '';
-       $('keysResult').value = '';
-       $('keysPanel').hidden = true;
+       
       $('copy').disabled = true;
       $('download').disabled = true;
       $('outputStats').textContent = 'Belum diproses';
@@ -252,35 +223,11 @@ print(&quot;Hello World&quot;)"></textarea>
     function updateStats() {
       $('inputStats').textContent = source.value.length.toLocaleString('id-ID') + ' karakter • ' + readable(bytes(source.value));
     }
-    function buildProvider(entries) {
-       const lines = ['-- BLACKMAMER external keys SERVER ONLY',
-         '-- ModuleScript in ServerScriptService/BlackmamerKeyProvider',
-         'local keys = {'];
-       for (const entry of entries) {
-         if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(entry.id) ||
-             !/^[a-fA-F0-9]{64}$/.test(entry.key))throw new Error('Invalid external keys');
-         lines.push('    ['+JSON.stringify(entry.id)+'] = '+JSON.stringify(entry.key)+',');
-       }
-       lines.push('}', 'return function(id)', '    local key=keys[id]',
-         '    if not key then error("Protected key unavailable: "..tostring(id)) end',
-         '    return key','end');
-       return lines.join('\n');
-     }
-     function downloadText(filename,value) {
+    function downloadText(filename,value) {
        const url=URL.createObjectURL(new Blob([value],{type:'text/plain;charset=utf-8'}));
        const a=document.createElement('a');a.href=url;a.download=filename;
        document.body.appendChild(a);a.click();a.remove();
        setTimeout(()=>URL.revokeObjectURL(url),1000);
-     }
-     function warnPreset() {
-       const level=$('protectionLevel').value;
-       const label={Minify:'V4 paling ringan.',Light:'Superinstructions + AST dead code ringan.',
-         Medium:'AST dead-code injection + CFG flattening + Nested VM.',
-         Strong:'Nested VM + AST/CFG + encrypted constants.',
-         Maximum:'Transformasi AST dan CFG paling padat. Benchmark runtime.'};
-       $('presetHint').textContent=label[level];
-       $('v3Options').hidden=false;$('autoEncryptSettings').hidden=false;
-       $('target').disabled=false;
      }
      async function healthCheck() {
       const chip = $('healthButton');
@@ -324,10 +271,7 @@ print(&quot;Hello World&quot;)"></textarea>
         preset: $('preset').value,
         target: $('target').value,
         blackmamerVM: true,
-        vmMode:'native-v4', protectionLevel:$('protectionLevel').value,
-        antiTamper: $('antiTamper').checked,
-        antiDebug: $('antiDebug').checked,
-         autoFunctionEncryption:$('autoFunctionEncryption').value
+        vmMode:'native-v4',oneClick:true
       };
       setBusy(true);
       setStatus('Menghubungkan ke backend dan memproses script...');
@@ -353,16 +297,12 @@ print(&quot;Hello World&quot;)"></textarea>
           throw new Error('Backend tidak mengirim kode hasil obfuscation.');
         }
 
-        result.value = data.obfuscated;
-         issuedKeyProvider='';
-         $('keysResult').value='';
-         $('keysPanel').hidden=true;
-         if(Array.isArray(data.externalKeys)&&data.externalKeys.length){
-           issuedKeyProvider=buildProvider(data.externalKeys);
-           $('keysResult').value=issuedKeyProvider;
-           $('keysPanel').hidden=false;
-         }
-        lastMode = payload.target;
+        if(Array.isArray(data.externalKeys)&&data.externalKeys.length)
+  throw new Error('Mode satu-klik tidak menerima output yang membutuhkan provider key tambahan.');
+if(data.blackmamerVM?.protectionLevel!=='Maximum'||data.blackmamerVM?.autoFunctionEncryption!=='standalone')
+  throw new Error('Backend belum menjalankan mode one-click terbaru.');
+result.value = data.obfuscated;
+lastMode = payload.target;
         $('copy').disabled = false;
         $('download').disabled = false;
         $('outputStats').textContent = readable(bytes(result.value));
@@ -378,11 +318,7 @@ print(&quot;Hello World&quot;)"></textarea>
           feedback('Obfuscation selesai, tetapi backend menggunakan fallback. Lapisan BLACKMAMER VM tidak seluruhnya diterapkan.', 'warn');
         } else if (m.cfgFlattenedBlocks>0) {
            feedback('Nested VM + AST/CFG transform diterapkan. Uji output pada runtime target.', '');
-        } else {
-          feedback(issuedKeyProvider
-             ? 'External function keys ada di panel 03. Simpan Key Provider ke ServerScriptService.'
-             : 'Script berhasil diproses. Uji output di target runtime yang dipilih.', '');
-        }
+        } else { feedback('Satu file siap diuji pada runtime target. Kunci standalone tetap dapat direkonstruksi dari output.', ''); }
       } catch (err) {
         clearOutput();
         const message = err.name === 'AbortError'
@@ -395,20 +331,8 @@ print(&quot;Hello World&quot;)"></textarea>
 
     $('obfuscate').addEventListener('click', obfuscate);
     $('healthButton').addEventListener('click', healthCheck);
-    $('protectionLevel').addEventListener('change',()=>{warnPreset();clearOutput()});
-$('target').addEventListener('change',()=>{warnPreset();clearOutput()});
-     $('autoFunctionEncryption').addEventListener('change', () => {
-       const mode=$('autoFunctionEncryption').value;
-       $('autoEncryptionHint').textContent=mode==='external-full'
-          ? 'External Full: seluruh bytecode fungsi termasuk entry memerlukan key provider luar sebelum eksekusi.'
-          : mode==='external'
-         ? 'External: Roblox ServerScriptService atau BLACKMAMER_KEY_PROVIDER pada host Lua5.1/LuaJIT.'
-         : mode==='standalone'
-         ? 'Standalone: semua fungsi otomatis dienkripsi di satu script; kunci bisa direkonstruksi dari hasil.'
-         : 'Off: VM V4 biasa; BM_ENCFUNC manual tetap tersedia.';
-       clearOutput();
-     });
-    source.addEventListener('input', () => { updateStats(); clearOutput(); });
+    $('target').addEventListener('change',clearOutput);
+source.addEventListener('input', () => { updateStats(); clearOutput(); });
     $('upload').addEventListener('click', () => $('file').click());
     $('file').addEventListener('change', async event => {
       const file = event.target.files && event.target.files[0];
@@ -425,27 +349,7 @@ $('target').addEventListener('change',()=>{warnPreset();clearOutput()});
       source.value = 'local function double(n)return n*2 end\nprint("BLACKMAMER V4",double(42))';
       updateStats(); clearOutput();
     });
-    $('sampleProtected').addEventListener('click', () => {
-       $('preset').value='NativeV4';warnPreset();
-       source.value=[
-         '-- Script SERVER saja, bukan LocalScript',
-         'BLACKMAMER_KEY_PROVIDER = require(game:GetService("ServerScriptService"):WaitForChild("BlackmamerKeyProvider"))',
-         'local premium = BM_ENCFUNC("premium", function(n)',
-         '  return n * 7',
-         'end)',
-         'print("BLACKMAMER protected:", premium(6))'
-       ].join('\n');updateStats();clearOutput();
-     });
-     $('copyKeys').addEventListener('click', async () => {
-       if(!issuedKeyProvider)return;
-       try{await navigator.clipboard.writeText(issuedKeyProvider);
-         feedback('Key Provider disalin. Simpan hanya di server.', '');
-       }catch{$('keysResult').focus();$('keysResult').select();}
-     });
-     $('downloadKeys').addEventListener('click', () => {
-       if(issuedKeyProvider)downloadText('BlackmamerKeyProvider.lua',issuedKeyProvider);
-     });
-     $('clear').addEventListener('click', () => {
+    $('clear').addEventListener('click', () => {
       source.value = '';
       updateStats(); clearOutput(); source.focus();
     });
@@ -471,7 +375,7 @@ $('target').addEventListener('change',()=>{warnPreset();clearOutput()});
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
-    warnPreset();
+    
     updateStats();
     healthCheck();
   </script>

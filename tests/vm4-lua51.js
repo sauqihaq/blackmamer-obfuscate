@@ -58,7 +58,8 @@ try{
    'local function five(x)return x+5 end',
    'local function six(x)return x+6 end',
    'local function seven(x)return x+7 end',
-   'print(one(1),two(1),three(1),four(1),five(1),six(1),seven(1))'
+   'print(one(1),two(1),three(1),four(1),five(1),six(1),seven(1))',
+   'print("VM-STRING-TEST", "hello")'
   ].join('\n');
   const sevenOriginal=run(binary,sevenSource,target+'-seven-original');
   assert.equal(sevenOriginal.status,0,sevenOriginal.stderr);

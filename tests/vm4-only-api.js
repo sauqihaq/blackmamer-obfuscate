@@ -76,7 +76,7 @@ async function api(route,body){
     preset:'NativeV4',target:'LuaU',oneClick:true,
     protectionLevel:'Minify',antiTamper:false,antiDebug:false,
     nestedVM:false,autoFunctionEncryption:'off',functionKeys:{premium:'bad'},
-    script:'local function secure(n)return n*2 end;print(secure(21))'
+    script:'local function secure(n)return n*2 end;print("Secret output:",secure(21))'
   });
   assert.equal(oneClick.status,200,JSON.stringify(oneClick.data).slice(0,950));
   assert.equal(oneClick.data.blackmamerVM.oneClick,true);

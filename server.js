@@ -153,6 +153,7 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
        virtualizedFunctions:result.virtualizedFunctions,
        vmInstructions:result.vmInstructions,
        bytecodeLayout:result.bytecodeLayout,bytecodeWidths:result.bytecodeWidths,
+       soaPrototypes:result.soaPrototypes,
        opcodePaletteSize:result.opcodePaletteSize,
        perFunctionOpcodePalette:result.perFunctionOpcodePalette,
        perInstructionOperandRotation:result.perInstructionOperandRotation,

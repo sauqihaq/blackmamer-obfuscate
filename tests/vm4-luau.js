@@ -108,6 +108,11 @@ try {
     {hardened:true,protectionLevel:'Maximum',nestedVM:true,
       autoFunctionEncryption:'standalone',antiTamper:true,antiDebug:true});
   assert.equal(oneClick.dispatcherVariants,3);
+  assert.equal(oneClick.vmInterpreterCount,7);
+  assert.equal(oneClick.opcodeMicroVMs,5);
+  assert.equal(oneClick.microVMInstructions,35);
+  for(let layer=3;layer<=7;layer++)
+    assert.match(oneClick.code,new RegExp('op=_vm'+layer+'\\(op,pc,spec\\[3\\]\\)'));
   assert.ok(oneClick.soaPrototypes>=1,'Maximum must use genuine column-oriented bytecode');
   assert.equal(oneClick.bytecodeLayout,'per-prototype-aos-or-soa-shuffled-12-or-16');
   assert.match(oneClick.code,/\(\(pc\+spec\[3\]\)%3\)/);

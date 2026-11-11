@@ -63,6 +63,13 @@ Older compiler files are retained in Git history for migration/debugging, but th
 
 No standalone obfuscation can guarantee resistance against runtime instrumentation. Real keys for customer authorization and Roblox game economy logic belong server-side. Run differential tests and performance benchmarks against actual scripts before selling a protection guarantee. Do not promise Luraph-equivalent strength without independent evidence.
 
+
+## Server Remote Key Vault (optional)
+
+The BLACKMAMER one-click workflow now has two choices: default **Standalone** output for Script/LocalScript/ModuleScript, or optional **Server Remote Vault** for Script and server-required ModuleScript. Server Vault encrypts even the VM entry bytecode, persists the decryption key on the authenticated backend using PostgreSQL + AES-256-GCM, and automatically accesses it from Roblox server via HttpService:GetSecret and RequestAsync. The obfuscated code contains no decryption key and needs no separate BlackmamerKeyProvider ModuleScript.
+
+Remote Vault **requires** a persistent PostgreSQL database, commercial licensing enabled, a BLACKMAMER_VAULT_MASTER_KEY backend secret, and a one-time Roblox Creator Hub Secret named BLACKMAMER_LICENSE containing the customer's valid license. The server only accepts a licensed artifact owner. The deployment fails closed if any prerequisite is missing. **LocalScripts cannot use Server Vault**; standalone client keys remain recoverable. See [Server Remote Key Vault setup](docs/V4_SERVER_RUNTIME_KEY_VAULT.md).
+
 ## Admin / commercial setup
 
 See [Premium Commercial Setup](docs/PREMIUM_COMMERCIAL_SETUP.md) for Render PostgreSQL, environment variables, license quota, admin authentication, and manual Netlify deployment. The premium frontend is delivered as a manual-upload ZIP to preserve the existing Netlify site.

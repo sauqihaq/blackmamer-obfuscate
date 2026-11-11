@@ -67,6 +67,7 @@ jobs:
       - name: Verify compiler and frontend syntax
         run: |
           node --check blackmamer-vm3.js
+          node --check vm7-layers.js
           node --check native-sealer.js
           node --check protected-functions.js
           node --check runtime-key-vault.js

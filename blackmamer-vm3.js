@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const {compactLuau} = require('./lua-output-compact');
 const {sealBatch} = require('./native-sealer');
 const {buildIndependentVmLines}=require('./vm7-independent');
+const {protectAstStrings}=require('./ast-string-layer');
 const {requireKey,requireId,encryptBytes,runtimeLines:protectedRuntimeLines} = require('./protected-functions');
 const rand = max => crypto.randomInt(max);
 
@@ -551,7 +552,7 @@ function flattenCfgInstructions(rows,codes){
   return {rows:result,blocks:blocks.length,bridges};
 }
 
-const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','RETVOID','RETM','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV','KRET','GETRET','MOVRET'];
+const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','RETVOID','RETM','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV','KRET','GETRET','MOVRET','STRDEC'];
 function compile(source, options={}) {
   if(typeof source!=='string') throw new TypeError('Expected Luau source string');
   if(Buffer.byteLength(source)>128*1024) throw new SyntaxErrorV3('V3 source limit: 128 KB');
@@ -573,6 +574,11 @@ function compile(source, options={}) {
   const bindingAudit=options.auditBindings===true?[]:null;
   const virtualizedLexicalBindings=options.hardened
     ? virtualizeLexicalBindings(parsed,bindingAudit) : 0;
+  const astStringEncryption=Boolean(options.hardened&&
+    (options.astStringEncryption===true||
+      (options.vmArchitecture==='seven-independent'&&profileName==='Maximum')));
+  const astStrings=astStringEncryption
+    ? protectAstStrings(parsed,{ratio:1,minLength:2}):{count:0,totalBytes:0};
   // V4 defaults to a second independent register-bytecode interpreter.
   // The outer micro-VM decodes every inner VM instruction before dispatch.
   // V3 keeps its original single-VM execution path.
@@ -662,6 +668,9 @@ function compile(source, options={}) {
     const scope=(body)=>{emit('ENTER');builder.depth++;statements(body);builder.depth--;emit('EXIT');};
     const expr=(n,multiple=false)=>{
       if(['nil','bool','str','num'].includes(n.t)){const dst=reg();emit('K',dst,key(n.t==='nil'?null:n.value));return dst;}
+      if(n.t==='aststring'){
+        const dst=reg();emit('STRDEC',dst,key(n.hex),key(n.seed));return dst;
+      }
       if(n.t==='var'){const dst=reg();emit('GET',dst,key(n.name));return dst;}
       if(n.t==='index'){const obj=expr(n.obj),k=expr(n.key),dst=reg();emit('INDEX',dst,obj,k);return dst;}
       if(n.t==='table'){const dst=reg();emit('TABLE',dst);for(const f of n.fields){const a=expr(f.key),b=expr(f.value);emit('PUT',dst,a,b);}return dst;}
@@ -1724,6 +1733,15 @@ function compile(source, options={}) {
     ]),
     '      local nextpc=pc+1',
     '      if op==O.K then R[a]=K(b)',
+    '      elseif op==O.STRDEC then',
+    '        local cipher=K(b);local k=K(c);local chars={}',
+    '        for j=1,#cipher,2 do',
+    '          local idx=(j+1)/2',
+    '          local v=tonumber(string.sub(cipher,j,j+1),16)',
+    '          if not v then nativeError("BLACKMAMER invalid encoded string")end',
+    '          chars[idx]=nativeChar((v-k-idx*53-(idx*idx%251))%256)',
+    '        end',
+    '        R[a]=nativeConcat(chars)',
     '      elseif op==O.GET then R[a]=get(K(b))',
     '      elseif op==O.GETK then local pair=A[c];R[pair[1]]=get(K(a));R[pair[2]]=K(b)',
     '      elseif op==O.KGET then local pair=A[c];R[pair[1]]=K(a);R[pair[2]]=get(K(b))',
@@ -1961,6 +1979,8 @@ function compile(source, options={}) {
   return {code,engine:options.hardened?'BLACKMAMER V4 Native VM':'BLACKMAMER V3 Native VM',
     hardened:options.hardened===true,nativeSealer:sealedBatch.nativeUsed,
     target,protectionLevel:profileName,injectedAstBranches,astFlattenedGroups,
+    astStringEncryption,astEncryptedStrings:astStrings.count,
+    astEncryptedBytes:astStrings.totalBytes,
     virtualizedLexicalBindings,
     randomizedRegisterAllocation:options.hardened===true,
     ...(bindingAudit?{

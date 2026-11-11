@@ -1060,7 +1060,8 @@ function compile(source, options={}) {
       throw new SyntaxErrorV3('Compact operand value out of range');
     bytes.push(int&255,(int>>>8)&255,(int>>>16)&255);
   }
-  const rawFunctions=packed.map(f=>{
+  let soaPrototypeCount=0;
+  const rawFunctions=packed.map((f,functionIndex)=>{
     const raw=[];
     const width=options.bytecodeWidth==='compact'?3:
       options.bytecodeWidth==='wide'?4:(rand(2)===0?3:4);
@@ -1069,22 +1070,34 @@ function compile(source, options={}) {
       const j=rand(i+1);[slots[i],slots[j]]=[slots[j],slots[i]];
     }
     const offsets=slots.map((_,logical)=>slots.indexOf(logical));
+    // Maximum V4 can materialize field columns separately instead of
+    // adjacent instruction rows. Always include at least one SoA prototype.
+    const soa=options.hardened&&profileName==='Maximum'&&
+      (functionIndex===0||rand(2)===0);
+    if(soa)soaPrototypeCount++;
     pack16(f.p.length,raw);
     pack16(f.ins.length,raw);
     raw.push(f.opSeed,width,...offsets);
-    if(options.hardened)raw.push(...f.palette);
+    if(options.hardened)raw.push(soa?1:0,...f.palette);
     for(const v of f.p)pack32(v,raw);
-    for(let index=0;index<f.ins.length;index++){
-      const row=f.ins[index],pc=index+1;
-      // Every inner instruction rotates the physical order of its four
-      // operands, not only the function's fixed permutation.
+    // AoS: [op0,a0,b0,c0,op1,a1,b1,c1,...]
+    // SoA: [op0,op1,...,a0,a1,...,b0,b1,...,c0,c1,...]
+    // The variable per-PC rotation applies to both representations.
+    const writeCell=(row,pc,position)=>{
       const rotation=options.hardened?
         (f.opSeed+pc*7+(pc*pc%13))%4:0;
-      for(let position=0;position<4;position++){
-        const logical=slots[(position-rotation+4)%4];
-        if(width===3)pack24(row[logical],raw);
-        else pack32(row[logical],raw);
-      }
+      const logical=slots[(position-rotation+4)%4];
+      if(width===3)pack24(row[logical],raw);
+      else pack32(row[logical],raw);
+    };
+    if(soa){
+      for(let position=0;position<4;position++)
+        for(let index=0;index<f.ins.length;index++)
+          writeCell(f.ins[index],index+1,position);
+    }else{
+      for(let index=0;index<f.ins.length;index++)
+        for(let position=0;position<4;position++)
+          writeCell(f.ins[index],index+1,position);
     }
     const seed=rand(60000)+1000;
     if(f.protectedId){
@@ -1590,14 +1603,16 @@ function compile(source, options={}) {
     '    local packed=bufFrom(nativeConcat(chars))',
     '    local pn=bufRead(packed,0)+256*bufRead(packed,1)',
     '    local count=bufRead(packed,2)+256*bufRead(packed,3)',
-    '    local opSeed=bufRead(packed,4);local width=bufRead(packed,5);local off='+(options.hardened?10+OPS.length:10),
+    '    local opSeed=bufRead(packed,4);local width=bufRead(packed,5);local off='+(options.hardened?11+OPS.length:10),
     '    if width~=3 and width~=4 then nativeError("BLACKMAMER V3 invalid instruction width") end',
     '    local offsets={}',
     '    for j=1,4 do offsets[j]=bufRead(packed,5+j) end',
     ...(options.hardened?[
+      '    local layout=bufRead(packed,10)',
+      '    if layout~=0 and layout~=1 then nativeError("BLACKMAMER V4 invalid layout")end',
       '    local palette={};local paletteSeen={}',
       '    for j=1,'+OPS.length+' do',
-      '      local value=bufRead(packed,9+j)',
+      '      local value=bufRead(packed,10+j)',
       '      if paletteSeen[value]then nativeError("BLACKMAMER V4 duplicate opcode palette")end',
       '      paletteSeen[value]=true;palette[j]=value',
       '    end'
@@ -1609,7 +1624,7 @@ function compile(source, options={}) {
     '    local params={}',
     '    for j=1,pn do params[j]=bufRead32(packed,off);off=off+4 end',
     '    -- Each prototype independently chooses compact/wide and operand order.',
-    '    local spec={params,packed,opSeed,off,count,width,offsets'+(options.hardened?',palette':'')+'}',
+    '    local spec={params,packed,opSeed,off,count,width,offsets'+(options.hardened?',palette,layout':'')+'}',
     '    P[fid]=spec;return spec',
     '  end',
     '  -- A constant stays sealed until the executing function first references it.',
@@ -1641,9 +1656,12 @@ function compile(source, options={}) {
     '    local R={};local pc=1;local ticks=0;local stream=spec[2];local off=spec[4];local length=spec[5]',
     '    local width=spec[6];local offsets=spec[7]',
     '    local function field(at,logical)',
-    '      local p=at+'+(options.hardened?
-      '((offsets[logical]+(spec[3]+pc*7+(pc*pc%13))%4)%4)*width':
-      'offsets[logical]*width'),
+    ...(options.hardened?[
+      '      local slot=(offsets[logical]+(spec[3]+pc*7+(pc*pc%13))%4)%4',
+      '      local p=spec[9]==1 and (off+(slot*length+pc-1)*width) or (at+slot*width)'
+    ]:[
+      '      local p=at+offsets[logical]*width'
+    ]),
     '      if width==4 then return bufRead32(stream,p) end',
     '      return bufRead(stream,p)+bufRead(stream,p+1)*256+bufRead(stream,p+2)*65536',
     '    end',
@@ -1919,7 +1937,8 @@ function compile(source, options={}) {
     externallyKeyedFunctions:funcs.filter(f=>f.protectedId&&
       !(autoMode==='standalone'&&f.protectedId===autoId)).length,
     virtualizedFunctions:funcs.length,
-    bytecodeLayout:'per-prototype-shuffled-12-or-16',
+    bytecodeLayout:'per-prototype-aos-or-soa-shuffled-12-or-16',
+    soaPrototypes:soaPrototypeCount,
     bytecodeWidths:{compact:sealedFunctions.filter(f=>f[2]===3).length,
       wide:sealedFunctions.filter(f=>f[2]===4).length},
     dispatchStructure,dispatcherVariants,scrubbedRuntimeErrors,

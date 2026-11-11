@@ -1334,7 +1334,7 @@ function compile(source, options={}) {
       '  for _,v in ipairs(Q)do mixBoot(#v[3],v[2],v[1])end',
       '  mixBoot(#'+inverseName+',0,11)',
       ...(nestedVM?['  mixBoot(#H[2],H[1],13)']:[]),
-       ...(sevenVM?['  for i,m in ipairs(V)do mixBoot(#m[2],m[1],18+i)end']:[]),
+       ...(sevenVM?['  for i,m in ipairs(V)do mixBoot(#m[2],m[1],17+i)end']:[]),
       '  local SALT=bit32.bxor('+saltShare+','+(salt^saltShare^bootstrap)+',BOOT)',
       '  local CHECK=bit32.bxor('+checkShare+','+(digest^checkShare^bootstrap)+',BOOT)'
     ]

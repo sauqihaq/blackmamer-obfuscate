@@ -40,27 +40,50 @@ function buildIndependentVmLines(lines,variants,rand){
  for(const variant of variants){
   const vmName='execVM'+variant.index;
   const guard='_g'+variant.index;
-  const replacement=[
-   '      op=((op-'+variant.add+'+256)*'+variant.inverse+')%256',
-   '      local '+guard+'=false'
-  ];
+  const route='_r'+variant.index;
+  // A cloned elseif dispatcher is trivial to normalize. Each *independent*
+  // interpreter therefore uses its own control-flow topology (2..8 handler
+  // families) with a VM-local, sealed-palette-derived opcode route.
+  // All families have full Lua instruction semantics, not micro-decoders.
+  const familyCount=variant.index+1;
   const shuffled=shuffle(handlers,rand);
+  const buckets=Array.from({length:familyCount},()=>[]);
+  const routeEntries=[];
   shuffled.forEach((block,i)=>{
    const match=/^\s*(?:if|elseif) op==O\.([A-Z]+) then(.*)$/.exec(block[0]);
    if(!match)throw new Error('Malformed opcode handler definition');
-   replacement.push('      '+(i?'elseif':'if')+' op==O.'+match[1]+
-     ' then '+guard+'=true;'+match[2]);
-   replacement.push(...block.slice(1));
+   const bucket=(i%familyCount);
+   buckets[bucket].push(block);
+   routeEntries.push('[O.'+match[1]+']='+(bucket+1));
   });
+  const replacement=[
+   '      op=((op-'+variant.add+'+256)*'+variant.inverse+')%256',
+   '      local '+guard+'=false',
+   '      local _routeId='+route+'[op]'
+  ];
+  for(let bucket=0;bucket<buckets.length;bucket++){
+   replacement.push('      '+(bucket?'elseif':'if')+
+     ' _routeId=='+(bucket+1)+' then');
+   buckets[bucket].forEach((block,i)=>{
+    const match=/^\s*(?:if|elseif) op==O\.([A-Z]+) then(.*)$/.exec(block[0]);
+    replacement.push('        '+(i?'elseif':'if')+' op==O.'+match[1]+
+     ' then '+guard+'=true;'+match[2]);
+    replacement.push(...block.slice(1));
+   });
+   replacement.push('        end');
+  }
   replacement.push('      end',
    '      if not '+guard+' then nativeError("BLACKMAMER invalid opcode")end');
-  let engineBody=body.slice();
-  // This engine receives the already decoded prototype selected by the
-  // lightweight entry router, including sealed ISA variant identifier.
+  const engineBody=body.slice();
   const specIndex=engineBody.findIndex(x=>x==='    local spec=prototype(fid)');
   if(specIndex<0)throw new Error('Prototype fetch statement missing in engine template');
   engineBody[specIndex]='    spec=spec or prototype(fid)';
-  engineBody.splice(markerStart,markerEnd-markerStart+1,...replacement);
+  // Only the executing prototype's randomized palette keys this map.
+  // It is computed once per function call, not on every VM instruction.
+  engineBody.splice(specIndex+1,0,
+    '    local '+route+'={'+routeEntries.join(',')+'}');
+  // Account for the new local statement when replacing the old dispatch.
+  engineBody.splice(markerStart+1,markerEnd-markerStart+1,...replacement);
   all.push('  local function '+vmName+'(fid,passed,captured,spec)',...engineBody,'  end');
  }
  const router=[

@@ -40,7 +40,7 @@ const compiled=compile(src,{
  vmArchitecture:'seven-independent',
  autoFunctionEncryption:'standalone'});
 assert.ok(compiled.astStringEncryption);
-assert.ok(compiled.astEncryptedStrings>=4);
+assert.equal(compiled.astEncryptedStrings,2,'Only source literals with 2+ bytes are masked; the BM_ENCFUNC ID stays untouched');
 assert.ok(compiled.astEncryptedBytes>=20);
 assert.equal(compiled.vmInterpreterCount,7);
 assert.equal(compiled.generatedKeys.length,0);

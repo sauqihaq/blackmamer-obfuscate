@@ -4,6 +4,8 @@
 const crypto = require('node:crypto');
 const {compactLuau} = require('./lua-output-compact');
 const {sealBatch} = require('./native-sealer');
+const {buildLayers,encodeOpcode,luaMicroDecoder,luaStageRuntime,
+  luaStageCalls,fingerprints}=require('./vm7-layers');
 const {requireKey,requireId,encryptBytes,runtimeLines:protectedRuntimeLines} = require('./protected-functions');
 const rand = max => crypto.randomInt(max);
 
@@ -576,6 +578,10 @@ function compile(source, options={}) {
   // The outer micro-VM decodes every inner VM instruction before dispatch.
   // V3 keeps its original single-VM execution path.
   const nestedVM=options.hardened===true && options.nestedVM!==false && profile.nested;
+  // Seven independent runtime dispatch loops on Maximum:
+  // one Lua interpreter, one outer decoder, five distinct opcode micro-VMs.
+  const sevenVM=options.hardened===true&&profileName==='Maximum'&&nestedVM;
+  const microLayers=sevenVM?buildLayers(rand):[];
   // Opt-in encryption. "external" preserves entry for legacy compatibility.
   // "external-full" encrypts the entry too and requires a trusted key
   // provider BEFORE execution (Roblox ServerScriptService or host global).
@@ -1028,7 +1034,8 @@ function compile(source, options={}) {
       const instructionTweak=options.hardened
         ? (opSeed*97+(pc*(pc%131))*31)%modulus : 0;
       const value=options.hardened&&j===0?palette[opcodeIndex.get(n)]:n;
-      const masked=j===0 ? (value ^ opcodeMask) : value;
+      const layered=sevenVM&&j===0?encodeOpcode(value,pc,opSeed,microLayers):value;
+      const masked=j===0 ? (layered ^ opcodeMask) : layered;
       return (masked+salt+instructionTweak+5*(j+1)+modulus)%modulus;
     }));
     return {p:f.p,ins,opSeed,palette,protectedId:f.protectedId};
@@ -1169,7 +1176,8 @@ function compile(source, options={}) {
   const sealedBatch=sealBatch([
     ...rawFunctions.map(([seed,raw])=>[seed,raw]),
     ...rawConstants.map(([,seed,raw])=>[seed,raw]),
-    ...(nestedVM?[[outerProgram[0],outerProgram[1]]]:[])
+    ...(nestedVM?[[outerProgram[0],outerProgram[1]]]:[]),
+    ...microLayers.map(layer=>[layer.seed,layer.bytes])
   ],sbox,seal);
   const sealedFunctions=rawFunctions.map(([seed,,width,meta],i)=>
     [seed,sealedBatch.sealed[i],width,meta]);
@@ -1178,6 +1186,9 @@ function compile(source, options={}) {
   const sealedOuter=nestedVM
     ? [outerProgram[0],sealedBatch.sealed[rawFunctions.length+rawConstants.length]]
     : null;
+  const microOffset=rawFunctions.length+rawConstants.length+(nestedVM?1:0);
+  const sealedMicro=microLayers.map((layer,i)=>
+    [layer.seed,sealedBatch.sealed[microOffset+i]]);
   // NativeV3 payload layout v2: a per-build shuffled 64-symbol alphabet,
   // sealed binary -> radix-64 strings, then small interleaved and reordered
   // segments. The VM data is never written as obvious \ddd Lua escapes.
@@ -1217,6 +1228,8 @@ function compile(source, options={}) {
   const outerRefs=nestedVM
     ? [sealedOuter[0]^seedMask(3,1),segment(sealedOuter[1])]
     : null;
+  const microRefs=sealedMicro.map(([seed,bytes],i)=>
+    [seed^seedMask(4,i+1),segment(bytes)]);
   const inverseParts=segment(maskedInverse);
   const segmentOrder=Array.from({length:fragments.length},(_,i)=>i);
   for(let i=segmentOrder.length-1;i>0;i--){
@@ -1230,6 +1243,8 @@ function compile(source, options={}) {
       JSON.stringify(meta.nonce)+','+JSON.stringify(meta.tag):'')+'}').join(',')+'}';
   const luaConstants='{'+sealedConstantRefs.map(([typ,seed,parts])=>'{'+typ+','+seed+','+refs(parts)+'}').join(',')+'}';
   const luaOuter=nestedVM?'{'+outerRefs[0]+','+refs(outerRefs[1])+'}':null;
+  const luaMicro=sevenVM?'{'+microRefs.map(([seed,parts])=>
+    '{'+seed+','+refs(parts)+'}').join(',')+'}':null;
   const luaInverse=refs(inverseParts);
   const randomName=()=>('_'+Array.from({length:7},()=>String.fromCharCode(97+rand(26))).join(''));
   const blobName=randomName(),alphabetName=randomName(),mapName=randomName(),unpackName=randomName();
@@ -1246,6 +1261,8 @@ function compile(source, options={}) {
     mixBoot(sealedConstants[i][2].length,sealedConstantRefs[i][1],sealedConstantRefs[i][0]);
   mixBoot(maskedInverse.length,0,11);
   if(nestedVM)mixBoot(sealedOuter[1].length,outerRefs[0],13);
+  for(let i=0;i<sealedMicro.length;i++)
+    mixBoot(sealedMicro[i][1].length,microRefs[i][0],18+i);
   // The runtime bootstrap protects portable masking against simple literal
   // search. Since all material ships to the client it remains reconstructible.
   const sboxMaskScrambled=sboxMask^(salt%256)^(options.hardened?(bootstrap%256):0);
@@ -1304,6 +1321,10 @@ function compile(source, options={}) {
     mix(outerRefs[0]);mix(sealedOuter[1].length);
     sealedOuter[1].forEach(mix);
   }
+  for(let i=0;i<sealedMicro.length;i++){
+    mix(microRefs[i][0]);mix(sealedMicro[i][1].length);
+    sealedMicro[i][1].forEach(mix);
+  }
   const saltShare=rand(1<<30), checkShare=rand(1<<30);
   const runtimeSaltCheck=options.hardened
     ? [
@@ -1313,6 +1334,7 @@ function compile(source, options={}) {
       '  for _,v in ipairs(Q)do mixBoot(#v[3],v[2],v[1])end',
       '  mixBoot(#'+inverseName+',0,11)',
       ...(nestedVM?['  mixBoot(#H[2],H[1],13)']:[]),
+       ...(sevenVM?['  for i,m in ipairs(V)do mixBoot(#m[2],m[1],18+i)end']:[]),
       '  local SALT=bit32.bxor('+saltShare+','+(salt^saltShare^bootstrap)+',BOOT)',
       '  local CHECK=bit32.bxor('+checkShare+','+(digest^checkShare^bootstrap)+',BOOT)'
     ]
@@ -1467,6 +1489,7 @@ function compile(source, options={}) {
     '  local E=' + luaFunctions,
     '  local Q=' + luaConstants,
     ...(nestedVM?['  local H='+luaOuter]:[]),
+    ...(sevenVM?['  local V='+luaMicro]:[]),
     '  local A=' + luaArgs,
     '  local '+inverseRefsName+'='+luaInverse,
     '  local modulus=' + modulus + '; local hmod=' + hashMod + '; local hseed=' + hashSeed + '; local hmul=' + hashMul + '; local hadd=' + hashAdd,
@@ -1506,6 +1529,7 @@ function compile(source, options={}) {
     '  for _,b in ipairs(E)do b[2]='+unpackName+'(b[2])end',
     '  for _,b in ipairs(Q)do b[3]='+unpackName+'(b[3])end',
     ...(nestedVM?['  H[2]='+unpackName+'(H[2])']:[]),
+    ...(sevenVM?['  for _,m in ipairs(V)do m[2]='+unpackName+'(m[2])end']:[]),
     '  local '+inverseName+'='+unpackName+'('+inverseRefsName+')',
     ...runtimeSaltCheck,
     ...standaloneKeyLine,
@@ -1523,6 +1547,7 @@ function compile(source, options={}) {
     '    mix(SALT);mix(SBOX_MASK)',
     '    for _,ar in ipairs(A)do mix(#ar);for _,v in ipairs(ar)do mix(v)end end',
     ...(nestedVM?['    mix(H[1]);mix(#H[2]);for j=1,#H[2]do mix(nativeByte(H[2],j))end']:[]),
+    ...(sevenVM?['    for _,m in ipairs(V)do mix(m[1]);mix(#m[2]);for j=1,#m[2]do mix(nativeByte(m[2],j))end end']:[]),
     '    if '+(options.antiTamper===false?'false':'true')+' and h~=CHECK then nativeError("BLACKMAMER V3: bytecode integrity failed") end',
     '    if '+(options.antiDebug===false?'false':'true')+' then',
     '      if nativeType(nativeByte)~="function" or nativeType(nativeChar)~="function" or',
@@ -1572,6 +1597,8 @@ function compile(source, options={}) {
     '  end',
     ...(protectedKeys.size?protectedRuntimeLines():[]),
     ...outerRuntime,
+    ...(sevenVM?luaMicroDecoder():[]),
+    ...(sevenVM?luaStageRuntime(microLayers):[]),
     '  local P={}',
     ...lua51Buffers,
 
@@ -1692,7 +1719,8 @@ function compile(source, options={}) {
     '      if pc<1 or pc>length then nativeError("BLACKMAMER V3 bad PC") end',
     '      local at=off+(pc-1)*4*width',
     ...(nestedVM?[
-      '      local op,a,b,c=outerVM(spec,pc,at,field)'
+      '      local op,a,b,c=outerVM(spec,pc,at,field)',
+      ...(sevenVM?luaStageCalls():[])
     ]:[
       '      local tweak='+runtimeTweak,
       '      local op=bxor((field(at,1)-SALT-tweak-5)%modulus,'+runtimeOpcodeMask+')',
@@ -1939,6 +1967,10 @@ function compile(source, options={}) {
     cfgFlattenedBlocks:flattenedBlocks,cfgBridgeJumps:flattenedBridges,
     stringEncryption:true,
     nestedVM,outerVmInstructions:nestedVM?outerProgram[2]:0,
+    vmInterpreterCount:sevenVM?7:(nestedVM?2:1),
+    opcodeMicroVMs:microLayers.length,
+    microVMInstructions:microLayers.reduce((n,layer)=>n+layer.bytes[0],0),
+    ...(options.auditMicroVMs?{microVMFingerprints:fingerprints(microLayers)}:{}),
     runtimeBootstrap:options.hardened===true,
     opaquePredicates:nestedVM,
     periodicRuntimeGuard:options.hardened===true&&options.antiDebug!==false,

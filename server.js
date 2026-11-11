@@ -98,6 +98,7 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
      antiTamper:oneClick||body.antiTamper!==false,
      antiDebug:oneClick||(body.antiDebug!==false&&!['Minify','Light'].includes(level)),
      nestedVM:oneClick?true:body.nestedVM,
+     vmArchitecture:oneClick?'seven-independent':body.vmArchitecture,
      superInstructions:oneClick?true:body.superInstructions,
      autoFunctionEncryption:remoteRequested?'external-full':
        (oneClick?'standalone':(body.autoFunctionEncryption||'off')),

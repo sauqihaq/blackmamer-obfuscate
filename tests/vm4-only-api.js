@@ -90,6 +90,26 @@ async function api(route,body){
   assert.equal(oneClick.data.protection.antiTamper,true);
   assert.match(oneClick.data.obfuscated,/_unfold/);
   assert.doesNotMatch(oneClick.data.obfuscated,/embeddedAutoKey/);
-  console.log('V4-only API smoke: 20 target/preset combinations, licensing bypass in preview, external keys, and legacy rejection passed');
+  const vaultConfig=await(await fetch('http://127.0.0.1:'+port+'/api/runtime/config')).json();
+  assert.equal(vaultConfig.enabled,false,'Vault must be disabled without persistent DB and license');
+  const remote=await api('/api/obfuscate',{
+    preset:'NativeV4',oneClick:true,target:'LuaU',runtimeMode:'server-vault',
+    script:'print("server")'
+  });
+  assert.equal(remote.status,503);
+  assert.equal(remote.data.code,'VAULT_NOT_CONFIGURED');
+  const wrongRuntime=await api('/api/obfuscate',{
+    preset:'NativeV4',oneClick:true,target:'Lua51',runtimeMode:'server-vault',
+    script:'print(42)'
+  });
+  assert.equal(wrongRuntime.status,400);
+  const manualClient=await api('/api/obfuscate',{
+    preset:'NativeV4',oneClick:true,target:'LuaU',runtimeMode:'standalone',
+    script:'print("client")'
+  });
+  assert.equal(manualClient.status,200);
+  assert.deepEqual(manualClient.data.externalKeys,[]);
+  assert.equal(manualClient.data.blackmamerVM.runtimeMode,'standalone');
+  console.log('V4-only API smoke: 20 target/preset combinations, remote vault fail-closed, client compatibility PASS');
  }finally{backend.kill()}
 })().catch(e=>{console.error(e);process.exitCode=1;backend.kill()});

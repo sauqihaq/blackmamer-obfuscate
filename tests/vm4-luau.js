@@ -113,6 +113,34 @@ try {
   assert.match(oneClick.code,/\(\(pc\+spec\[3\]\)%3\)/);
   assert.equal(run(oneClick.code,'maximum-dispatch'),
     run('local b=buffer.create(4);buffer.writeu32(b,0,42);print(buffer.readu32(b,0))','maximum-source'));
+  // The Luraph-style family model is seven separately selected language VM
+  // engines per prototype, not seven inner->outer decoder stages.
+  const sevenSource=[
+    'local function f1(x)return x+1 end',
+    'local function f2(x)return x+2 end',
+    'local function f3(x)return x+3 end',
+    'local function f4(x)return x+4 end',
+    'local function f5(x)return x+5 end',
+    'local function f6(x)return x+6 end',
+    'local function f7(x)return x+7 end',
+    'print(f1(1),f2(1),f3(1),f4(1),f5(1),f6(1),f7(1))'
+  ].join('\n');
+  const seven=compile(sevenSource,{hardened:true,nestedVM:true,
+    vmArchitecture:'seven-independent',protectionLevel:'Maximum',
+    autoFunctionEncryption:'standalone'});
+  assert.equal(seven.vmInterpreterCount,7);
+  assert.equal(seven.nestedVM,false);
+  assert.equal(seven.vmSelectedPerPrototype,true);
+  assert.match(seven.code,/function execVM7\(/);
+  assert.doesNotMatch(seven.code,/function outerVM\(/);
+  assert.equal(run(seven.code,'seven-engines'),run(sevenSource,'seven-source'));
+  const moduleSource='return {premium=function(x)return x*7 end}';
+  const sevenModule=compile(moduleSource,{hardened:true,nestedVM:true,
+    vmArchitecture:'seven-independent',protectionLevel:'Maximum',
+    autoFunctionEncryption:'standalone'});
+  const moduleRunner='local module=(function(...)\n'+sevenModule.code+
+    '\nend)()\nprint(module.premium(6))';
+  assert.equal(run(moduleRunner,'seven-module'),'42\n');
   const legacy=compile('print("legacy")',{hardened:true,nestedVM:false});
   assert.equal(legacy.nestedVM,false);
   assert.equal(run(legacy.code,'legacy-v4'),run('print("legacy")','legacy-source'));

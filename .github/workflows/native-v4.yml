@@ -17,6 +17,7 @@ on:
       - 'tests/vm4-lua51.js'
       - 'tests/vm4-only-api.js'
       - 'tests/vm4-structural-audit.js'
+      - 'tests/vm4-binding-hardening.js'
       - '.github/workflows/native-v4.yml'
   push:
     branches: [main, feature/native-v4-cpp-hardening]

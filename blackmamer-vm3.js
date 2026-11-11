@@ -504,7 +504,8 @@ function flattenCfgInstructions(rows,codes){
       const target=rows[i-1][op===codes.JUMP?1:2];
       if(Number.isInteger(target)&&target>=1&&target<=len)starts.add(target);
     }
-    if([codes.JUMP,codes.JF,codes.JT,codes.RET,codes.RETM,codes.RETVOID].includes(op) && i<len)
+    if([codes.JUMP,codes.JF,codes.JT,codes.RET,codes.RETM,codes.RETVOID,
+      codes.KRET,codes.GETRET,codes.MOVRET].includes(op) && i<len)
       starts.add(i+1);
   }
   const begin=[...starts].sort((a,b)=>a-b);
@@ -512,7 +513,8 @@ function flattenCfgInstructions(rows,codes){
   const blocks=begin.map((start,index)=>{
     const end=(begin[index+1]||len+1)-1;
     const op=rows[end-1][0];
-    const terminal=[codes.JUMP,codes.RET,codes.RETM,codes.RETVOID].includes(op);
+    const terminal=[codes.JUMP,codes.RET,codes.RETM,codes.RETVOID,
+      codes.KRET,codes.GETRET,codes.MOVRET].includes(op);
     return {start,end,bridge:!terminal && end<len};
   });
   const order=[blocks[0],...blocks.slice(1)];
@@ -548,7 +550,7 @@ function flattenCfgInstructions(rows,codes){
   return {rows:result,blocks:blocks.length,bridges};
 }
 
-const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','RETVOID','RETM','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV'];
+const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','RETVOID','RETM','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV','KRET','GETRET','MOVRET'];
 function compile(source, options={}) {
   if(typeof source!=='string') throw new TypeError('Expected Luau source string');
   if(Buffer.byteLength(source)>128*1024) throw new SyntaxErrorV3('V3 source limit: 128 KB');
@@ -917,7 +919,7 @@ function compile(source, options={}) {
   // This changes the compiled instruction language, not just its display.
   // It makes naive one-to-one opcode lifting less universal, but it is still
   // invertible with runtime instrumentation; no client-side VM is a secret.
-  const fusionCounts={GETK:0,KGET:0,KK:0,KDECL:0};
+  const fusionCounts={GETK:0,KGET:0,KK:0,KDECL:0,KRET:0,GETRET:0,MOVRET:0};
   if(options.superInstructions!==false && profile.fusion){
     for(const fn of funcs){
       const before=fn.ins;
@@ -930,19 +932,27 @@ function compile(source, options={}) {
       let pos=1;
       while(pos<=before.length){
         const one=before[pos-1],two=before[pos];
-        const canMerge=two&&!targets.has(pos+1)&&rand(100)<82;
+        const canMerge=two&&!targets.has(pos+1)&&
+          (rand(100)<82||(options.hardened&&two[0]===codes.RET));
         let kind=null;
         if(canMerge){
           if(one[0]===codes.GET&&two[0]===codes.K&&one[1]!==two[1])kind='GETK';
           else if(one[0]===codes.K&&two[0]===codes.GET&&one[1]!==two[1])kind='KGET';
           else if(one[0]===codes.K&&two[0]===codes.K&&one[1]!==two[1])kind='KK';
           else if(one[0]===codes.K&&two[0]===codes.DECL&&one[1]===two[2])kind='KDECL';
+          else if(options.hardened&&two[0]===codes.RET&&one[1]===two[1]){
+            if(one[0]===codes.K)kind='KRET';
+            else if(one[0]===codes.GET)kind='GETRET';
+            else if(one[0]===codes.MOV)kind='MOVRET';
+          }
         }
         relocated[pos]=output.length+1;
         if(kind){
           relocated[pos+1]=output.length+1;
           let row;
           if(kind==='KDECL')row=[codes.KDECL,one[1],one[2],two[1]];
+          else if(kind==='KRET'||kind==='GETRET'||kind==='MOVRET')
+            row=[codes[kind],one[2],0,0];
           else row=[codes[kind],one[2],two[2],argSets.push([one[1],two[1]])];
           output.push(row);fusionCounts[kind]++;pos+=2;
         } else{
@@ -1697,6 +1707,9 @@ function compile(source, options={}) {
     '      elseif op==O.KGET then local pair=A[c];R[pair[1]]=K(a);R[pair[2]]=get(K(b))',
     '      elseif op==O.KK then local pair=A[c];R[pair[1]]=K(a);R[pair[2]]=K(b)',
     '      elseif op==O.KDECL then local value=K(b);R[a]=value;env.vars[K(c)]=value==nil and NIL or value',
+    '      elseif op==O.KRET then return K(a)',
+    '      elseif op==O.GETRET then return get(K(a))',
+    '      elseif op==O.MOVRET then return R[a]',
     '      elseif op==O.DECL then local v=R[b];env.vars[K(a)]=v==nil and NIL or v',
     '      elseif op==O.SET then set(K(a),R[b])',
     '      elseif op==O.TABLE then R[a]={}',

@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'blackmamer-vm3.js'
+      - 'vm7-layers.js'
+      - 'tests/vm4-seven-vms.js'
       - 'native/**'
       - 'native-sealer.js'
       - 'protected-functions.js'

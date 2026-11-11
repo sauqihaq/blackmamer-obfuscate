@@ -106,6 +106,8 @@ try {
     {hardened:true,protectionLevel:'Maximum',nestedVM:true,
       autoFunctionEncryption:'standalone',antiTamper:true,antiDebug:true});
   assert.equal(oneClick.dispatcherVariants,3);
+  assert.ok(oneClick.soaPrototypes>=1,'Maximum must use genuine column-oriented bytecode');
+  assert.equal(oneClick.bytecodeLayout,'per-prototype-aos-or-soa-shuffled-12-or-16');
   assert.match(oneClick.code,/\(\(pc\+spec\[3\]\)%3\)/);
   assert.equal(run(oneClick.code,'maximum-dispatch'),
     run('local b=buffer.create(4);buffer.writeu32(b,0,42);print(buffer.readu32(b,0))','maximum-source'));

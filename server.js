@@ -157,6 +157,8 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
        perFunctionOpcodePalette:result.perFunctionOpcodePalette,
        perInstructionOperandRotation:result.perInstructionOperandRotation,
        dispatchStructure:result.dispatchStructure,
+       dispatcherVariants:result.dispatcherVariants,
+       scrubbedRuntimeErrors:result.scrubbedRuntimeErrors,
        fusedInstructions:result.fusedInstructions,
        superInstructionKinds:result.superInstructionKinds,
        fallback:false

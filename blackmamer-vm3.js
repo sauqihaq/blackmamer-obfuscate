@@ -355,7 +355,7 @@ function flattenSimpleAstSequences(root,chance){
 // scope-aware AST transform; globals and public field/method names are left
 // untouched because changing them would alter Roblox API calls. Renaming is
 // applied to parameters, captured upvalues and shadowed locals together.
-function virtualizeLexicalBindings(ast){
+function virtualizeLexicalBindings(ast,audit){
   let renamed=0;
   const newScope=parent=>({parent,names:new Map()});
   const resolve=(scope,name)=>{
@@ -365,6 +365,7 @@ function virtualizeLexicalBindings(ast){
   const declare=(scope,name)=>{
     const alias='_'+crypto.randomBytes(11).toString('hex');
     scope.names.set(name,alias);
+    if(audit)audit.push({original:name,alias});
     renamed++;
     return alias;
   };
@@ -566,8 +567,9 @@ function compile(source, options={}) {
   const parsed=new Parser(source).parse();
   const astFlattenedGroups=options.hardened?flattenSimpleAstSequences(parsed,profile.astFlatten):0;
   const injectedAstBranches=options.hardened?addDeadAstBranches(parsed,profile.deadChance):0;
+  const bindingAudit=options.auditBindings===true?[]:null;
   const virtualizedLexicalBindings=options.hardened
-    ? virtualizeLexicalBindings(parsed) : 0;
+    ? virtualizeLexicalBindings(parsed,bindingAudit) : 0;
   // V4 defaults to a second independent register-bytecode interpreter.
   // The outer micro-VM decodes every inner VM instruction before dispatch.
   // V3 keeps its original single-VM execution path.
@@ -615,7 +617,8 @@ function compile(source, options={}) {
   };
   const builders=[];
   const makeBuilder=(ast,params,protectedId=null)=>{
-    const id=funcs.length+1;const builder={id,ins:[],regs:0,depth:0,loops:[]};
+    const id=funcs.length+1;const builder={id,ins:[],regs:0,depth:0,loops:[],
+      regAudit:options.auditBindings===true?[]:null};
     funcs.push(null);builders.push(builder);
     // V4 uses an independent random virtual register allocation in each
     // function. Dataflow remains correct because all IR consumers use the
@@ -627,7 +630,9 @@ function compile(source, options={}) {
     }
     const reg=()=>{
       if(++builder.regs>2048)throw new SyntaxErrorV3('V3 register limit exceeded');
-      return registerPool?registerPool[builder.regs-1]:builder.regs;
+      const value=registerPool?registerPool[builder.regs-1]:builder.regs;
+      if(builder.regAudit)builder.regAudit.push(value);
+      return value;
     };
     const emit=(op,a=0,b=0,c=0)=>{builder.ins.push([codes[op],a,b,c]);return builder.ins.length;};
     const scope=(body)=>{emit('ENTER');builder.depth++;statements(body);builder.depth--;emit('EXIT');};
@@ -1829,6 +1834,10 @@ function compile(source, options={}) {
     target,protectionLevel:profileName,injectedAstBranches,astFlattenedGroups,
     virtualizedLexicalBindings,
     randomizedRegisterAllocation:options.hardened===true,
+    ...(bindingAudit?{
+      bindingAudit,
+      registerAllocationAudit:builders.map(f=>f.regAudit)
+    }:{}),
     cfgFlattenedBlocks:flattenedBlocks,cfgBridgeJumps:flattenedBridges,
     stringEncryption:true,
     nestedVM,outerVmInstructions:nestedVM?outerProgram[2]:0,

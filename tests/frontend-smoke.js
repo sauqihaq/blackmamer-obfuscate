@@ -39,7 +39,9 @@ const fetchMock=async(url,options)=>{
     obfuscated:'-- BLACKMAMER V4 output\nreturn true',
     engine:'BLACKMAMER V4 Native VM',
     blackmamerVM:{oneClick:true,protectionLevel:'Maximum',autoFunctionEncryption:'standalone',
-      nestedVM:true,autoEncryptedFunctions:2,applied:true,fallback:false},
+      nestedVM:false,autoEncryptedFunctions:2,applied:true,fallback:false,
+      vmArchitecture:'seven-independent',vmInterpreterCount:7,
+      astStringEncryption:true,astEncryptedStrings:3},
     externalKeys:badKeys?[{id:'premium',key:'a1'.repeat(32)}]:[]
   })};
 };
@@ -65,6 +67,8 @@ compiled.runInContext(vm.createContext(sandbox));
  assert.equal(p.autoFunctionEncryption,undefined);
  assert.equal(p.antiDebug,undefined);
  assert.equal(byId('download').disabled,false);
+ assert.equal(byId('engineMetric').textContent,'7');
+ assert.equal(byId('astStringMetric').textContent,'3');
  assert.equal(byId('result').value,'-- BLACKMAMER V4 output\nreturn true');
  byId('target').value='Lua51';
  byId('target').handlers.change();

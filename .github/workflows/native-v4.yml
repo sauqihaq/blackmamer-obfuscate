@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - 'blackmamer-vm3.js'
+      - 'vm7-independent.js'
+      - 'ast-string-layer.js'
+      - 'tests/vm4-ast-string-layer.js'
+      - 'tests/vm4-seven-independent.js'
       - 'native/**'
       - 'native-sealer.js'
       - 'protected-functions.js'
@@ -42,7 +46,7 @@ on:
 
 jobs:
   native-v4-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16-alpine
@@ -65,11 +69,15 @@ jobs:
       - name: Verify compiler and frontend syntax
         run: |
           node --check blackmamer-vm3.js
+          node --check vm7-independent.js
+          node --check ast-string-layer.js
           node --check native-sealer.js
           node --check protected-functions.js
           node --check runtime-key-vault.js
           node tests/vm4-external-keys.js
           node tests/vm4-structural-audit.js
+          node tests/vm4-seven-independent.js
+          node tests/vm4-ast-string-layer.js
           node tests/vm4-binding-hardening.js
           node --check server.js
           node tests/frontend-smoke.js
@@ -87,7 +95,7 @@ jobs:
         run: docker build -t blackmamer-native-v4 .
 
   native-v4-luau:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4

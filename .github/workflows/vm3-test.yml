@@ -49,7 +49,7 @@ on:
 
 jobs:
   native-vm-api:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -69,7 +69,7 @@ jobs:
       - name: Verify fused opcode compiler across 630 randomized builds
         run: node tests/vm3-superinstructions.js
   native-vm-luau:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4

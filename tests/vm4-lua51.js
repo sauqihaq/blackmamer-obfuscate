@@ -50,6 +50,28 @@ try{
     checks++;
    }
   }
+  const sevenSource=[
+   'local function one(x)return x+1 end',
+   'local function two(x)return x+2 end',
+   'local function three(x)return x+3 end',
+   'local function four(x)return x+4 end',
+   'local function five(x)return x+5 end',
+   'local function six(x)return x+6 end',
+   'local function seven(x)return x+7 end',
+   'print(one(1),two(1),three(1),four(1),five(1),six(1),seven(1))',
+   'print("VM-STRING-TEST", "hello")'
+  ].join('\n');
+  const sevenOriginal=run(binary,sevenSource,target+'-seven-original');
+  assert.equal(sevenOriginal.status,0,sevenOriginal.stderr);
+  const multi=compile(sevenSource,{hardened:true,target,
+    protectionLevel:'Maximum',vmArchitecture:'seven-independent',
+    autoFunctionEncryption:'standalone'});
+  assert.equal(multi.vmInterpreterCount,7);
+  assert.equal(multi.nestedVM,false);
+  const sevenResult=run(binary,multi.code,target+'-seven-independent');
+  assert.equal(sevenResult.status,0,sevenResult.stderr);
+  assert.equal(sevenResult.stdout,sevenOriginal.stdout);
+  checks++;
   const encryptedSource='local function calc(x) return x*7 end;print(calc(6))';
   const standalone=compile(encryptedSource,{hardened:true,target,
     protectionLevel:'Strong',autoFunctionEncryption:'standalone'});

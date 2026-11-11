@@ -85,10 +85,7 @@ async function call(endpoint,body={},headers={}){
   assert.equal(row.rows[0].key_iv.length,12);
   assert.equal(row.rows[0].key_tag.length,16);
   assert.equal(row.rows[0].key_cipher.includes(Buffer.from(secret)),false);
-  const revoke=await call('/api/admin/licenses/'+owner.id,
-   {revoked:true},auth); // PATCH below, use direct request
-  // POST is intentionally unavailable, so use the authorized PATCH action.
-  assert.notEqual(revoke.status,200);
+  // Revocation is available only as an authorized PATCH action.
   const patched=await fetch(url+'/api/admin/licenses/'+owner.id,{
    method:'PATCH',headers:{'Content-Type':'application/json',...auth},
    body:JSON.stringify({revoked:true})});

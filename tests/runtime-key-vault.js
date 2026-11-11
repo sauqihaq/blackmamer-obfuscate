@@ -1,0 +1,26 @@
+'use strict';
+// Cryptographic vault regression: no network/database required.
+const assert=require('node:assert/strict');
+const crypto=require('node:crypto');
+process.env.LICENSE_ENFORCED='true';
+process.env.DATABASE_URL='postgresql://user:password@127.0.0.1:1/test';
+process.env.BLACKMAMER_VAULT_MASTER_KEY=crypto.randomBytes(32).toString('hex');
+const vault=require('../runtime-key-vault');
+assert.equal(vault.enabled,true);
+const id=crypto.randomUUID(),owner=crypto.randomUUID(),other=crypto.randomUUID();
+const keys={BMAUTO_V4:crypto.randomBytes(32).toString('hex')};
+const a=vault.encrypted(id,owner,keys);
+const b=vault.encrypted(id,owner,keys);
+assert.notDeepEqual(a.iv,b.iv,'AES-GCM requires fresh nonces');
+assert.notDeepEqual(a.cipher,b.cipher,'New nonce changes ciphertext');
+const row={key_iv:a.iv,key_tag:a.tag,key_cipher:a.cipher};
+assert.deepEqual(vault.decrypted(id,owner,row),keys);
+assert.throws(()=>vault.decrypted(id,other,row),/authenticate/i);
+assert.throws(()=>vault.decrypted(crypto.randomUUID(),owner,row),/authenticate/i);
+const modified={...row,key_cipher:Buffer.from(row.key_cipher)};
+modified.key_cipher[0]^=1;
+assert.throws(()=>vault.decrypted(id,owner,modified),/authenticate/i);
+assert.throws(()=>vault.encrypted(id,owner,{BMAUTO_V4:'bad'}),/32-byte|one automatic function/i);
+assert.equal(vault.isUuid(id),true);
+assert.equal(vault.isUuid('not-uuid'),false);
+console.log('Runtime vault cryptography: fresh GCM nonces, authenticated owner/artifact, tamper rejection PASS');

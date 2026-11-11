@@ -603,7 +603,18 @@ function compile(source, options={}) {
   const makeBuilder=(ast,params,protectedId=null)=>{
     const id=funcs.length+1;const builder={id,ins:[],regs:0,depth:0,loops:[]};
     funcs.push(null);builders.push(builder);
-    const reg=()=>{if(++builder.regs>2048)throw new SyntaxErrorV3('V3 register limit exceeded');return builder.regs;};
+    // V4 uses an independent random virtual register allocation in each
+    // function. Dataflow remains correct because all IR consumers use the
+    // returned physical ID rather than assuming sequential register numbers.
+    const registerPool=options.hardened?
+      Array.from({length:2048},(_,i)=>i+1):null;
+    if(registerPool)for(let i=registerPool.length-1;i>0;i--){
+      const j=rand(i+1);[registerPool[i],registerPool[j]]=[registerPool[j],registerPool[i]];
+    }
+    const reg=()=>{
+      if(++builder.regs>2048)throw new SyntaxErrorV3('V3 register limit exceeded');
+      return registerPool?registerPool[builder.regs-1]:builder.regs;
+    };
     const emit=(op,a=0,b=0,c=0)=>{builder.ins.push([codes[op],a,b,c]);return builder.ins.length;};
     const scope=(body)=>{emit('ENTER');builder.depth++;statements(body);builder.depth--;emit('EXIT');};
     const expr=(n,multiple=false)=>{
@@ -1803,6 +1814,7 @@ function compile(source, options={}) {
     hardened:options.hardened===true,nativeSealer:sealedBatch.nativeUsed,
     target,protectionLevel:profileName,injectedAstBranches,astFlattenedGroups,
     virtualizedLexicalBindings,
+    randomizedRegisterAllocation:options.hardened===true,
     cfgFlattenedBlocks:flattenedBlocks,cfgBridgeJumps:flattenedBridges,
     stringEncryption:true,
     nestedVM,outerVmInstructions:nestedVM?outerProgram[2]:0,

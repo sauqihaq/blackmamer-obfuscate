@@ -1950,7 +1950,9 @@ function compile(source, options={}) {
     externallyKeyedFunctions:funcs.filter(f=>f.protectedId&&
       !(autoMode==='standalone'&&f.protectedId===autoId)).length,
     virtualizedFunctions:funcs.length,
-    bytecodeLayout:'per-prototype-aos-or-soa-shuffled-12-or-16',
+    bytecodeLayout:options.hardened
+      ?'per-prototype-aos-or-soa-shuffled-12-or-16'
+      :'per-prototype-shuffled-12-or-16',
     soaPrototypes:soaPrototypeCount,
     bytecodeWidths:{compact:sealedFunctions.filter(f=>f[2]===3).length,
       wide:sealedFunctions.filter(f=>f[2]===4).length},

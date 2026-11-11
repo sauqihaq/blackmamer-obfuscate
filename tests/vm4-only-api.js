@@ -84,6 +84,9 @@ async function api(route,body){
   assert.equal(oneClick.data.blackmamerVM.nestedVM,false);
   assert.equal(oneClick.data.blackmamerVM.vmArchitecture,'seven-independent');
   assert.equal(oneClick.data.blackmamerVM.vmInterpreterCount,7);
+  assert.equal(oneClick.data.blackmamerVM.astStringEncryption,true);
+  assert.ok(oneClick.data.blackmamerVM.astEncryptedStrings>=1);
+  assert.ok(oneClick.data.blackmamerVM.astEncryptedBytes>=1);
   assert.equal(oneClick.data.blackmamerVM.vmVariants,7);
   assert.equal(oneClick.data.blackmamerVM.vmSelectedPerPrototype,true);
   assert.doesNotMatch(oneClick.data.obfuscated,/local function outerVM\(/);

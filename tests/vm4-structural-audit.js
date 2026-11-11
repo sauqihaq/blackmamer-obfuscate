@@ -17,6 +17,10 @@ for(let attempt=0;attempt<12;attempt++){
   assert.equal(r.perFunctionOpcodePalette,true);
   assert.equal(r.perInstructionOperandRotation,true);
   assert.equal(r.dispatchStructure,'per-function-palette');
+  assert.equal(r.dispatcherVariants,2);
+  assert.ok(r.scrubbedRuntimeErrors>=10);
+  assert.doesNotMatch(r.code,/nativeError\("BLACKMAMER/);
+  assert.match(r.code,/\(\(pc\+spec\[3\]\)%2\)/);
   assert.ok(r.virtualizedFunctions>=4);
   assert.equal(r.opcodePaletteFingerprints.length,r.virtualizedFunctions);
   assert.equal(new Set(r.opcodePaletteFingerprints).size,r.virtualizedFunctions,
@@ -33,6 +37,8 @@ for(let attempt=0;attempt<12;attempt++){
 }
 const v3=compile(src,{hardened:false,auditPalettes:true});
 assert.equal(v3.perFunctionOpcodePalette,false);
+assert.equal(v3.dispatcherVariants,1);
+assert.equal(v3.scrubbedRuntimeErrors,0);
 assert.equal(v3.perInstructionOperandRotation,false);
 assert.ok(v3.opcodePaletteFingerprints.every(x=>x===null),
   'V3 remains unchanged');

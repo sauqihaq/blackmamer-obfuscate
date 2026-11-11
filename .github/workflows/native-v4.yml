@@ -73,6 +73,7 @@ jobs:
           node --check runtime-key-vault.js
           node tests/vm4-external-keys.js
           node tests/vm4-structural-audit.js
+          node tests/vm4-seven-independent.js
           node tests/vm4-binding-hardening.js
           node --check server.js
           node tests/frontend-smoke.js

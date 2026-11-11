@@ -71,11 +71,15 @@ try {
       assert.equal(compiled.randomizedRegisterAllocation,true);
       assert.ok(compiled.virtualizedLexicalBindings>=0);
       assert.equal(compiled.dispatchStructure,'per-function-palette');
+      assert.equal(compiled.dispatcherVariants,2);
+      assert.ok(compiled.scrubbedRuntimeErrors>=10);
+      assert.match(compiled.code,/\(\(pc\+spec\[3\]\)%2\)/);
+      assert.doesNotMatch(compiled.code,/nativeError\("BLACKMAMER/);
       assert.ok(compiled.opcodePaletteSize>=40);
       assert.match(compiled.code,/spec\[8\]\[/);
       assert.doesNotMatch(compiled.code,/\bif op==\d+\b/);
       assert.ok(compiled.code.includes('local BOOT=0'));
-      assert.match(compiled.code,/BLACKMAMER V4 outer VM/);
+      assert.match(compiled.code,/local function outerVM/);
       assert.match(compiled.code,/BLACKMAMER VM V4\.0/);
       assert.doesNotMatch(compiled.code,/local SALT=\d+;local CHECK=\d+/);
       const actual=run(compiled.code,name+'-'+attempt);

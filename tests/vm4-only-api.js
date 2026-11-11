@@ -82,6 +82,8 @@ async function api(route,body){
   assert.equal(oneClick.data.blackmamerVM.oneClick,true);
   assert.equal(oneClick.data.blackmamerVM.protectionLevel,'Maximum');
   assert.equal(oneClick.data.blackmamerVM.nestedVM,true);
+  assert.ok(oneClick.data.blackmamerVM.soaPrototypes>=1,
+    'Maximum oneClick should use column-oriented VM bytecode');
   assert.equal(oneClick.data.blackmamerVM.autoFunctionEncryption,'standalone');
   assert.equal(oneClick.data.blackmamerVM.autoEncryptedFunctions,
     oneClick.data.blackmamerVM.virtualizedFunctions);

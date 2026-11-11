@@ -16,10 +16,10 @@ These environment variables are required on the real backend service, not the st
 | ADMIN_PASSWORD | Strong password at least 12 characters |
 | ADMIN_SESSION_SECRET | Random signing secret at least 32 characters |
 | LICENSE_ENFORCED | true |
-| BLACKMAMER_VAULT_MASTER_KEY | **64 random hexadecimal characters (32 bytes)** |
+| BLACKMAMER_VAULT_MASTER_KEY | **BM_ followed by 64 random hex characters**, or legacy 64 hex alone (both mean exactly 32 bytes) |
 | BLACKMAMER_RUNTIME_PUBLIC_ORIGIN | Optional HTTPS origin of the deployed key service |
 
-Generate BLACKMAMER_VAULT_MASTER_KEY with a cryptographically secure RNG such as Node.js crypto.randomBytes(32).toString('hex'). Never commit this value or share it with the frontend. Back up the database and retain your master key: **rotating the key without migration makes previous vault records undecryptable**.
+Generate a branded key in Windows CMD: `node -e "console.log('BM_'+require('node:crypto').randomBytes(32).toString('hex'))"`. The `BM_` prefix is discarded before AES-256-GCM; the remaining 64 hex digits supply the same 256-bit key as the legacy representation. If you already stored a master key and encrypted records, **add the prefix to the same existing 64 hex digits; do not generate a different key**, or old records cannot be decrypted. Never commit this value or share it with the frontend. Back up the database and retain your master key: **rotating the key without migration makes previous vault records undecryptable**.
 
 Without PostgreSQL, the master key and enabled licensing, the runtime service returns enabled:false at /api/runtime/config and remote compilation **fails closed (HTTP 503)**. Standalone stays functional. This pull request does not create a database or charge for cloud infrastructure.
 

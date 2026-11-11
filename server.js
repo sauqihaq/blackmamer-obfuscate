@@ -144,6 +144,8 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
        cfgBridgeJumps:result.cfgBridgeJumps,
        stringEncryption:result.stringEncryption,
        nestedVM:result.nestedVM,outerVmInstructions:result.outerVmInstructions,
+       vmArchitecture:result.vmArchitecture,vmInterpreterCount:result.vmInterpreterCount,
+       vmVariants:result.vmVariants,vmSelectedPerPrototype:result.vmSelectedPerPrototype,
        nativeSealer:result.nativeSealer,
        runtimeBootstrap:result.runtimeBootstrap,opaquePredicates:result.opaquePredicates,
        periodicRuntimeGuard:result.periodicRuntimeGuard,

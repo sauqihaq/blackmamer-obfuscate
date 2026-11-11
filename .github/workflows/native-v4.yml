@@ -51,6 +51,7 @@ jobs:
           node --check protected-functions.js
           node tests/vm4-external-keys.js
           node tests/vm4-structural-audit.js
+          node tests/vm4-binding-hardening.js
           node --check server.js
           node tests/frontend-smoke.js
       - name: Build native C++17 sealer (warnings treated as errors)

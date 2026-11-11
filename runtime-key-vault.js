@@ -4,7 +4,11 @@
 // Privileged server owners can still dump decrypted VM bytes after execution.
 const crypto=require('node:crypto');
 const {Pool}=require('pg');
-const masterHex=process.env.BLACKMAMER_VAULT_MASTER_KEY||'';
+// Accept both legacy 64-hex secrets and branded BM_ + 64-hex secrets.
+// The prefix is only presentation; AES-256-GCM still receives exactly 32 bytes.
+const rawMasterKey=process.env.BLACKMAMER_VAULT_MASTER_KEY||'';
+const masterHex=rawMasterKey.startsWith('BM_')?
+  rawMasterKey.slice(3):rawMasterKey;
 const enabled=process.env.LICENSE_ENFORCED==='true'&&Boolean(process.env.DATABASE_URL)&&
   /^[a-f0-9]{64}$/i.test(masterHex);
 const master=enabled?Buffer.from(masterHex,'hex'):null;

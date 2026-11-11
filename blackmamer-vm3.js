@@ -1073,7 +1073,7 @@ function compile(source, options={}) {
     // Maximum V4 can materialize field columns separately instead of
     // adjacent instruction rows. Always include at least one SoA prototype.
     const soa=options.hardened&&profileName==='Maximum'&&
-      (functionIndex===0||rand(2)===0);
+      (functionIndex===0||(functionIndex!==1&&rand(2)===0));
     if(soa)soaPrototypeCount++;
     pack16(f.p.length,raw);
     pack16(f.ins.length,raw);

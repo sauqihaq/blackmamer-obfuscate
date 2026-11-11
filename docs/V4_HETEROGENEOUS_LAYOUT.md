@@ -24,7 +24,7 @@ The same nested outer decoder micro-VM, sealed per-prototype opcode palette, AST
 
 The screenshot in the original report compares seven **technical aspects** (dispatcher, buffer API, bit32 API, environment/sandbox, anti-hooking, string storage and diagnostic messages). It does **not** establish that Luraph v15 uses seven separate complete interpreters. The official Luraph v15 documentation describes **two VM types**, OPAL and ONYX, alongside multiple security features.
 
-BLACKMAMER already uses several distinct mechanisms: AST state machines and dead code, IR basic-block CFG relocation, four fused instruction kinds, per-prototype opcode mapping, per-PC operand rotation, two-level interpreter, C++ byte sealing, constant encryption, lexical binding virtualization, and server-only remote key storage as an optional mode. The SoA layout is a new structural dimension, not a claim that there are seven independent VMs.
+BLACKMAMER already uses several distinct mechanisms: AST state machines and dead code, IR basic-block CFG relocation, seven fused instruction kinds (including three new return-fusion opcodes), per-prototype opcode mapping, per-PC operand rotation, two-level interpreter, C++ byte sealing, constant encryption, lexical binding virtualization, and server-only remote key storage as an optional mode. The SoA layout is a new structural dimension, not a claim that there are seven independent VMs.
 
 ## Compatibility tests
 

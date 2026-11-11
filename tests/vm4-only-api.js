@@ -81,7 +81,14 @@ async function api(route,body){
   assert.equal(oneClick.status,200,JSON.stringify(oneClick.data).slice(0,950));
   assert.equal(oneClick.data.blackmamerVM.oneClick,true);
   assert.equal(oneClick.data.blackmamerVM.protectionLevel,'Maximum');
-  assert.equal(oneClick.data.blackmamerVM.nestedVM,true);
+  assert.equal(oneClick.data.blackmamerVM.nestedVM,false);
+  assert.equal(oneClick.data.blackmamerVM.vmArchitecture,'seven-independent');
+  assert.equal(oneClick.data.blackmamerVM.vmInterpreterCount,7);
+  assert.equal(oneClick.data.blackmamerVM.vmVariants,7);
+  assert.equal(oneClick.data.blackmamerVM.vmSelectedPerPrototype,true);
+  assert.doesNotMatch(oneClick.data.obfuscated,/local function outerVM\(/);
+  for(let id=1;id<=7;id++)
+    assert.match(oneClick.data.obfuscated,new RegExp('function execVM'+id+'\\('));
   assert.ok(oneClick.data.blackmamerVM.soaPrototypes>=1,
     'Maximum oneClick should use column-oriented VM bytecode');
   assert.equal(oneClick.data.blackmamerVM.autoFunctionEncryption,'standalone');

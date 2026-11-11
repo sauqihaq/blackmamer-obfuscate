@@ -40,11 +40,11 @@ const fixtures=[
     'buffer.writef64(b,12,2.5)',
     'print(buffer.readu8(b,0),buffer.readu16(b,1),buffer.readu32(b,4))',
     'print(buffer.readf32(b,8),buffer.readf64(b,12))'
-  ].join('\\n')],
+  ].join('\n')],
   ['runtime-bit32-api',[
     'print(bit32.lrotate(12345,3),bit32.rrotate(12345,7))',
     'print(bit32.countlz(16),bit32.countrz(16),bit32.extract(255,2,3))'
-  ].join('\\n')],
+  ].join('\n')],
   ['scope-shadow','local signal=17;do local signal=4;print("inner",signal) end;print("outer",signal)'],
   ['repeat-capture','local i=0;repeat local temp=i+1;i=temp until temp>=4;print(i)'],
   ['captured-locals','local secret=11;local function outer(a) local secret=a+1;return function(b)return secret+b end end;print(outer(5)(9),secret)'],
@@ -106,7 +106,7 @@ try {
     {hardened:true,protectionLevel:'Maximum',nestedVM:true,
       autoFunctionEncryption:'standalone',antiTamper:true,antiDebug:true});
   assert.equal(oneClick.dispatcherVariants,3);
-  assert.match(oneClick.code,/\\(\\(pc\\+spec\\[3\\]\\)%3\\)/);
+  assert.match(oneClick.code,/\(\(pc\+spec\[3\]\)%3\)/);
   assert.equal(run(oneClick.code,'maximum-dispatch'),
     run('local b=buffer.create(4);buffer.writeu32(b,0,42);print(buffer.readu32(b,0))','maximum-source'));
   const legacy=compile('print("legacy")',{hardened:true,nestedVM:false});

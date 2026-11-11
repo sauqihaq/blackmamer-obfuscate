@@ -39,6 +39,9 @@ const maximum=compile(src,{hardened:true,nestedVM:true,
   protectionLevel:'Maximum',auditPalettes:true});
 assert.ok(maximum.soaPrototypes>=1,'At least one prototype must use SoA in Maximum');
 assert.ok(maximum.soaPrototypes<=maximum.virtualizedFunctions);
+if(maximum.virtualizedFunctions>1)
+ assert.ok(maximum.soaPrototypes<maximum.virtualizedFunctions,
+   'Multi-prototype Maximum output must also include AoS instructions');
 assert.equal(maximum.bytecodeLayout,'per-prototype-aos-or-soa-shuffled-12-or-16');
 const v3=compile(src,{hardened:false,auditPalettes:true});
 assert.equal(v3.soaPrototypes,0);

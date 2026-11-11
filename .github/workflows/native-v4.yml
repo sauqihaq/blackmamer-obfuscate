@@ -10,6 +10,7 @@ on:
       - 'runtime-key-vault.js'
       - 'tests/runtime-key-vault.js'
       - 'tests/vm4-remote-luau.js'
+      - 'tests/vm4-remote-postgres.js'
       - 'tests/vm4-external-keys.js'
       - 'tests/vm4-external-luau.js'
       - 'server.js'
@@ -42,6 +43,20 @@ on:
 jobs:
   native-v4-build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: blackmamer
+          POSTGRES_USER: blackmamer
+          POSTGRES_PASSWORD: ci-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -67,6 +82,7 @@ jobs:
           npm install --omit=dev
           node tests/runtime-key-vault.js
           node tests/vm4-only-api.js
+          node tests/vm4-remote-postgres.js
       - name: Docker build including C++ native binary
         run: docker build -t blackmamer-native-v4 .
 

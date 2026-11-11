@@ -149,6 +149,8 @@ print(&quot;Hello World&quot;)"></textarea>
             <div class="metric">Ukuran hasil: <strong id="sizeMetric">—</strong></div>
             <div class="metric">VM2 expressions: <strong id="exprMetric">—</strong></div>
             <div class="metric">VM applied: <strong id="appliedMetric">—</strong></div>
+            <div class="metric">Engine VM: <strong id="engineMetric">—</strong></div>
+            <div class="metric">String AST terenkripsi: <strong id="astStringMetric">—</strong></div>
             <div class="metric">Fallback: <strong id="fallbackMetric">—</strong></div>
           </div>
         </section>
@@ -331,6 +333,10 @@ if(data.blackmamerVM?.protectionLevel!=='Maximum'||
    throw new Error('Backend belum mendukung mode runtime yang dipilih.');
 if(remote&&!data.runtimeKeyVault?.enabled)
    throw new Error('Remote Vault tidak mengonfirmasi kunci tersimpan.');
+if(data.blackmamerVM?.vmArchitecture!=='seven-independent'||
+   data.blackmamerVM?.vmInterpreterCount!==7||
+   data.blackmamerVM?.astStringEncryption!==true)
+   throw new Error('Backend belum mendukung 7 VM independen + AST string encryption.');
 result.value = data.obfuscated;
 lastMode = payload.target;
         $('copy').disabled = false;
@@ -340,6 +346,8 @@ lastMode = payload.target;
         $('sizeMetric').textContent = readable(bytes(result.value));
         $('exprMetric').textContent = Number(m.virtualizedExpressions || 0).toLocaleString('id-ID');
         $('appliedMetric').textContent = m.applied === true ? 'Ya' : 'Tidak';
+        $('engineMetric').textContent = String(m.vmInterpreterCount || 0);
+        $('astStringMetric').textContent = Number(m.astEncryptedStrings || 0).toLocaleString('id-ID');
         $('fallbackMetric').textContent = m.fallback === true ? 'Ya' : 'Tidak';
         $('metrics').hidden = false;
         setStatus('Selesai dalam ' + ((performance.now() - started) / 1000).toFixed(1) + ' detik.');

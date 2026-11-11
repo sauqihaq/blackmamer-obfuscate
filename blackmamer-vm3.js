@@ -466,12 +466,26 @@ function addDeadAstBranches(root,chance){
       next.push(node);
       if(rand(1000)>=Math.floor(chance*1000))continue;
       const variable='__bmd_'+crypto.randomBytes(6).toString('hex');
-      // This AST branch is compiled into genuine VM instructions. It is
-      // provably dead but requires CFG reconstruction to discard.
-      next.push({t:'if',branches:[{
-        condition:{t:'bool',value:false},
-        body:[{t:'local',name:variable,value:{t:'num',value:rand(1000000)+1}}]
-      }],otherwise:[]});
+      const guard='__bmg_'+crypto.randomBytes(6).toString('hex');
+      const n=7+rand(4000);
+      // n*(n+1) is even for every integer n. Computing this guard from
+      // a scoped runtime local prevents the trivial 'if false' pattern,
+      // while remaining side-effect-free and portable across Lua runtimes.
+      const ref=()=>({t:'var',name:guard});
+      const guardExpr={t:'binary',op:'==',
+        left:{t:'binary',op:'%',
+          left:{t:'binary',op:'*',
+            left:ref(),
+            right:{t:'binary',op:'+',left:ref(),right:{t:'num',value:1}}
+          },right:{t:'num',value:2}
+        },right:{t:'num',value:1}};
+      next.push({t:'do',body:[
+        {t:'local',name:guard,value:{t:'num',value:n}},
+        {t:'if',branches:[{
+          condition:guardExpr,
+          body:[{t:'local',name:variable,value:{t:'num',value:rand(1000000)+1}}]
+        }],otherwise:[]}
+      ]});
       injected++;
     }
     block.splice(0,block.length,...next);

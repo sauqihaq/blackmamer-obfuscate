@@ -30,6 +30,14 @@ for(let round=0;round<6;round++){
  assert.equal((protectedOutput.code.match(/while true do/g)||[]).length,7);
  assert.equal((protectedOutput.code.match(/op=\(\(op-/g)||[]).length,7);
  assert.equal(protectedOutput.dispatcherVariants,7);
+ // Every engine uses an independently shaped opcode dispatch (2..8 groups)
+ // keyed by the executing prototype's shuffled opcode palette.
+ for(let engine=1;engine<=7;engine++){
+   assert.match(protectedOutput.code,new RegExp('local _r'+engine+'='));
+ }
+ for(let families=2;families<=8;families++){
+   assert.match(protectedOutput.code,new RegExp('_routeId=='+families+'\\b'));
+ }
  assert.equal(protectedOutput.dispatchStructure,'seven-per-prototype');
 }
 const archived=compile('print(42)',{

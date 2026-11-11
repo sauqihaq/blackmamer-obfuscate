@@ -28,6 +28,8 @@ const fixtures=[
   ['for','local s=0;for i=1,7 do s+=i end;print(s)'],
   ['string','print("snow".."man",string.len("abc"))'],
   ['method','local t={go=function(self,x) return x*2 end};print(t:go(6))'],
+  ['fused-returns','local function lit() return 17 end;local function id(v) return v end;print(lit(),id(25))'],
+  ['fused-nil','local function f() return nil end;print(f()==nil)'],
   ['return','local function both()return 5,6 end;local a,b=both();print(a,b)'],
   ['loop-continue','local s=0;for i=1,9 do if i%2==0 then continue end;s+=i end;print(s)'],
   ['periodic-hook-guard','local i=0;while i<320 do i+=1 end;print(i)'],
@@ -106,6 +108,8 @@ try {
     {hardened:true,protectionLevel:'Maximum',nestedVM:true,
       autoFunctionEncryption:'standalone',antiTamper:true,antiDebug:true});
   assert.equal(oneClick.dispatcherVariants,3);
+  assert.ok(oneClick.soaPrototypes>=1,'Maximum must use genuine column-oriented bytecode');
+  assert.equal(oneClick.bytecodeLayout,'per-prototype-aos-or-soa-shuffled-12-or-16');
   assert.match(oneClick.code,/\(\(pc\+spec\[3\]\)%3\)/);
   assert.equal(run(oneClick.code,'maximum-dispatch'),
     run('local b=buffer.create(4);buffer.writeu32(b,0,42);print(buffer.readu32(b,0))','maximum-source'));

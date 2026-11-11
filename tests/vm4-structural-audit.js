@@ -35,7 +35,25 @@ for(let attempt=0;attempt<12;attempt++){
   assert.doesNotMatch(r.code,/opcodePaletteFingerprints/,
     'Test-only palette hashes must never leak into client output');
 }
+const maximum=compile(src,{hardened:true,nestedVM:true,
+  protectionLevel:'Maximum',auditPalettes:true});
+assert.ok(maximum.soaPrototypes>=1,'At least one prototype must use SoA in Maximum');
+assert.ok(maximum.soaPrototypes<=maximum.virtualizedFunctions);
+if(maximum.virtualizedFunctions>1)
+ assert.ok(maximum.soaPrototypes<maximum.virtualizedFunctions,
+   'Multi-prototype Maximum output must also include AoS instructions');
+assert.equal(maximum.bytecodeLayout,'per-prototype-aos-or-soa-shuffled-12-or-16');
+const returnSource='local function lit() return 17 end;local function id(v) return v end;print(lit(),id(25))';
+const returned=compile(returnSource,{
+  hardened:true,protectionLevel:'Maximum',superInstructions:true});
+assert.deepEqual(Object.keys(returned.superInstructionKinds),
+  ['GETK','KGET','KK','KDECL','KRET','GETRET','MOVRET']);
+assert.ok(returned.superInstructionKinds.KRET>=1,
+  'A direct literal return should compile to a fused KRET');
+assert.ok(returned.superInstructionKinds.GETRET>=1,
+  'A direct local-variable return should compile to a fused GETRET');
 const v3=compile(src,{hardened:false,auditPalettes:true});
+assert.equal(v3.soaPrototypes,0);
 assert.equal(v3.perFunctionOpcodePalette,false);
 assert.equal(v3.dispatcherVariants,1);
 assert.equal(v3.scrubbedRuntimeErrors,0);

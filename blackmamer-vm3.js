@@ -350,6 +350,101 @@ function flattenSimpleAstSequences(root,chance){
   return groups;
 }
 
+
+// Compile-time lexical binding virtualization. This is an independent,
+// scope-aware AST transform; globals and public field/method names are left
+// untouched because changing them would alter Roblox API calls. Renaming is
+// applied to parameters, captured upvalues and shadowed locals together.
+function virtualizeLexicalBindings(ast){
+  let renamed=0;
+  const newScope=parent=>({parent,names:new Map()});
+  const resolve=(scope,name)=>{
+    for(let s=scope;s;s=s.parent)if(s.names.has(name))return s.names.get(name);
+    return name;
+  };
+  const declare=(scope,name)=>{
+    const alias='_'+crypto.randomBytes(11).toString('hex');
+    scope.names.set(name,alias);
+    renamed++;
+    return alias;
+  };
+  const visitExpr=(node,scope)=>{
+    if(!node||typeof node!=='object')return;
+    if(node.t==='var'){node.name=resolve(scope,node.name);return;}
+    if(node.t==='fun'){
+      const inner=newScope(scope);
+      node.params=node.params.map(name=>declare(inner,name));
+      visitStatements(node.body,inner);return;
+    }
+    if(node.t==='table'){for(const f of node.fields){visitExpr(f.key,scope);visitExpr(f.value,scope);}return;}
+    if(node.t==='index'){visitExpr(node.obj,scope);visitExpr(node.key,scope);return;}
+    if(node.t==='method'){visitExpr(node.obj,scope);for(const a of node.args)visitExpr(a,scope);return;}
+    if(node.t==='call'){visitExpr(node.fn,scope);for(const a of node.args)visitExpr(a,scope);return;}
+    if(node.t==='unary'){visitExpr(node.x,scope);return;}
+    if(node.t==='binary'){visitExpr(node.left,scope);visitExpr(node.right,scope);return;}
+    if(node.t==='ifexpr'){
+      for(const b of node.branches){visitExpr(b.condition,scope);visitExpr(b.value,scope);}
+      visitExpr(node.otherwise,scope);
+    }
+  };
+  const visitStatements=(body,scope)=>{
+    for(const node of body){
+      switch(node.t){
+        case 'local':
+          visitExpr(node.value,scope);
+          node.name=declare(scope,node.name);
+          break;
+        case 'localmulti':
+          node.values.forEach(v=>visitExpr(v,scope));
+          node.names=node.names.map(name=>declare(scope,name));
+          break;
+        case 'localfun':
+          node.name=declare(scope,node.name);
+          visitExpr(node.fun,scope);
+          break;
+        case 'assign':case 'compound':
+          visitExpr(node.target,scope);visitExpr(node.value,scope);break;
+        case 'callstmt':
+          visitExpr(node.value,scope);break;
+        case 'return':
+          node.values.forEach(v=>visitExpr(v,scope));break;
+        case 'do':
+          visitStatements(node.body,newScope(scope));break;
+        case 'if':
+          for(const b of node.branches){
+            visitExpr(b.condition,scope);
+            visitStatements(b.body,newScope(scope));
+          }
+          visitStatements(node.otherwise,newScope(scope));break;
+        case 'while':
+          visitExpr(node.condition,scope);
+          visitStatements(node.body,newScope(scope));break;
+        case 'repeat':{
+          const child=newScope(scope);
+          visitStatements(node.body,child);
+          visitExpr(node.condition,child);
+          break;
+        }
+        case 'fornum':{
+          visitExpr(node.start,scope);visitExpr(node.limit,scope);visitExpr(node.step,scope);
+          const child=newScope(scope);node.name=declare(child,node.name);
+          visitStatements(node.body,child);break;
+        }
+        case 'forin':{
+          node.iterators.forEach(v=>visitExpr(v,scope));
+          const child=newScope(scope);
+          node.names=node.names.map(name=>declare(child,name));
+          visitStatements(node.body,child);break;
+        }
+        case 'break':case 'continue':break;
+        default:throw new Error('Lexical virtualization encountered unsupported AST '+node.t);
+      }
+    }
+  };
+  visitStatements(ast,newScope(null));
+  return renamed;
+}
+
 function addDeadAstBranches(root,chance){
   if(chance<=0)return 0;
   let injected=0;
@@ -457,6 +552,8 @@ function compile(source, options={}) {
   const parsed=new Parser(source).parse();
   const astFlattenedGroups=options.hardened?flattenSimpleAstSequences(parsed,profile.astFlatten):0;
   const injectedAstBranches=options.hardened?addDeadAstBranches(parsed,profile.deadChance):0;
+  const virtualizedLexicalBindings=options.hardened
+    ? virtualizeLexicalBindings(parsed) : 0;
   // V4 defaults to a second independent register-bytecode interpreter.
   // The outer micro-VM decodes every inner VM instruction before dispatch.
   // V3 keeps its original single-VM execution path.
@@ -1705,6 +1802,7 @@ function compile(source, options={}) {
   return {code,engine:options.hardened?'BLACKMAMER V4 Native VM':'BLACKMAMER V3 Native VM',
     hardened:options.hardened===true,nativeSealer:sealedBatch.nativeUsed,
     target,protectionLevel:profileName,injectedAstBranches,astFlattenedGroups,
+    virtualizedLexicalBindings,
     cfgFlattenedBlocks:flattenedBlocks,cfgBridgeJumps:flattenedBridges,
     stringEncryption:true,
     nestedVM,outerVmInstructions:nestedVM?outerProgram[2]:0,

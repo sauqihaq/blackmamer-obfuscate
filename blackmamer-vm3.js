@@ -579,6 +579,17 @@ function compile(source, options={}) {
   // provider BEFORE execution (Roblox ServerScriptService or host global).
   // Standalone can encrypt the entry as the decryption key ships with output.
   const autoMode=options.autoFunctionEncryption===undefined?'off':options.autoFunctionEncryption;
+  const remoteRuntime=options.remoteRuntime||null;
+  if(remoteRuntime){
+    if(target!=='LuaU'||autoMode!=='external-full'||!options.hardened)
+      throw new SyntaxErrorV3('Remote runtime requires Luau Native V4 external-full');
+    if(typeof remoteRuntime.artifactId!=='string'||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(remoteRuntime.artifactId))
+      throw new SyntaxErrorV3('Invalid remote runtime artifact ID');
+    if(typeof remoteRuntime.apiBaseUrl!=='string'||
+      !/^https:\/\/[a-z0-9.-]+(?::443)?$/i.test(remoteRuntime.apiBaseUrl))
+      throw new SyntaxErrorV3('Remote runtime URL must be a trusted HTTPS origin');
+  }
   if(!['off','external','external-full','standalone'].includes(autoMode))
     throw new SyntaxErrorV3('autoFunctionEncryption must be off, external, external-full, or standalone');
   if(autoMode!=='off'&&!options.hardened)
@@ -650,7 +661,7 @@ function compile(source, options={}) {
         if(id===autoId)throw new SyntaxErrorV3('BM_ENCFUNC id BMAUTO_V4 is reserved');
         // One-script mode absorbs manual markers into the common standalone
         // key, avoiding surprise external modules even for older sources.
-        const effectiveId=autoMode==='standalone'?autoId:id;
+        const effectiveId=(autoMode==='standalone'||remoteRuntime)?autoId:id;
         try{keyFor(effectiveId)}catch(error){throw new SyntaxErrorV3(error.message)}
         const fun=n.args[1];const fnid=makeBuilder(fun.body,fun.params,effectiveId);
         const dst=reg();emit('CLOSURE',dst,fnid);return dst;
@@ -1397,6 +1408,34 @@ function compile(source, options={}) {
     '  if nativeType(bufFrom)~="function" or nativeType(bufRead)~="function" or nativeType(bufRead32)~="function" then',
     '    nativeError("BLACKMAMER V4 requires Roblox Luau buffer API") end'
   ];
+  const remoteRuntimeLines=remoteRuntime?[
+    '  local _vaultCachedKey=nil',
+    '  local function _vaultProvider(id)',
+    '    if id~="'+autoId+'" then nativeError("BLACKMAMER unexpected remote key ID")end',
+    '    if _vaultCachedKey then return _vaultCachedKey end',
+    '    local ok,key=nativePcall(function()',
+    '      local rs=game:GetService("RunService")',
+    '      if not rs:IsServer() then nativeError("BLACKMAMER remote vault requires Roblox server")end',
+    '      local http=game:GetService("HttpService")',
+    '      local credential=http:GetSecret("BLACKMAMER_LICENSE")',
+    '      local response=http:RequestAsync({',
+    '        Url='+JSON.stringify(remoteRuntime.apiBaseUrl+'/api/runtime/key/'+remoteRuntime.artifactId)+',',
+    '        Method="POST",',
+    '        Headers={["X-BM-License"]=credential,["X-BM-Universe"]=tostring(game.GameId),',
+    '          ["Content-Type"]="application/json"},',
+    '        Body="{}"',
+    '      })',
+    '      if not response or response.Success~=true or response.StatusCode~=200 then',
+    '        nativeError("BLACKMAMER key vault denied authorization")end',
+    '      local decoded=http:JSONDecode(response.Body)',
+    '      return decoded and decoded.keys and decoded.keys[id]',
+    '    end)',
+    '    if not ok or nativeType(key)~="string" or',
+    '      not string.match(key,"^[a-fA-F0-9]+$") or #key~=64 then',
+    '      nativeError("BLACKMAMER remote key vault unavailable or invalid")end',
+    '    _vaultCachedKey=key;return key',
+    '  end'
+  ]:[];
   const lines=[
     options.hardened?'-- BLACKMAMER VM V4.0':'-- BLACKMAMER VM V3.4',
     'return (function(...)',
@@ -1414,6 +1453,7 @@ function compile(source, options={}) {
     '  local nativePack=table.pack or function(...)return {n=select("#",...),...}end',
     '  local nativeType=type; local nativePcall=pcall; local nativeError=error',
     '  local dbg=debug; local globals=(getfenv and getfenv()) or _ENV or _G',
+    ...remoteRuntimeLines,
     '  if nativeType(bxor)~="function" then nativeError("BLACKMAMER V3 requires Luau bit32") end',
     '  local '+mapName+'={}',
     '  for i=1,#'+alphabetName+' do '+mapName+'[nativeByte('+alphabetName+',i)]=i-1 end',
@@ -1524,7 +1564,10 @@ function compile(source, options={}) {
         '      if bundle[3]=="'+autoId+'" then keyHex=_BK else'
       ]:[]),
       '      local provider=globals.BLACKMAMER_KEY_PROVIDER',
-      ...((autoMode==='external'||autoMode==='external-full')&&autoFunctionCount>0?[
+      ...(remoteRuntime?[
+        '      if bundle[3]=="'+autoId+'" then provider=_vaultProvider end'
+      ]:[]),
+      ...((autoMode==='external'||autoMode==='external-full')&&autoFunctionCount>0&&!remoteRuntime?[
         '      if bundle[3]=="'+autoId+'" and nativeType(provider)~="function" then',
         '        local ok,loaded=nativePcall(function()',
         '          local service=game:GetService("ServerScriptService")',
@@ -1846,6 +1889,8 @@ function compile(source, options={}) {
     periodicRuntimeGuard:options.hardened===true&&options.antiDebug!==false,
     protectedFunctions:[...protectedKeys.keys()],generatedKeys,
     autoFunctionEncryption:autoMode,
+    remoteRuntimeEnabled:Boolean(remoteRuntime),
+    remoteRuntimeArtifactId:remoteRuntime?remoteRuntime.artifactId:null,
     autoEncryptedFunctions:autoFunctionCount,
     externallyKeyedFunctions:funcs.filter(f=>f.protectedId&&
       !(autoMode==='standalone'&&f.protectedId===autoId)).length,

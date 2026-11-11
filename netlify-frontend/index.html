@@ -347,7 +347,7 @@ lastMode = payload.target;
         if (m.fallback) {
           feedback('Obfuscation selesai, tetapi backend menggunakan fallback. Lapisan BLACKMAMER VM tidak seluruhnya diterapkan.', 'warn');
         } else if (m.cfgFlattenedBlocks>0) {
-           feedback('Nested VM + AST/CFG transform diterapkan. Uji output pada runtime target.', '');
+           feedback('7 VM independen + AST/CFG transform diterapkan. Uji output pada runtime target.', '');
         } else { feedback(remote
           ? 'Key Vault siap. SETUP SEKALI: Roblox Secrets Store BLACKMAMER_LICENSE, aktifkan HTTP Requests. Server-only.'
           : 'Satu file siap diuji. Kunci standalone tetap dapat direkonstruksi dari output.', ''); }

@@ -46,14 +46,16 @@ async function main() {
   assert.equal(first.data.blackmamerVM.perInstructionOperandRotation,true);
   assert.ok(first.data.blackmamerVM.opcodePaletteSize>=40);
   assert.equal(first.data.blackmamerVM.dispatchStructure,'per-function-palette');
+  assert.equal(first.data.blackmamerVM.dispatcherVariants,2);
+  assert.ok(first.data.blackmamerVM.scrubbedRuntimeErrors>=10);
+  assert.doesNotMatch(first.data.obfuscated,/nativeError\("BLACKMAMER/);
+  assert.match(first.data.obfuscated,/\(\(pc\+spec\[3\]\)%2\)/);
   assert.ok(first.data.obfuscated.includes('spec[8]['),
     'Handler identifiers must depend on executing function prototype');
   assert.doesNotMatch(first.data.obfuscated,/\bif op==\d+\b/,
     'Hardcoded V4 op==numeric dispatch exposes a global opcode mapping');
   assert.ok(first.data.obfuscated.includes('local BOOT=0'));
-  assert.ok(first.data.obfuscated.includes('control-flow guard failed'));
-  assert.ok(first.data.obfuscated.includes('runtime API modified'));
-  assert.ok(first.data.obfuscated.includes('BLACKMAMER V4 outer VM'),
+  assert.ok(first.data.obfuscated.includes('local function outerVM'),
     'A genuine second interpreter must be emitted in NativeV4');
   assert.equal(first.data.blackmamerVM.nativeSealer,available());
   assert.equal(first.data.blackmamerVM.applied,true);
@@ -72,7 +74,7 @@ async function main() {
   assert.equal(unnested.status,200,JSON.stringify(unnested.data).slice(0,900));
   assert.equal(unnested.data.blackmamerVM.nestedVM,false);
   assert.equal(unnested.data.blackmamerVM.outerVmInstructions,0);
-  assert.ok(!unnested.data.obfuscated.includes('BLACKMAMER V4 outer VM'));
+  assert.ok(!unnested.data.obfuscated.includes('local function outerVM'));
   const protectedSource='local protected=BM_ENCFUNC("premium",function(x)return x*7 end)\nprint(protected(6))';
   const protectedReply=await post({...request,script:protectedSource});
   assert.equal(protectedReply.status,200,JSON.stringify(protectedReply.data).slice(0,950));

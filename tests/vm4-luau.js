@@ -31,6 +31,20 @@ const fixtures=[
   ['return','local function both()return 5,6 end;local a,b=both();print(a,b)'],
   ['loop-continue','local s=0;for i=1,9 do if i%2==0 then continue end;s+=i end;print(s)'],
   ['periodic-hook-guard','local i=0;while i<320 do i+=1 end;print(i)'],
+  ['runtime-buffer-api',[
+    'local b=buffer.create(24)',
+    'buffer.writeu8(b,0,250)',
+    'buffer.writeu16(b,1,517)',
+    'buffer.writeu32(b,4,65539)',
+    'buffer.writef32(b,8,1.25)',
+    'buffer.writef64(b,12,2.5)',
+    'print(buffer.readu8(b,0),buffer.readu16(b,1),buffer.readu32(b,4))',
+    'print(buffer.readf32(b,8),buffer.readf64(b,12))'
+  ].join('\n')],
+  ['runtime-bit32-api',[
+    'print(bit32.lrotate(12345,3),bit32.rrotate(12345,7))',
+    'print(bit32.countlz(16),bit32.countrz(16),bit32.extract(255,2,3))'
+  ].join('\n')],
   ['scope-shadow','local signal=17;do local signal=4;print("inner",signal) end;print("outer",signal)'],
   ['repeat-capture','local i=0;repeat local temp=i+1;i=temp until temp>=4;print(i)'],
   ['captured-locals','local secret=11;local function outer(a) local secret=a+1;return function(b)return secret+b end end;print(outer(5)(9),secret)'],
@@ -71,11 +85,15 @@ try {
       assert.equal(compiled.randomizedRegisterAllocation,true);
       assert.ok(compiled.virtualizedLexicalBindings>=0);
       assert.equal(compiled.dispatchStructure,'per-function-palette');
+      assert.equal(compiled.dispatcherVariants,2);
+      assert.ok(compiled.scrubbedRuntimeErrors>=10);
+      assert.match(compiled.code,/\(\(pc\+spec\[3\]\)%2\)/);
+      assert.doesNotMatch(compiled.code,/nativeError\("BLACKMAMER/);
       assert.ok(compiled.opcodePaletteSize>=40);
       assert.match(compiled.code,/spec\[8\]\[/);
       assert.doesNotMatch(compiled.code,/\bif op==\d+\b/);
       assert.ok(compiled.code.includes('local BOOT=0'));
-      assert.match(compiled.code,/BLACKMAMER V4 outer VM/);
+      assert.match(compiled.code,/local function outerVM/);
       assert.match(compiled.code,/BLACKMAMER VM V4\.0/);
       assert.doesNotMatch(compiled.code,/local SALT=\d+;local CHECK=\d+/);
       const actual=run(compiled.code,name+'-'+attempt);
@@ -83,6 +101,14 @@ try {
       comparisons++;
     }
   }
+  // One-click Maximum has three independently shuffled handler families.
+  const oneClick=compile('local b=buffer.create(4);buffer.writeu32(b,0,42);print(buffer.readu32(b,0))',
+    {hardened:true,protectionLevel:'Maximum',nestedVM:true,
+      autoFunctionEncryption:'standalone',antiTamper:true,antiDebug:true});
+  assert.equal(oneClick.dispatcherVariants,3);
+  assert.match(oneClick.code,/\(\(pc\+spec\[3\]\)%3\)/);
+  assert.equal(run(oneClick.code,'maximum-dispatch'),
+    run('local b=buffer.create(4);buffer.writeu32(b,0,42);print(buffer.readu32(b,0))','maximum-source'));
   const legacy=compile('print("legacy")',{hardened:true,nestedVM:false});
   assert.equal(legacy.nestedVM,false);
   assert.equal(run(legacy.code,'legacy-v4'),run('print("legacy")','legacy-source'));

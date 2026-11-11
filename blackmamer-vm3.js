@@ -1792,14 +1792,28 @@ function compile(source, options={}) {
     (options.dispatchMode!=='shard'&&rand(2)===0);
   const dispatch=['      local '+guardedName+'=false'];
   let dispatchStructure;
+  let dispatcherVariants=1;
   if(options.hardened){
-    // Numeric opcode constants are absent from the V4 dispatcher. Instead
-    // each handler compares against the executing function's sealed palette.
-    // The branch order is still independently randomized on every build.
-    for(let i=0;i<handlers.length;i++)
-      dispatch.push(...emitHandler(handlers[i],
-        (i===0?'if':'elseif')+' op==O.'+opcodeName(handlers[i])+' then',
-        '      '));
+    // Dispatch is no longer a single shared elseif chain. Every V4 chunk
+    // contains independently permuted handler families selected using the
+    // *executing prototype* seed and the current VM PC. Return handlers
+    // remain inline, so Lua function return semantics are preserved.
+    // This diversifies static structures, but tracing still recovers opcodes.
+    dispatcherVariants=profileName==='Maximum'?3:2;
+    for(let family=0;family<dispatcherVariants;family++){
+      const group=handlers.slice();
+      for(let j=group.length-1;j>0;j--){
+        const k=rand(j+1);[group[j],group[k]]=[group[k],group[j]];
+      }
+      dispatch.push('      '+(family===0?'if':'elseif')+
+        ' ((pc+spec[3])%'+dispatcherVariants+')=='+family+' then');
+      for(let i=0;i<group.length;i++){
+        dispatch.push(...emitHandler(group[i],
+          (i===0?'if':'elseif')+' op==O.'+opcodeName(group[i])+' then',
+          '        '));
+      }
+      dispatch.push('        end');
+    }
     dispatch.push('      end');
     dispatchStructure='per-function-palette';
   }else if(useTree){
@@ -1868,10 +1882,20 @@ function compile(source, options={}) {
     if(!Object.hasOwn(codes,name)) throw new Error('Unknown VM opcode '+name);
     return options.hardened?'spec[8]['+(OPS.indexOf(name)+1)+']':String(codes[name]);
   });
+  // The cleartext V3/V4 diagnostic descriptions disclose the compiler
+  // and guard structure. Keep the intentional product banner, but emit
+  // independent opaque diagnostic IDs inside V4 runtime error calls.
+  // They are not anti-hook or cryptographic protection.
+  let scrubbedRuntimeErrors=0;
+  const runtimeText=options.hardened?expanded.replace(
+    /nativeError\("BLACKMAMER[^"]*"\)/g,()=>{
+      scrubbedRuntimeErrors++;
+      return 'nativeError("E'+crypto.randomBytes(6).toString('hex')+'")';
+    }):expanded;
   // Deliberately publish the runtime as a dense single-line Luau chunk.
   // Retain a compact block-comment identifier so newline comments never
   // accidentally consume live code after minification.
-  const code='--[[BLACKMAMER VM '+(options.hardened?'V4.0':'V3.4')+']]'+compactLuau(expanded);
+  const code='--[[BLACKMAMER VM '+(options.hardened?'V4.0':'V3.4')+']]'+compactLuau(runtimeText);
   return {code,engine:options.hardened?'BLACKMAMER V4 Native VM':'BLACKMAMER V3 Native VM',
     hardened:options.hardened===true,nativeSealer:sealedBatch.nativeUsed,
     target,protectionLevel:profileName,injectedAstBranches,astFlattenedGroups,
@@ -1898,7 +1922,7 @@ function compile(source, options={}) {
     bytecodeLayout:'per-prototype-shuffled-12-or-16',
     bytecodeWidths:{compact:sealedFunctions.filter(f=>f[2]===3).length,
       wide:sealedFunctions.filter(f=>f[2]===4).length},
-    dispatchStructure,
+    dispatchStructure,dispatcherVariants,scrubbedRuntimeErrors,
     perFunctionOpcodePalette:options.hardened===true,
     perInstructionOperandRotation:options.hardened===true,
     opcodePaletteSize:options.hardened?OPS.length:0,

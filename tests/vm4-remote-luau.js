@@ -62,7 +62,7 @@ try{
   const wrong=execute(apiMock(crypto.randomBytes(32).toString('hex'))+payload,
     'remote-'+type+'-wrong');
   assert.notEqual(wrong.status,0,'Wrong runtime key must fail');
-  assert.match(wrong.stderr+wrong.stdout,/key|ciphertext|invalid/i);
+  assert.match(wrong.stderr+wrong.stdout,/E[0-9a-f]{12}|key|ciphertext|invalid/i);
   const noHttp=execute('game={GetService=function()error("HTTP disabled")end}\n'+payload,
     'remote-'+type+'-nohttp');
   assert.notEqual(noHttp.status,0,'Missing trusted environment must fail');

@@ -123,7 +123,8 @@ try {
     'local function f5(x)return x+5 end',
     'local function f6(x)return x+6 end',
     'local function f7(x)return x+7 end',
-    'print(f1(1),f2(1),f3(1),f4(1),f5(1),f6(1),f7(1))'
+    'print(f1(1),f2(1),f3(1),f4(1),f5(1),f6(1),f7(1))',
+    'print("BLACKMAMER-TEST-STRING", "héllo")'
   ].join('\n');
   const seven=compile(sevenSource,{hardened:true,nestedVM:true,
     vmArchitecture:'seven-independent',protectionLevel:'Maximum',

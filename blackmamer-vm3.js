@@ -4,6 +4,7 @@
 const crypto = require('node:crypto');
 const {compactLuau} = require('./lua-output-compact');
 const {sealBatch} = require('./native-sealer');
+const {buildIndependentVmLines}=require('./vm7-independent');
 const {requireKey,requireId,encryptBytes,runtimeLines:protectedRuntimeLines} = require('./protected-functions');
 const rand = max => crypto.randomInt(max);
 
@@ -1801,6 +1802,16 @@ function compile(source, options={}) {
     '  return exec('+entry+',{},nil)',
     'end)(...)'
   ];
+  // Maximum multi-engine architecture installs seven complete, distinct
+  // language VM functions and a per-prototype router, with NO outer decoder.
+  // The original single-engine dispatcher below is retained for old modes.
+  let dispatchStructure,dispatcherVariants=1;
+  if(sevenArchitecture){
+    const built=buildIndependentVmLines(lines,vmVariants,rand);
+    if(built.variantCount!==7)throw new Error('Incomplete multi-engine VM');
+    dispatchStructure='seven-per-prototype';
+    dispatcherVariants=7;
+  }else{
   // Per-build permutation of handler layout, and bake randomized opcode values
   // directly into each branch (no cleartext O.GET / O.CALL / O.RET mapping).
   const dispatchStart=lines.findIndex(line=>/^\s*if op==O\./.test(line));
@@ -1843,8 +1854,6 @@ function compile(source, options={}) {
   const useTree=options.dispatchMode==='tree'||
     (options.dispatchMode!=='shard'&&rand(2)===0);
   const dispatch=['      local '+guardedName+'=false'];
-  let dispatchStructure;
-  let dispatcherVariants=1;
   if(options.hardened){
     // Dispatch is no longer a single shared elseif chain. Every V4 chunk
     // contains independently permuted handler families selected using the
@@ -1930,6 +1939,7 @@ function compile(source, options={}) {
   dispatch.push('      if not '+guardedName+
     ' then nativeError("BLACKMAMER V3 invalid opcode") end');
   lines.splice(dispatchStart,dispatchEnd-dispatchStart+1,...dispatch);
+  }
   const expanded=lines.join('\n').replace(/\bO\.([A-Z]+)\b/g,(_,name)=>{
     if(!Object.hasOwn(codes,name)) throw new Error('Unknown VM opcode '+name);
     return options.hardened?'spec[8]['+(OPS.indexOf(name)+1)+']':String(codes[name]);

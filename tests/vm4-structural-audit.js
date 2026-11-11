@@ -35,7 +35,13 @@ for(let attempt=0;attempt<12;attempt++){
   assert.doesNotMatch(r.code,/opcodePaletteFingerprints/,
     'Test-only palette hashes must never leak into client output');
 }
+const maximum=compile(src,{hardened:true,nestedVM:true,
+  protectionLevel:'Maximum',auditPalettes:true});
+assert.ok(maximum.soaPrototypes>=1,'At least one prototype must use SoA in Maximum');
+assert.ok(maximum.soaPrototypes<=maximum.virtualizedFunctions);
+assert.equal(maximum.bytecodeLayout,'per-prototype-aos-or-soa-shuffled-12-or-16');
 const v3=compile(src,{hardened:false,auditPalettes:true});
+assert.equal(v3.soaPrototypes,0);
 assert.equal(v3.perFunctionOpcodePalette,false);
 assert.equal(v3.dispatcherVariants,1);
 assert.equal(v3.scrubbedRuntimeErrors,0);

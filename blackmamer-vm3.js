@@ -575,7 +575,17 @@ function compile(source, options={}) {
   // V4 defaults to a second independent register-bytecode interpreter.
   // The outer micro-VM decodes every inner VM instruction before dispatch.
   // V3 keeps its original single-VM execution path.
-  const nestedVM=options.hardened===true && options.nestedVM!==false && profile.nested;
+  // Seven independent *language* VM engines (not nested decoder stages).
+  // Every prototype chooses exactly one engine at runtime.
+  const sevenArchitecture=options.hardened===true&&
+    profileName==='Maximum'&&options.vmArchitecture==='seven-independent';
+  const vmVariants=sevenArchitecture?Array.from({length:7},(_,index)=>{
+    const mul=2*rand(128)+1,add=rand(256);
+    let inverse=1;while((inverse*mul)%256!==1)inverse+=2;
+    return {index:index+1,mul,add,inverse};
+  }):[];
+  const nestedVM=options.hardened===true && options.nestedVM!==false &&
+    profile.nested && !sevenArchitecture;
   // Opt-in encryption. "external" preserves entry for legacy compatibility.
   // "external-full" encrypts the entry too and requires a trusted key
   // provider BEFORE execution (Roblox ServerScriptService or host global).
@@ -1010,7 +1020,9 @@ function compile(source, options={}) {
   // The palette is part of each sealed function's binary header. A generic
   // decoder needs each prototype's palette rather than one global ID map.
   const opcodeIndex=new Map(OPS.map((name,index)=>[codes[name],index]));
-  const packed=funcs.map(f=>{
+  const variantOffset=sevenArchitecture?rand(7):0;
+  const packed=funcs.map((f,index)=>{
+    const vmFlavor=sevenArchitecture?((index+variantOffset)%7+1):null;
     const opSeed=rand(255)+1;
     let palette=null;
     if(options.hardened){
@@ -1028,10 +1040,13 @@ function compile(source, options={}) {
       const instructionTweak=options.hardened
         ? (opSeed*97+(pc*(pc%131))*31)%modulus : 0;
       const value=options.hardened&&j===0?palette[opcodeIndex.get(n)]:n;
-      const masked=j===0 ? (value ^ opcodeMask) : value;
+      const variant=sevenArchitecture?vmVariants[vmFlavor-1]:null;
+      const variantOp=j===0&&variant?
+        (value*variant.mul+variant.add)%256:value;
+      const masked=j===0 ? (variantOp ^ opcodeMask) : variantOp;
       return (masked+salt+instructionTweak+5*(j+1)+modulus)%modulus;
     }));
-    return {p:f.p,ins,opSeed,palette,protectedId:f.protectedId};
+    return {p:f.p,ins,opSeed,palette,vmFlavor,protectedId:f.protectedId};
   });
   // Independent S-Box per build; a full inverse table travels with standalone
   // output, so this adds static-analysis work, not secret key confidentiality.
@@ -1088,7 +1103,8 @@ function compile(source, options={}) {
     pack16(f.p.length,raw);
     pack16(f.ins.length,raw);
     raw.push(f.opSeed,width,...offsets);
-    if(options.hardened)raw.push(soa?1:0,...f.palette);
+    if(options.hardened)raw.push(soa?1:0,
+      ...(sevenArchitecture?[f.vmFlavor]:[]),...f.palette);
     for(const v of f.p)pack32(v,raw);
     // AoS: [op0,a0,b0,c0,op1,a1,b1,c1,...]
     // SoA: [op0,op1,...,a0,a1,...,b0,b1,...,c0,c1,...]
@@ -1613,16 +1629,20 @@ function compile(source, options={}) {
     '    local packed=bufFrom(nativeConcat(chars))',
     '    local pn=bufRead(packed,0)+256*bufRead(packed,1)',
     '    local count=bufRead(packed,2)+256*bufRead(packed,3)',
-    '    local opSeed=bufRead(packed,4);local width=bufRead(packed,5);local off='+(options.hardened?11+OPS.length:10),
+    '    local opSeed=bufRead(packed,4);local width=bufRead(packed,5);local off='+(options.hardened?11+OPS.length+(sevenArchitecture?1:0):10),
     '    if width~=3 and width~=4 then nativeError("BLACKMAMER V3 invalid instruction width") end',
     '    local offsets={}',
     '    for j=1,4 do offsets[j]=bufRead(packed,5+j) end',
     ...(options.hardened?[
       '    local layout=bufRead(packed,10)',
       '    if layout~=0 and layout~=1 then nativeError("BLACKMAMER V4 invalid layout")end',
+      ...(sevenArchitecture?[
+        '    local vmFlavor=bufRead(packed,11)',
+        '    if vmFlavor<1 or vmFlavor>7 then nativeError("BLACKMAMER invalid VM variant")end'
+      ]:[]),
       '    local palette={};local paletteSeen={}',
       '    for j=1,'+OPS.length+' do',
-      '      local value=bufRead(packed,10+j)',
+      '      local value=bufRead(packed,'+(sevenArchitecture?11:10)+'+j)',
       '      if paletteSeen[value]then nativeError("BLACKMAMER V4 duplicate opcode palette")end',
       '      paletteSeen[value]=true;palette[j]=value',
       '    end'
@@ -1634,7 +1654,8 @@ function compile(source, options={}) {
     '    local params={}',
     '    for j=1,pn do params[j]=bufRead32(packed,off);off=off+4 end',
     '    -- Each prototype independently chooses compact/wide and operand order.',
-    '    local spec={params,packed,opSeed,off,count,width,offsets'+(options.hardened?',palette,layout':'')+'}',
+    '    local spec={params,packed,opSeed,off,count,width,offsets'+
+      (options.hardened?',palette,layout'+(sevenArchitecture?',vmFlavor':''):'')+'}',
     '    P[fid]=spec;return spec',
     '  end',
     '  -- A constant stays sealed until the executing function first references it.',
@@ -1939,6 +1960,10 @@ function compile(source, options={}) {
     cfgFlattenedBlocks:flattenedBlocks,cfgBridgeJumps:flattenedBridges,
     stringEncryption:true,
     nestedVM,outerVmInstructions:nestedVM?outerProgram[2]:0,
+    vmArchitecture:sevenArchitecture?'seven-independent':(nestedVM?'nested':'single'),
+    vmInterpreterCount:sevenArchitecture?7:(nestedVM?2:1),
+    vmVariants:sevenArchitecture?7:1,
+    vmSelectedPerPrototype:sevenArchitecture,
     runtimeBootstrap:options.hardened===true,
     opaquePredicates:nestedVM,
     periodicRuntimeGuard:options.hardened===true&&options.antiDebug!==false,

@@ -7,6 +7,9 @@ on:
       - 'native/**'
       - 'native-sealer.js'
       - 'protected-functions.js'
+      - 'runtime-key-vault.js'
+      - 'tests/runtime-key-vault.js'
+      - 'tests/vm4-remote-luau.js'
       - 'tests/vm4-external-keys.js'
       - 'tests/vm4-external-luau.js'
       - 'server.js'
@@ -49,6 +52,7 @@ jobs:
           node --check blackmamer-vm3.js
           node --check native-sealer.js
           node --check protected-functions.js
+          node --check runtime-key-vault.js
           node tests/vm4-external-keys.js
           node tests/vm4-structural-audit.js
           node tests/vm4-binding-hardening.js
@@ -61,6 +65,7 @@ jobs:
       - name: Run regression suites and V3/V4 API integration
         run: |
           npm install --omit=dev
+          node tests/runtime-key-vault.js
           node tests/vm4-only-api.js
       - name: Docker build including C++ native binary
         run: docker build -t blackmamer-native-v4 .
@@ -88,4 +93,5 @@ jobs:
         run: |
           node tests/vm4-luau.js
           node tests/vm4-external-luau.js
+          node tests/vm4-remote-luau.js
           node tests/vm4-lua51.js

@@ -170,6 +170,15 @@ print(&quot;Hello World&quot;)"></textarea>
             <select id="target"><option value="LuaU" selected>Roblox / Luau</option>
 <option value="Lua">Lua (5.1-compatible)</option><option value="Lua51">Lua 5.1 vanilla</option><option value="LuaJIT">LuaJIT</option></select>
           </div>
+          <div class="field"><label for="runtimeMode">Jenis script Roblox</label>
+            <select id="runtimeMode"><option value="standalone">Script / LocalScript / ModuleScript — langsung pakai</option>
+              <option value="server-vault">Script server / ModuleScript server — Remote Vault</option></select>
+            <p class="help" id="runtimeHint">Standalone: kunci termasuk dalam satu file keluaran.</p>
+            <div id="runtimeLicensePanel" hidden><label for="runtimeLicense">Lisensi BLACKMAMER untuk Remote Vault</label>
+              <input id="runtimeLicense" type="password" placeholder="BM-XXXXXX-..." autocomplete="off"/>
+              <p class="help">Simpan lisensi sebagai Secret BLACKMAMER_LICENSE di Creator Hub, aktifkan HTTP Requests.</p>
+            </div>
+          </div>
           <p class="help">Native V4 only: AST dead branches, basic-block flattening, sealed strings and Nested VM.</p>
           <hr class="rule">
           <div class="presets" id="info">Kunci Standalone digabung otomatis ke hasil. Jangan simpan rahasia server dalam LocalScript.</div>
@@ -197,6 +206,14 @@ print(&quot;Hello World&quot;)"></textarea>
     const result = $('result');
     let lastMode = 'LuaU';
     let running = false;
+    function updateRuntimeMode(){
+      const remote=$('runtimeMode').value==='server-vault';
+      $('runtimeLicensePanel').hidden=!remote;
+      $('runtimeHint').textContent=remote
+        ? 'Remote Vault membutuhkan database dan lisensi aktif. Hanya Script/ModuleScript server Roblox.'
+        : 'Standalone: satu file siap untuk Script/LocalScript/ModuleScript; kunci masih bisa dianalisis.';
+      clearOutput();
+    }
      
 
     function bytes(text) { return new Blob([text]).size; }
@@ -265,13 +282,21 @@ print(&quot;Hello World&quot;)"></textarea>
       }
       if (bytes(script) > MAX_SCRIPT_BYTES) {
         feedback('Ukuran script maksimal 1 MB untuk backend saat ini.', 'bad'); return;
-      }
-      const payload = {
-        script,
+      }       const remote=$('runtimeMode').value==='server-vault';
+       if(remote&&$('target').value!=='LuaU'){
+         feedback('Server vault hanya untuk Roblox Luau.', 'bad');return;
+       }
+       const runtimeLicense=$('runtimeLicense').value.trim();
+       if(remote&&!runtimeLicense){
+         feedback('Masukkan lisensi aktif untuk server vault.', 'bad');return;
+       }
+       const payload = {
+         script,
         preset: $('preset').value,
         target: $('target').value,
         blackmamerVM: true,
-        vmMode:'native-v4',oneClick:true
+        vmMode:'native-v4',oneClick:true,
+         runtimeMode:remote?'server-vault':'standalone'
       };
       setBusy(true);
       setStatus('Menghubungkan ke backend dan memproses script...');
@@ -283,7 +308,8 @@ print(&quot;Hello World&quot;)"></textarea>
         try {
           response = await fetch(API_BASE + '/api/obfuscate', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {'Content-Type':'application/json',
+               ...(remote?{'X-License-Key':runtimeLicense}:{})},
             body: JSON.stringify(payload),
             signal: controller.signal
           });
@@ -299,8 +325,12 @@ print(&quot;Hello World&quot;)"></textarea>
 
         if(Array.isArray(data.externalKeys)&&data.externalKeys.length)
   throw new Error('Mode satu-klik tidak menerima output yang membutuhkan provider key tambahan.');
-if(data.blackmamerVM?.protectionLevel!=='Maximum'||data.blackmamerVM?.autoFunctionEncryption!=='standalone')
-  throw new Error('Backend belum menjalankan mode one-click terbaru.');
+const requiredEncryption=remote?'external-full':'standalone';
+if(data.blackmamerVM?.protectionLevel!=='Maximum'||
+   data.blackmamerVM?.autoFunctionEncryption!==requiredEncryption)
+   throw new Error('Backend belum mendukung mode runtime yang dipilih.');
+if(remote&&!data.runtimeKeyVault?.enabled)
+   throw new Error('Remote Vault tidak mengonfirmasi kunci tersimpan.');
 result.value = data.obfuscated;
 lastMode = payload.target;
         $('copy').disabled = false;
@@ -318,7 +348,9 @@ lastMode = payload.target;
           feedback('Obfuscation selesai, tetapi backend menggunakan fallback. Lapisan BLACKMAMER VM tidak seluruhnya diterapkan.', 'warn');
         } else if (m.cfgFlattenedBlocks>0) {
            feedback('Nested VM + AST/CFG transform diterapkan. Uji output pada runtime target.', '');
-        } else { feedback('Satu file siap diuji pada runtime target. Kunci standalone tetap dapat direkonstruksi dari output.', ''); }
+        } else { feedback(remote
+          ? 'Key Vault siap. SETUP SEKALI: Roblox Secrets Store BLACKMAMER_LICENSE, aktifkan HTTP Requests. Server-only.'
+          : 'Satu file siap diuji. Kunci standalone tetap dapat direkonstruksi dari output.', ''); }
       } catch (err) {
         clearOutput();
         const message = err.name === 'AbortError'
@@ -331,7 +363,11 @@ lastMode = payload.target;
 
     $('obfuscate').addEventListener('click', obfuscate);
     $('healthButton').addEventListener('click', healthCheck);
-    $('target').addEventListener('change',clearOutput);
+    $('target').addEventListener('change',()=>{
+      if($('target').value!=='LuaU')$('runtimeMode').value='standalone';
+      updateRuntimeMode();
+    });
+    $('runtimeMode').addEventListener('change',updateRuntimeMode);
 source.addEventListener('input', () => { updateStats(); clearOutput(); });
     $('upload').addEventListener('click', () => $('file').click());
     $('file').addEventListener('change', async event => {

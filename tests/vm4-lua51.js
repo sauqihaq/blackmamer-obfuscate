@@ -19,7 +19,10 @@ const programs=[
   ['recursive','local function f(n) if n<2 then return 1 end return n*f(n-1) end;print(f(5))'],
   ['while','local x=0;while x<9 do x=x+1 end;print(x)'],
   ['generic','local s=0;local t={5,7,9};for _,v in ipairs(t) do s=s+v end;print(s)'],
-  ['multiple','local function f() return 8,9 end;local a,b=f();print(a,b)']
+  ['multiple','local function f() return 8,9 end;local a,b=f();print(a,b)'],
+  ['shadow','local x=16;do local x=8;print(x) end;print(x)'],
+  ['repeat-scope','local i=0;repeat local shadow=i+1;i=shadow until shadow>=4;print(i)'],
+  ['captures','local outer=9;local function f(x) local outer=x+1;return function(y)return outer+y end end;print(f(11)(20),outer)']
 ];
 let checks=0;
 function run(binary,source,tag){

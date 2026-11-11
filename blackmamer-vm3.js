@@ -350,6 +350,102 @@ function flattenSimpleAstSequences(root,chance){
   return groups;
 }
 
+
+// Compile-time lexical binding virtualization. This is an independent,
+// scope-aware AST transform; globals and public field/method names are left
+// untouched because changing them would alter Roblox API calls. Renaming is
+// applied to parameters, captured upvalues and shadowed locals together.
+function virtualizeLexicalBindings(ast,audit){
+  let renamed=0;
+  const newScope=parent=>({parent,names:new Map()});
+  const resolve=(scope,name)=>{
+    for(let s=scope;s;s=s.parent)if(s.names.has(name))return s.names.get(name);
+    return name;
+  };
+  const declare=(scope,name)=>{
+    const alias='_'+crypto.randomBytes(11).toString('hex');
+    scope.names.set(name,alias);
+    if(audit)audit.push({original:name,alias});
+    renamed++;
+    return alias;
+  };
+  const visitExpr=(node,scope)=>{
+    if(!node||typeof node!=='object')return;
+    if(node.t==='var'){node.name=resolve(scope,node.name);return;}
+    if(node.t==='fun'){
+      const inner=newScope(scope);
+      node.params=node.params.map(name=>declare(inner,name));
+      visitStatements(node.body,inner);return;
+    }
+    if(node.t==='table'){for(const f of node.fields){visitExpr(f.key,scope);visitExpr(f.value,scope);}return;}
+    if(node.t==='index'){visitExpr(node.obj,scope);visitExpr(node.key,scope);return;}
+    if(node.t==='method'){visitExpr(node.obj,scope);for(const a of node.args)visitExpr(a,scope);return;}
+    if(node.t==='call'){visitExpr(node.fn,scope);for(const a of node.args)visitExpr(a,scope);return;}
+    if(node.t==='unary'){visitExpr(node.x,scope);return;}
+    if(node.t==='binary'){visitExpr(node.left,scope);visitExpr(node.right,scope);return;}
+    if(node.t==='ifexpr'){
+      for(const b of node.branches){visitExpr(b.condition,scope);visitExpr(b.value,scope);}
+      visitExpr(node.otherwise,scope);
+    }
+  };
+  const visitStatements=(body,scope)=>{
+    for(const node of body){
+      switch(node.t){
+        case 'local':
+          visitExpr(node.value,scope);
+          node.name=declare(scope,node.name);
+          break;
+        case 'localmulti':
+          node.values.forEach(v=>visitExpr(v,scope));
+          node.names=node.names.map(name=>declare(scope,name));
+          break;
+        case 'localfun':
+          node.name=declare(scope,node.name);
+          visitExpr(node.fun,scope);
+          break;
+        case 'assign':case 'compound':
+          visitExpr(node.target,scope);visitExpr(node.value,scope);break;
+        case 'callstmt':
+          visitExpr(node.value,scope);break;
+        case 'return':
+          node.values.forEach(v=>visitExpr(v,scope));break;
+        case 'do':
+          visitStatements(node.body,newScope(scope));break;
+        case 'if':
+          for(const b of node.branches){
+            visitExpr(b.condition,scope);
+            visitStatements(b.body,newScope(scope));
+          }
+          visitStatements(node.otherwise,newScope(scope));break;
+        case 'while':
+          visitExpr(node.condition,scope);
+          visitStatements(node.body,newScope(scope));break;
+        case 'repeat':{
+          const child=newScope(scope);
+          visitStatements(node.body,child);
+          visitExpr(node.condition,child);
+          break;
+        }
+        case 'fornum':{
+          visitExpr(node.start,scope);visitExpr(node.limit,scope);visitExpr(node.step,scope);
+          const child=newScope(scope);node.name=declare(child,node.name);
+          visitStatements(node.body,child);break;
+        }
+        case 'forin':{
+          node.iterators.forEach(v=>visitExpr(v,scope));
+          const child=newScope(scope);
+          node.names=node.names.map(name=>declare(child,name));
+          visitStatements(node.body,child);break;
+        }
+        case 'break':case 'continue':break;
+        default:throw new Error('Lexical virtualization encountered unsupported AST '+node.t);
+      }
+    }
+  };
+  visitStatements(ast,newScope(null));
+  return renamed;
+}
+
 function addDeadAstBranches(root,chance){
   if(chance<=0)return 0;
   let injected=0;
@@ -371,12 +467,26 @@ function addDeadAstBranches(root,chance){
       next.push(node);
       if(rand(1000)>=Math.floor(chance*1000))continue;
       const variable='__bmd_'+crypto.randomBytes(6).toString('hex');
-      // This AST branch is compiled into genuine VM instructions. It is
-      // provably dead but requires CFG reconstruction to discard.
-      next.push({t:'if',branches:[{
-        condition:{t:'bool',value:false},
-        body:[{t:'local',name:variable,value:{t:'num',value:rand(1000000)+1}}]
-      }],otherwise:[]});
+      const guard='__bmg_'+crypto.randomBytes(6).toString('hex');
+      const n=7+rand(4000);
+      // n*(n+1) is even for every integer n. Computing this guard from
+      // a scoped runtime local prevents the trivial 'if false' pattern,
+      // while remaining side-effect-free and portable across Lua runtimes.
+      const ref=()=>({t:'var',name:guard});
+      const guardExpr={t:'binary',op:'==',
+        left:{t:'binary',op:'%',
+          left:{t:'binary',op:'*',
+            left:ref(),
+            right:{t:'binary',op:'+',left:ref(),right:{t:'num',value:1}}
+          },right:{t:'num',value:2}
+        },right:{t:'num',value:1}};
+      next.push({t:'do',body:[
+        {t:'local',name:guard,value:{t:'num',value:n}},
+        {t:'if',branches:[{
+          condition:guardExpr,
+          body:[{t:'local',name:variable,value:{t:'num',value:rand(1000000)+1}}]
+        }],otherwise:[]}
+      ]});
       injected++;
     }
     block.splice(0,block.length,...next);
@@ -457,6 +567,9 @@ function compile(source, options={}) {
   const parsed=new Parser(source).parse();
   const astFlattenedGroups=options.hardened?flattenSimpleAstSequences(parsed,profile.astFlatten):0;
   const injectedAstBranches=options.hardened?addDeadAstBranches(parsed,profile.deadChance):0;
+  const bindingAudit=options.auditBindings===true?[]:null;
+  const virtualizedLexicalBindings=options.hardened
+    ? virtualizeLexicalBindings(parsed,bindingAudit) : 0;
   // V4 defaults to a second independent register-bytecode interpreter.
   // The outer micro-VM decodes every inner VM instruction before dispatch.
   // V3 keeps its original single-VM execution path.
@@ -504,9 +617,23 @@ function compile(source, options={}) {
   };
   const builders=[];
   const makeBuilder=(ast,params,protectedId=null)=>{
-    const id=funcs.length+1;const builder={id,ins:[],regs:0,depth:0,loops:[]};
+    const id=funcs.length+1;const builder={id,ins:[],regs:0,depth:0,loops:[],
+      regAudit:options.auditBindings===true?[]:null};
     funcs.push(null);builders.push(builder);
-    const reg=()=>{if(++builder.regs>2048)throw new SyntaxErrorV3('V3 register limit exceeded');return builder.regs;};
+    // V4 uses an independent random virtual register allocation in each
+    // function. Dataflow remains correct because all IR consumers use the
+    // returned physical ID rather than assuming sequential register numbers.
+    const registerPool=options.hardened?
+      Array.from({length:2048},(_,i)=>i+1):null;
+    if(registerPool)for(let i=registerPool.length-1;i>0;i--){
+      const j=rand(i+1);[registerPool[i],registerPool[j]]=[registerPool[j],registerPool[i]];
+    }
+    const reg=()=>{
+      if(++builder.regs>2048)throw new SyntaxErrorV3('V3 register limit exceeded');
+      const value=registerPool?registerPool[builder.regs-1]:builder.regs;
+      if(builder.regAudit)builder.regAudit.push(value);
+      return value;
+    };
     const emit=(op,a=0,b=0,c=0)=>{builder.ins.push([codes[op],a,b,c]);return builder.ins.length;};
     const scope=(body)=>{emit('ENTER');builder.depth++;statements(body);builder.depth--;emit('EXIT');};
     const expr=(n,multiple=false)=>{
@@ -1705,6 +1832,12 @@ function compile(source, options={}) {
   return {code,engine:options.hardened?'BLACKMAMER V4 Native VM':'BLACKMAMER V3 Native VM',
     hardened:options.hardened===true,nativeSealer:sealedBatch.nativeUsed,
     target,protectionLevel:profileName,injectedAstBranches,astFlattenedGroups,
+    virtualizedLexicalBindings,
+    randomizedRegisterAllocation:options.hardened===true,
+    ...(bindingAudit?{
+      bindingAudit,
+      registerAllocationAudit:builders.map(f=>f.regAudit)
+    }:{}),
     cfgFlattenedBlocks:flattenedBlocks,cfgBridgeJumps:flattenedBridges,
     stringEncryption:true,
     nestedVM,outerVmInstructions:nestedVM?outerProgram[2]:0,

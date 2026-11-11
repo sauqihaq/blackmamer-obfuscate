@@ -88,6 +88,8 @@ app.post('/api/obfuscate',licenseGate,(req,res)=>{
        target:result.target,
        astDeadBranches:result.injectedAstBranches,
        astFlattenedGroups:result.astFlattenedGroups,
+       virtualizedLexicalBindings:result.virtualizedLexicalBindings,
+       randomizedRegisterAllocation:result.randomizedRegisterAllocation,
        cfgFlattenedBlocks:result.cfgFlattenedBlocks,
        cfgBridgeJumps:result.cfgBridgeJumps,
        stringEncryption:result.stringEncryption,

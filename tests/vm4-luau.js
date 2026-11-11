@@ -30,7 +30,28 @@ const fixtures=[
   ['method','local t={go=function(self,x) return x*2 end};print(t:go(6))'],
   ['return','local function both()return 5,6 end;local a,b=both();print(a,b)'],
   ['loop-continue','local s=0;for i=1,9 do if i%2==0 then continue end;s+=i end;print(s)'],
-  ['periodic-hook-guard','local i=0;while i<320 do i+=1 end;print(i)']
+  ['periodic-hook-guard','local i=0;while i<320 do i+=1 end;print(i)'],
+  ['scope-shadow','local signal=17;do local signal=4;print("inner",signal) end;print("outer",signal)'],
+  ['repeat-capture','local i=0;repeat local temp=i+1;i=temp until temp>=4;print(i)'],
+  ['captured-locals','local secret=11;local function outer(a) local secret=a+1;return function(b)return secret+b end end;print(outer(5)(9),secret)'],
+  ['local-methods','local obj={value=0};function obj:apply(n)self.value=self.value+n;return self.value end;print(obj:apply(21),obj:apply(7))'],
+  ['roblox-service-mock',[
+    'local service={ClearOutput=function(self) self.count=(self.count or 0)+1 end}',
+    'local game={GetService=function(self,name) return service end}',
+    'local script={attrs={},SetAttribute=function(self,k,v) self.attrs[k]=v end,',
+    '  GetAttribute=function(self,k) return self.attrs[k] end}',
+    'local LogService=game:GetService("LogService")',
+    'local function clear()',
+    '  local ok,err=pcall(function() LogService:ClearOutput() end)',
+    '  script:SetAttribute("LastClearSucceeded",ok)',
+    '  if ok then',
+    '    script:SetAttribute("ClearCount",(script:GetAttribute("ClearCount") or 0)+1)',
+    '    script:SetAttribute("LastError",nil)',
+    '  else script:SetAttribute("LastError",tostring(err)) end',
+    'end',
+    'clear();print(script:GetAttribute("LastClearSucceeded"),script:GetAttribute("ClearCount"))'
+  ].join('\n')]
+
 ];
 try {
   let comparisons=0;
@@ -47,6 +68,8 @@ try {
       assert.equal(compiled.periodicRuntimeGuard,true);
       assert.equal(compiled.perFunctionOpcodePalette,true);
       assert.equal(compiled.perInstructionOperandRotation,true);
+      assert.equal(compiled.randomizedRegisterAllocation,true);
+      assert.ok(compiled.virtualizedLexicalBindings>=0);
       assert.equal(compiled.dispatchStructure,'per-function-palette');
       assert.ok(compiled.opcodePaletteSize>=40);
       assert.match(compiled.code,/spec\[8\]\[/);

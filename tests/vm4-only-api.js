@@ -90,8 +90,8 @@ async function api(route,body){
   assert.equal(oneClick.data.blackmamerVM.vmVariants,7);
   assert.equal(oneClick.data.blackmamerVM.vmSelectedPerPrototype,true);
   assert.doesNotMatch(oneClick.data.obfuscated,/local function outerVM\(/);
-  for(let id=1;id<=7;id++)
-    assert.match(oneClick.data.obfuscated,new RegExp('function execVM'+id+'\\('));
+  assert.doesNotMatch(oneClick.data.obfuscated,/execVM[1-7]/);
+  assert.match(oneClick.data.obfuscated,/function\s+[A-Za-z_][A-Za-z0-9_]*\s*\(/);
   assert.ok(oneClick.data.blackmamerVM.soaPrototypes>=1,
     'Maximum oneClick should use column-oriented VM bytecode');
   assert.equal(oneClick.data.blackmamerVM.autoFunctionEncryption,'standalone');
@@ -100,7 +100,7 @@ async function api(route,body){
   assert.deepEqual(oneClick.data.externalKeys,[]);
   assert.equal(oneClick.data.protection.antiDebug,true);
   assert.equal(oneClick.data.protection.antiTamper,true);
-  assert.match(oneClick.data.obfuscated,/_unfold/);
+  assert.doesNotMatch(oneClick.data.obfuscated,/_unfold|BMAUTO_V4/);
   assert.doesNotMatch(oneClick.data.obfuscated,/embeddedAutoKey/);
   const vaultConfig=await(await fetch('http://127.0.0.1:'+port+'/api/runtime/config')).json();
   assert.equal(vaultConfig.enabled,false,'Vault must be disabled without persistent DB and license');

@@ -38,6 +38,39 @@ For a commercially licensed deployment, provide the `X-License-Key` header if `L
 
 Function encryption modes: `off`, `standalone`, `external`, `external-full`. **external-full encrypts the entry point as well**, and therefore needs a host-side key provider before the generated chunk starts executing. The standalone decrypt key is necessarily reconstructible from the output; **external** keeps keys out of the generated script and requires a trusted host provider. On Roblox, use a server-only `ServerScriptService/BlackmamerKeyProvider` ModuleScript. For vanilla Lua 5.1/LuaJIT, define `BLACKMAMER_KEY_PROVIDER(id)` in the host environment before running the obfuscated output. See [Auto Function Encryption](docs/AUTO_FUNCTION_ENCRYPTION.md).
 
+## Named V4 presets and CLI (development branch)
+
+These are additive to the legacy `NativeV4` API preset. Each selected preset has fixed protection options so callers cannot silently downgrade it.
+
+| Preset | ISA dispatch families | Packed instruction layout | Key policy |
+|---|---|---|---|
+| `fast` | 1 | AoS; decoded into four execution columns | no automatic external key |
+| `balanced` | 3 | per-prototype hybrid AoS/SoA | manual protected-function keys only |
+| `paranoid` | 3 | SoA for every prototype | external key provider is **mandatory** (including the entry function) |
+
+Every generated script gets a random build watermark and SHA-256/HMAC-derived per-build function keys. The watermark is public and **not** an encryption secret. The bytecode pipeline now has separate lazy stages: `parseStage` reads/unseals packed prototype blobs once into opcode/destination/operand columns, then `exec` runs those columns. For an outer micro-VM build, the outer VM runs during this first decode stage, not during every executed instruction. Memory overhead increases with decoded function count; benchmarks are needed before promising a speedup.
+
+```sh
+node cli.js --preset=balanced --target=Lua51 --out=protected.lua input.lua
+node cli.js --preset=paranoid --target=LuaU --out=protected.lua --keys-out=protected.keys.json input.luau
+npm run test:presets
+npm run test:differential
+```
+
+The `paranoid` output requires `BLACKMAMER_KEY_PROVIDER(id)` in a trusted host environment before evaluating the script. Keep the separately generated keys **out of the output Lua file and public repositories**; never run this profile client-side with a public key and call it secret. The API also accepts `{"preset":"fast"|"balanced"|"paranoid"}`; `NativeV4` remains the compatible default. Note that the current compiler has **49** instruction types, not 48, so it validates against the actual opcode count.
+
+The differential regression executes fifty input programs against official Lua 5.1 and compares stdout after V4 obfuscation (balanced and paranoid). The fixtures cover arithmetic, loops, closures, metatables, coroutines, and object-oriented method patterns. New code that intentionally segfaults debuggers or emits invalid Lua escapes is not used: neither reliably protects a runtime and both break normal execution or tooling.
+
+## Maximum One-Click: polymorphic table/state-machine output
+
+The single-button `NativeV4` profile with `oneClick:true` keeps the same API and frontend runtime choices: `LuaU` (Roblox Script/LocalScript/ModuleScript), `Lua51` (vanilla Lua 5.1) and `LuaJIT` (LuaJIT 2.x). The compiler still rejects unsupported syntax instead of emitting a broken script.
+
+Maximum V4 output now uses an independently implemented two-phase `setmetatable` entrypoint. Its seven independent language VM engines each resolve per-prototype randomized opcodes using a callable route table and randomized control-flow state labels rather than a fixed opcode `elseif` chain. The engine selector is a different encoded function table in each build. The runtime local register, program-counter, opcode and prototype identifiers are polymorphically renamed using mixed short/long collision-checked names.
+
+This architecture is conceptually similar to generic table/state-machine VM obfuscation; it **does not copy code from Loader.luau or Luraph**. Greater static complexity and size are **not** a guarantee of cryptographic strength or protection against runtime tracing. Generated standalone decryption material remains recoverable; external key providers are reserved for trusted host environments. Additional dispatcher transitions add execution overhead; benchmark scripts on Roblox devices and both Lua runtimes before production use.
+
+Validate topology with `node tests/vm4-loader-topology.js`; the CI suite also checks Luau execution, Lua 5.1/LuaJIT compatibility, anti-tamper behavior and 50-program differential parity.
+
 ## Run and test
 
 ```bash

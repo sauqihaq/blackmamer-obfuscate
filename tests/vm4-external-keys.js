@@ -38,7 +38,7 @@ assert.equal(result.generatedKeys[0].id,'premium');
 assert.match(result.generatedKeys[0].key,/^[a-f0-9]{64}$/);
 assert.equal(result.code.includes(result.generatedKeys[0].key),false);
 assert.doesNotMatch(result.code,/external key provider missing|nativeError\("BLACKMAMER/);
-assert.match(result.code,/nativeError\("E[0-9a-f]{12}"\)/);
+assert.match(result.code,/"E[0-9a-f]{12}"/);
 assert.ok(result.scrubbedRuntimeErrors>=10);
 assert.equal(result.nestedVM,true);
 assert.equal(result.virtualizedFunctions>=3,true);

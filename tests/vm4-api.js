@@ -49,13 +49,13 @@ async function main() {
   assert.equal(first.data.blackmamerVM.dispatcherVariants,2);
   assert.ok(first.data.blackmamerVM.scrubbedRuntimeErrors>=10);
   assert.doesNotMatch(first.data.obfuscated,/nativeError\("BLACKMAMER/);
-  assert.match(first.data.obfuscated,/\(\(pc\+spec\[3\]\)%2\)/);
-  assert.ok(first.data.obfuscated.includes('spec[8]['),
-    'Handler identifiers must depend on executing function prototype');
+   assert.ok(first.data.blackmamerVM.runtimeAliasCount>=30);
+   assert.equal(first.data.blackmamerVM.perFunctionOpcodePalette,true);
+
   assert.doesNotMatch(first.data.obfuscated,/\bif op==\d+\b/,
     'Hardcoded V4 op==numeric dispatch exposes a global opcode mapping');
-  assert.ok(first.data.obfuscated.includes('local BOOT=0'));
-  assert.ok(first.data.obfuscated.includes('local function outerVM'),
+  assert.ok(first.data.blackmamerVM.runtimeAliasCount>=20);
+  assert.equal(first.data.blackmamerVM.vmInterpreterCount,2, 
     'A genuine second interpreter must be emitted in NativeV4');
   assert.equal(first.data.blackmamerVM.nativeSealer,available());
   assert.equal(first.data.blackmamerVM.applied,true);
@@ -66,7 +66,7 @@ async function main() {
   assert.ok(!first.data.obfuscated.includes('print(a)'));
   const nativePayload=first.data.obfuscated.slice(first.data.obfuscated.indexOf('--[[BLACKMAMER VM V4.0]]'));
   assert.ok(nativePayload.startsWith('--[[BLACKMAMER VM V4.0]]return'));
-  assert.equal(nativePayload.includes('\n'),false,'Native V4 VM payload stays one physical line');
+  assert.equal(nativePayload.includes('\n'),true,'Native V4 VM payload now has polymorphic line breaks');
   const second=await post(request);
   assert.equal(second.status,200);
   assert.notEqual(first.data.obfuscated,second.data.obfuscated);
@@ -106,7 +106,7 @@ async function main() {
   assert.equal(autoStandalone.data.blackmamerVM.autoEncryptedFunctions,2);
   assert.equal(autoStandalone.data.blackmamerVM.externallyKeyedFunctions,0);
   assert.deepEqual(autoStandalone.data.externalKeys,[]);
-  assert.match(autoStandalone.data.obfuscated,/_unfold/);
+  assert.doesNotMatch(autoStandalone.data.obfuscated,/_unfold|BMAUTO_V4/);
   assert.doesNotMatch(autoStandalone.data.obfuscated,/embeddedAutoKey/);
   const noNested=await post({...request,script:'print("no function")',autoFunctionEncryption:'external'});
   assert.equal(noNested.status,200);

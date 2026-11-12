@@ -9,6 +9,7 @@ const express=require('express');
 const crypto=require('node:crypto');
 const cors=require('cors');
 const {compile,SyntaxErrorV3}=require('./blackmamer-vm3');
+const {PRESETS}=require('./v4-presets');
 const {available:nativeAvailable}=require('./native-sealer');
 const {registerRoutes,gate:licenseGate}=require('./commercial-access');
 const {enabled:vaultEnabled,store:storeRuntimeKey,registerRoutes:registerRuntimeRoutes}=
@@ -39,14 +40,14 @@ registerRuntimeRoutes(app);
 
 app.get('/',(_req,res)=>res.json({
  service:'blackmamer-obfuscator',status:'ok',engine:'BLACKMAMER Native V4',
- version:'4.2.0',vm:'BLACKMAMER nested VM',preset:'NativeV4',
+ version:'4.3.0',vm:'BLACKMAMER nested VM',preset:'NativeV4',presets:Object.keys(PRESETS),
  runtimeVaultAvailable:vaultEnabled,
  levels:[...LEVELS],targets:[...TARGETS.keys()],nativeSealerAvailable:nativeAvailable()
 }));
 app.get('/api/health',(_req,res)=>res.json({
  status:'ready',node:true,engine:'BLACKMAMER Native V4',vm4Available:true,
  vm3Available:false,prometheusInstalled:false,defaultTarget:'LuaU',
- targetSupport:['LuaU','Lua51','LuaJIT'],levels:[...LEVELS],
+ targetSupport:['LuaU','Lua51','LuaJIT'],levels:[...LEVELS],presets:Object.keys(PRESETS),
  nativeSealerAvailable:nativeAvailable(),runtimeVaultAvailable:vaultEnabled,
  message:'Independent V4-only compiler; Lua 5.1 uses portable string/bit adapters'
 }));
@@ -54,18 +55,20 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
  const body=req.body||{};
  const source=body.script;
  const preset=body.preset||'NativeV4';
+ const selectedPreset=PRESETS[preset]||null;
  const oneClick=body.oneClick===true;
  const runtimeMode=body.runtimeMode||'standalone';
  const remoteRequested=runtimeMode==='server-vault';
- const level=oneClick?'Maximum':(body.protectionLevel||body.presetLevel||'Strong');
+ const level=selectedPreset?selectedPreset.protectionLevel:
+   (oneClick?'Maximum':(body.protectionLevel||body.presetLevel||'Strong'));
  const requestedTarget=body.target||'LuaU';
  const target=TARGETS.get(requestedTarget);
  if(typeof source!=='string'||!source.trim())
    return res.status(400).json({error:'Field script harus berupa string yang tidak kosong.'});
  if(Buffer.byteLength(source,'utf8')>LIMIT_BYTES)
    return res.status(413).json({error:'Native V4 maksimal 128 KB per script.'});
- if(preset!=='NativeV4'||(body.vmMode&&body.vmMode!=='native-v4'))
-   return res.status(400).json({error:'BLACKMAMER hanya menyediakan preset NativeV4.',code:'V4_ONLY'});
+ if((preset!=='NativeV4'&&!selectedPreset)||(body.vmMode&&body.vmMode!=='native-v4'))
+   return res.status(400).json({error:'Preset harus NativeV4, fast, balanced, atau paranoid.',code:'V4_ONLY'});
  if(!['standalone','server-vault'].includes(runtimeMode))
    return res.status(400).json({error:'Unknown runtime mode.',code:'INVALID_RUNTIME_MODE'});
  if(remoteRequested){
@@ -95,13 +98,20 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
      hardened:true,
      target,
      protectionLevel:level,
-     antiTamper:oneClick||body.antiTamper!==false,
-     antiDebug:oneClick||(body.antiDebug!==false&&!['Minify','Light'].includes(level)),
-     nestedVM:oneClick?true:body.nestedVM,
-     vmArchitecture:oneClick?'seven-independent':body.vmArchitecture,
-     superInstructions:oneClick?true:body.superInstructions,
+     antiTamper:selectedPreset?selectedPreset.antiTamper:(oneClick||body.antiTamper!==false),
+     antiDebug:selectedPreset?selectedPreset.antiDebug:
+       (oneClick||(body.antiDebug!==false&&!['Minify','Light'].includes(level))),
+     nestedVM:selectedPreset?selectedPreset.nestedVM:(oneClick?true:body.nestedVM),
+     vmArchitecture:selectedPreset?selectedPreset.vmArchitecture:
+       (oneClick?'seven-independent':body.vmArchitecture),
+     superInstructions:selectedPreset?selectedPreset.superInstructions:
+       (oneClick?true:body.superInstructions),
+     bytecodeLayout:selectedPreset?.bytecodeLayout,
+     dispatchFamilies:selectedPreset?.dispatchFamilies,
+     astStringEncryption:selectedPreset?.astStringEncryption,
      autoFunctionEncryption:remoteRequested?'external-full':
-       (oneClick?'standalone':(body.autoFunctionEncryption||'off')),
+       (selectedPreset?selectedPreset.autoFunctionEncryption:
+         (oneClick?'standalone':(body.autoFunctionEncryption||'off'))),
      functionKeys:oneClick?undefined:body.functionKeys,
      remoteRuntime:remoteRequested?{artifactId,apiBaseUrl:publicOrigin}:undefined
    });
@@ -133,7 +143,8 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
      blackmamerVM:{
        enabled:true,applied:true,mode:'native-v4',hardened:true,
        oneClick,runtimeMode:remoteRequested?'server-vault':'standalone',
-       profileLabel:oneClick?'BLACKMAMER V4 Unified Protection':'Custom API',
+       profileLabel:selectedPreset?'BLACKMAMER '+preset+' V4':
+         (oneClick?'BLACKMAMER V4 Unified Protection':'Custom API'),
        protectionLevel:result.protectionLevel,
        target:result.target,
        astDeadBranches:result.injectedAstBranches,
@@ -149,8 +160,13 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
        nestedVM:result.nestedVM,outerVmInstructions:result.outerVmInstructions,
        vmArchitecture:result.vmArchitecture,vmInterpreterCount:result.vmInterpreterCount,
        vmVariants:result.vmVariants,vmSelectedPerPrototype:result.vmSelectedPerPrototype,
+        metatableEntrypoint:result.metatableEntrypoint,
+        stateMachineDispatch:result.stateMachineDispatch,
+        tableDrivenDispatch:result.tableDrivenDispatch,
        nativeSealer:result.nativeSealer,
        runtimeBootstrap:result.runtimeBootstrap,opaquePredicates:result.opaquePredicates,
+        runtimeAliasCount:result.runtimeAliasCount,
+        runtimeChaosLineBreaks:result.runtimeChaosLineBreaks,
        periodicRuntimeGuard:result.periodicRuntimeGuard,
        autoFunctionEncryption:result.autoFunctionEncryption,
        autoEncryptedFunctions:result.autoEncryptedFunctions,
@@ -168,6 +184,10 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
        scrubbedRuntimeErrors:result.scrubbedRuntimeErrors,
        fusedInstructions:result.fusedInstructions,
        superInstructionKinds:result.superInstructionKinds,
+       buildWatermark:result.buildWatermark,
+       predecodedInstructions:result.predecodedInstructions,
+       parsedInstructionColumns:result.parsedInstructionColumns,
+       requiresKeyProvider:result.externallyKeyedFunctions>0,
        fallback:false
      }
    });

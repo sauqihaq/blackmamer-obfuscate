@@ -21,23 +21,20 @@ for(let round=0;round<6;round++){
  assert.equal(protectedOutput.autoEncryptedFunctions,protectedOutput.virtualizedFunctions);
  assert.deepEqual(protectedOutput.generatedKeys,[]);
  assert.doesNotMatch(protectedOutput.code,/local function outerVM\(/);
- for(let n=1;n<=7;n++){
-   assert.match(protectedOutput.code,new RegExp('function execVM'+n+'\\('));
-   assert.match(protectedOutput.code,new RegExp('execVM'+n+'\\(fid,passed,captured,spec\\)'));
- }
- assert.match(protectedOutput.code,/local variant=spec\[10\]/);
- assert.equal((protectedOutput.code.match(/function execVM[1-7]\(/g)||[]).length,7);
- assert.equal((protectedOutput.code.match(/while true do/g)||[]).length,7);
- assert.equal((protectedOutput.code.match(/op=\(\(op-/g)||[]).length,7);
+ assert.ok(protectedOutput.runtimeAliasCount>=30,'Expected polymorphic VM identifiers');
+ assert.ok(protectedOutput.runtimeChaosLineBreaks>0);
+ assert.doesNotMatch(protectedOutput.code,/execVM[1-7]|_unfold|BMAUTO_V4/);
+ assert.equal(protectedOutput.stateMachineDispatch,true);
+ assert.equal(protectedOutput.tableDrivenDispatch,true);
+ // Seven complete interpreters, now routed by an encoded function table
+ // rather than a predictable if/elseif engine selector.
+ assert.doesNotMatch(protectedOutput.code,/_routeId|elseif\s+variant|execVM[1-7]/);
+ assert.equal((protectedOutput.code.match(/while\s+true\s+do/g)||[]).length,7);
+ assert.ok((protectedOutput.code.match(/__call\s*=\s*function/g)||[]).length>=7,
+   'Every VM should have its own callable opcode route table');
+ assert.ok((protectedOutput.code.match(/setmetatable\s*\(/g)||[]).length>=8,
+   'Seven opcode route tables plus an engine-router table expected');
  assert.equal(protectedOutput.dispatcherVariants,7);
- // Every engine uses an independently shaped opcode dispatch (2..8 groups)
- // keyed by the executing prototype's shuffled opcode palette.
- for(let engine=1;engine<=7;engine++){
-   assert.match(protectedOutput.code,new RegExp('local _r'+engine+'='));
- }
- for(let families=2;families<=8;families++){
-   assert.match(protectedOutput.code,new RegExp('_routeId=='+families+'\\b'));
- }
  assert.equal(protectedOutput.dispatchStructure,'seven-per-prototype');
 }
 const archived=compile('print(42)',{

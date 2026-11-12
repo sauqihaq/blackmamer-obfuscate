@@ -20,7 +20,7 @@ for(let attempt=0;attempt<12;attempt++){
   assert.equal(r.dispatcherVariants,2);
   assert.ok(r.scrubbedRuntimeErrors>=10);
   assert.doesNotMatch(r.code,/nativeError\("BLACKMAMER/);
-  assert.match(r.code,/\(\(pc\+spec\[3\]\)%2\)/);
+  assert.ok(r.runtimeAliasCount>=30,'VM internal locals must be polymorphic');
   assert.ok(r.virtualizedFunctions>=4);
   assert.equal(r.opcodePaletteFingerprints.length,r.virtualizedFunctions);
   assert.equal(new Set(r.opcodePaletteFingerprints).size,r.virtualizedFunctions,
@@ -28,8 +28,8 @@ for(let attempt=0;attempt<12;attempt++){
   const signature=r.opcodePaletteFingerprints.join('|');
   assert.equal(seenBuilds.has(signature),false,'New build should reshuffle opcode palettes');
   seenBuilds.add(signature);
-  assert.match(r.code,/spec\[8\]\[/,
-    'Runtime dispatcher must compare against the current prototype palette');
+  assert.doesNotMatch(r.code,/\b(?:spec|pc|op)\b/,
+    'VM register and prototype identifiers must be renamed');
   assert.doesNotMatch(r.code,/\b(?:if|elseif) op==\d+\b/,
     'No single static numeric opcode discriminator in V4 dispatcher');
   assert.doesNotMatch(r.code,/opcodePaletteFingerprints/,

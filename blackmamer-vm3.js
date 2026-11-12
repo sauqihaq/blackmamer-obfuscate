@@ -3,6 +3,7 @@
 // No Prometheus/Vmify step in this engine. Unsupported syntax fails closed.
 const crypto = require('node:crypto');
 const {compactLuau} = require('./lua-output-compact');
+const {polymorphRuntime} = require('./runtime-polymorph');
 const {sealBatch} = require('./native-sealer');
 const {buildIndependentVmLines}=require('./vm7-independent');
 const {protectAstStrings}=require('./ast-string-layer');
@@ -556,6 +557,12 @@ const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','
 function compile(source, options={}) {
   if(typeof source!=='string') throw new TypeError('Expected Luau source string');
   if(Buffer.byteLength(source)>128*1024) throw new SyntaxErrorV3('V3 source limit: 128 KB');
+  // Each build gets independent source-bound material. Public watermarks are
+  // identifiers, NOT secrets; the random build secret is never serialized.
+  const buildSecret=crypto.randomBytes(32);
+  const buildWatermark=crypto.randomBytes(12).toString('hex');
+  const buildDigest=crypto.createHash('sha256').update(buildSecret)
+    .update(buildWatermark).update(source).digest();
   const target=options.target||'LuaU';
   const lua51=target==='Lua51'||target==='LuaJIT';
   if(!['LuaU','Lua51','LuaJIT'].includes(target))
@@ -613,7 +620,10 @@ function compile(source, options={}) {
     throw new SyntaxErrorV3('autoFunctionEncryption must be off, external, external-full, or standalone');
   if(autoMode!=='off'&&!options.hardened)
     throw new SyntaxErrorV3('Auto Function Encryption requires NativeV4');
-  const autoId='BMAUTO_V4';
+  // Standalone gets a fresh internal ID; external providers retain their
+  // documented BMAUTO_V4 key contract for compatibility.
+  const autoId=autoMode==='standalone'&&options.hardened
+    ?'BM'+crypto.randomBytes(8).toString('hex'):'BMAUTO_V4';
   const used=new Set(), codes={};
   for(const op of OPS){let id;do{id=rand(220)+17;}while(used.has(id));used.add(id);codes[op]=id;}
   const consts=[], constKeys=new Map(), funcs=[], argSets=[];
@@ -629,7 +639,9 @@ function compile(source, options={}) {
       if(Object.prototype.hasOwnProperty.call(optionsKeys,id)){
         requireKey(optionsKeys[id]);hex=optionsKeys[id].toLowerCase();
       } else {
-        hex=crypto.randomBytes(32).toString('hex');
+        hex=crypto.createHmac('sha256',buildSecret)
+          .update('BLACKMAMER:FUNCTION:').update(buildWatermark)
+          .update(':').update(id).digest('hex');
         // A standalone key is bundled (split into two shares) in Luau.
         // Never report it as a secret external key.
         if(!(id===autoId&&autoMode==='standalone'))generatedKeys.push({id,key:hex});
@@ -680,7 +692,7 @@ function compile(source, options={}) {
         if(n.args.length!==2 || n.args[0].t!=='str' || n.args[1].t!=='fun')
           throw new SyntaxErrorV3('BM_ENCFUNC expects ("id", function(...) ... end)');
         const id=n.args[0].value;
-        if(id===autoId)throw new SyntaxErrorV3('BM_ENCFUNC id BMAUTO_V4 is reserved');
+        if(id===autoId||id==='BMAUTO_V4')throw new SyntaxErrorV3('BM_ENCFUNC id BMAUTO_V4 is reserved');
         // One-script mode absorbs manual markers into the common standalone
         // key, avoiding surprise external modules even for older sources.
         const effectiveId=(autoMode==='standalone'||remoteRuntime)?autoId:id;
@@ -1021,7 +1033,7 @@ function compile(source, options={}) {
   // Each function becomes a compact, per-build sealed binary bytecode blob.
   // It raises the cost of casual inspection, NOT the cryptographic secrecy of
   // client-side code: the decoder and its seeds must travel with the output.
-  const salt=crypto.randomInt(2000,100000);
+  const salt=2000+buildDigest.readUInt32BE(0)%98000;
   const modulus=10000019, hashMod=1000000007;
   // Build-scoped opcode ids are further masked per function and instruction PC.
   // A static row no longer carries an opcode that can be mapped with one
@@ -1041,6 +1053,8 @@ function compile(source, options={}) {
         const j=rand(i+1);[pool[i],pool[j]]=[pool[j],pool[i]];
       }
       palette=pool.slice(0,OPS.length);
+      if(palette.length!==OPS.length||new Set(palette).size!==OPS.length)
+        throw new Error('Invalid generated opcode palette');
     }
     const ins=f.ins.map((row,idx)=>row.map((n,j)=>{
       const pc=idx+1;
@@ -1107,8 +1121,10 @@ function compile(source, options={}) {
     const offsets=slots.map((_,logical)=>slots.indexOf(logical));
     // Maximum V4 can materialize field columns separately instead of
     // adjacent instruction rows. Always include at least one SoA prototype.
-    const soa=options.hardened&&profileName==='Maximum'&&
-      (functionIndex===0||(functionIndex!==1&&rand(2)===0));
+    const soa=options.hardened&&(
+      options.bytecodeLayout==='soa'||
+      (options.bytecodeLayout!=='aos'&&(profileName==='Maximum'||options.bytecodeLayout==='poly')&&
+        (functionIndex===0||(functionIndex!==1&&rand(2)===0))));
     if(soa)soaPrototypeCount++;
     pack16(f.p.length,raw);
     pack16(f.ins.length,raw);
@@ -1291,17 +1307,16 @@ function compile(source, options={}) {
       mixed[p]=(keyData[i]+(left[p]^right[p])+(((i+1)*17+bootstrap)%256))%256;
     }
     standaloneKeyLine=[
-      '  local function _unfold()',
-      '    local _s={'+[left,right,mixed].map(b=>JSON.stringify(b.toString('hex'))).join(',')+'}',
-      '    local function _oct(t,p) local q=(p-1)*2+1',
-      '      return tonumber(string.sub(_s[t],q,q+1),16)end',
+      // The self-contained key material is never secret, but random numeric
+      // shares and lexical polymorphism avoid stable _unfold/_s signatures.
+      '  local _BK=(function()',
+      '    local _s={{'+[...left].join(',')+'},{'+[...right].join(',')+'},{'+[...mixed].join(',')+'}}',
       '    local _out={};for i=1,32 do',
       '      local p=((i-1)*'+stride+'+'+offset+')%32+1',
-      '      local x=_oct(1,p);local y=_oct(2,p);local z=_oct(3,p)',
+      '      local x=_s[1][p];local y=_s[2][p];local z=_s[3][p]',
       '      _out[i]=string.format("%02x",(z-bxor(x,y)-((i*17+BOOT)%256))%256)',
       '    end;return nativeConcat(_out)',
-      '  end',
-      '  local _BK=_unfold()'
+      '  end)()'
     ];
   }
   // If antiTamper remains enabled, all encrypted function ciphertext and
@@ -1444,6 +1459,7 @@ function compile(source, options={}) {
   ]:[];
   const lua51Buffers=lua51?[
     '  local bufFrom=function(bytes)return bytes end',
+    '  local bufLen=function(bytes)return #bytes end',
     '  local bufRead=function(bytes,index)return nativeByte(bytes,index+1)end',
     '  local bufRead32=function(bytes,index)',
     '    local a,b,c,d=nativeByte(bytes,index+1,index+4)',
@@ -1452,9 +1468,10 @@ function compile(source, options={}) {
     '  end'
   ]:[
     '  local bufFrom=buffer and buffer.fromstring',
+    '  local bufLen=buffer and buffer.len',
     '  local bufRead=buffer and buffer.readu8',
     '  local bufRead32=buffer and buffer.readu32',
-    '  if nativeType(bufFrom)~="function" or nativeType(bufRead)~="function" or nativeType(bufRead32)~="function" then',
+    '  if nativeType(bufFrom)~="function" or nativeType(bufRead)~="function" or nativeType(bufRead32)~="function" or nativeType(bufLen)~="function" then',
     '    nativeError("BLACKMAMER V4 requires Roblox Luau buffer API") end'
   ];
   const remoteRuntimeLines=remoteRuntime?[
@@ -1498,7 +1515,8 @@ function compile(source, options={}) {
     '  local modulus=' + modulus + '; local hmod=' + hashMod + '; local hseed=' + hashSeed + '; local hmul=' + hashMul + '; local hadd=' + hashAdd,
     '  local nativeByte=string.byte; local nativeChar=string.char; local nativeConcat=table.concat',
     ...lua51BitOps,
-    '  local nativeUnpack=table.unpack or unpack; local bxor=bit32 and bit32.bxor',
+    '  local nativeUnpack=table.unpack or unpack; local nativeBitXor=bit32 and bit32.bxor',
+    '  local bxor=nativeBitXor',
     '  local nativePack=table.pack or function(...)return {n=select("#",...),...}end',
     '  local nativeType=type; local nativePcall=pcall; local nativeError=error',
     '  local dbg=debug; local globals=(getfenv and getfenv()) or _ENV or _G',
@@ -1549,7 +1567,9 @@ function compile(source, options={}) {
     '    mix(SALT);mix(SBOX_MASK)',
     '    for _,ar in ipairs(A)do mix(#ar);for _,v in ipairs(ar)do mix(v)end end',
     ...(nestedVM?['    mix(H[1]);mix(#H[2]);for j=1,#H[2]do mix(nativeByte(H[2],j))end']:[]),
-    '    if '+(options.antiTamper===false?'false':'true')+' and h~=CHECK then nativeError("BLACKMAMER V3: bytecode integrity failed") end',
+    ...(options.antiTamper===false?[]:[
+      '    if h~=CHECK then nativeError("BLACKMAMER V3: bytecode integrity failed") end'
+    ]),
     '    if '+(options.antiDebug===false?'false':'true')+' then',
     '      if nativeType(nativeByte)~="function" or nativeType(nativeChar)~="function" or',
     '        nativeChar(65)~="A" or nativeByte("A")~=65 or bxor(9,3)~=10 or',
@@ -1567,7 +1587,7 @@ function compile(source, options={}) {
       '  -- Runtime sanity checks are best-effort; no claim of universal debugger detection.',
       '  local function runtimeGuard()',
       '    if nativeByte~=string.byte or nativeChar~=string.char or',
-      '      nativeConcat~=table.concat or nativeType~=type or bxor~=bit32.bxor then',
+      '      nativeConcat~=table.concat or nativeType~=type or bxor~=nativeBitXor or bit32.bxor~=nativeBitXor then',
       '      nativeError("BLACKMAMER V4 runtime API modified")end',
       '    if nativeByte("AB",2)~=66 or nativeChar(66,77)~="BM" or',
       '      bxor(0x5a,0xa5)~=255 then nativeError("BLACKMAMER V4 API self-test failed")end',
@@ -1655,7 +1675,8 @@ function compile(source, options={}) {
       '      local value=bufRead(packed,'+(sevenArchitecture?11:10)+'+j)',
       '      if paletteSeen[value]then nativeError("BLACKMAMER V4 duplicate opcode palette")end',
       '      paletteSeen[value]=true;palette[j]=value',
-      '    end'
+      '    end',
+      '    if #palette~='+OPS.length+' then nativeError("BLACKMAMER V4 incomplete opcode palette")end'
     ]:[]),
     '    local seen={};for j=1,4 do',
     '      if offsets[j]>3 or seen[offsets[j]] then nativeError("BLACKMAMER V3 invalid operand map") end',
@@ -1664,6 +1685,7 @@ function compile(source, options={}) {
     '    local params={}',
     '    for j=1,pn do params[j]=bufRead32(packed,off);off=off+4 end',
     '    -- Each prototype independently chooses compact/wide and operand order.',
+    '    if count<1 or off+count*4*width>bufLen(packed) then nativeError("BLACKMAMER V4 truncated instructions")end',
     '    local spec={params,packed,opSeed,off,count,width,offsets'+
       (options.hardened?',palette,layout'+(sevenArchitecture?',vmFlavor':''):'')+'}',
     '    P[fid]=spec;return spec',
@@ -1689,23 +1711,50 @@ function compile(source, options={}) {
     '    return value',
     '  end',
     '  local NIL={};local function nonil(v)if v==NIL then return nil else return v end end',
-    '  local exec',
-    '  exec=function(fid,passed,captured)',
-    '    local spec=prototype(fid)',
-    '    local env={vars={},parent=captured}',
-    '    for j,k in ipairs(spec[1])do local v=passed[j];env.vars[K(k)]=v==nil and NIL or v end',
-    '    local R={};local pc=1;local ticks=0;local stream=spec[2];local off=spec[4];local length=spec[5]',
-    '    local width=spec[6];local offsets=spec[7]',
+    // Stage 1: decrypt and parse into four independent instruction columns.
+    // Stage 2 below ONLY reads these columns and executes semantics.
+    '  local programCache={}',
+    '  local function parseStage(fid,spec)',
+    '    local cached=programCache[fid];if cached then return cached end',
+    '    local ops,as,bs,cs={},{},{},{}',
+    '    local stream=spec[2];local off=spec[4];local length=spec[5]',
+    '    local width=spec[6];local offsets=spec[7];local cursor=1',
     '    local function field(at,logical)',
     ...(options.hardened?[
-      '      local slot=(offsets[logical]+(spec[3]+pc*7+(pc*pc%13))%4)%4',
-      '      local p=spec[9]==1 and (off+(slot*length+pc-1)*width) or (at+slot*width)'
+      '      local slot=(offsets[logical]+(spec[3]+cursor*7+(cursor*cursor%13))%4)%4',
+      '      if spec[9]==1 and cursor-1>=length then nativeError("BLACKMAMER SoA PC out of range")end',
+      '      local p=spec[9]==1 and (off+(slot*length+cursor-1)*width) or (at+slot*width)'
     ]:[
       '      local p=at+offsets[logical]*width'
     ]),
+    '      if p<off or p+width>bufLen(stream) then nativeError("BLACKMAMER truncated field")end',
     '      if width==4 then return bufRead32(stream,p) end',
     '      return bufRead(stream,p)+bufRead(stream,p+1)*256+bufRead(stream,p+2)*65536',
     '    end',
+    '    for pc=1,length do',
+    '      cursor=pc;local at=off+(pc-1)*4*width',
+    ...(nestedVM?[
+      '      local op,a,b,c=outerVM(spec,pc,at,field)',
+      '      ops[pc]=op;as[pc]=a;bs[pc]=b;cs[pc]=c'
+    ]:[
+      '      local tweak='+runtimeTweak,
+      '      local op=bxor((field(at,1)-SALT-tweak-5)%modulus,'+runtimeOpcodeMask+')',
+      '      local a=((field(at,2)-SALT-tweak-10)%modulus);if a>modulus/2 then a=a-modulus end',
+      '      local b=((field(at,3)-SALT-tweak-15)%modulus);if b>modulus/2 then b=b-modulus end',
+      '      local c=((field(at,4)-SALT-tweak-20)%modulus);if c>modulus/2 then c=c-modulus end',
+      '      ops[pc]=op;as[pc]=a;bs[pc]=b;cs[pc]=c'
+    ]),
+    '    end',
+    '    local result={ops,as,bs,cs};programCache[fid]=result;return result',
+    '  end',
+    '  local exec',
+    '  exec=function(fid,passed,captured)',
+    '    local spec=prototype(fid)',
+    '    local columns=parseStage(fid,spec)',
+    '    local env={vars={},parent=captured}',
+    '    for j,k in ipairs(spec[1])do local v=passed[j];env.vars[K(k)]=v==nil and NIL or v end',
+    '    local R={};local pc=1;local ticks=0;local length=spec[5]',
+    '    local guardAt='+(71+buildDigest[6]%97)+';local guardBias='+(109+buildDigest[7]%143),
     '    local function get(n)',
     '      local frame=env',
     '      while frame do local v=rawget(frame.vars,n);if v~=nil then return nonil(v)end;frame=frame.parent end',
@@ -1719,18 +1768,9 @@ function compile(source, options={}) {
     '    while true do',
     '      ticks=ticks+1; if ticks>1000000 then nativeError("BLACKMAMER V3 instruction limit") end',
     ...(options.hardened&&options.antiDebug!==false?
-      ['      if ticks%251==0 then runtimeGuard()end']:[]),
+      ['      if ticks>=guardAt then runtimeGuard();guardAt=ticks+guardBias+((pc*31+spec[3]+ticks)%191)end']:[]),
     '      if pc<1 or pc>length then nativeError("BLACKMAMER V3 bad PC") end',
-    '      local at=off+(pc-1)*4*width',
-    ...(nestedVM?[
-      '      local op,a,b,c=outerVM(spec,pc,at,field)'
-    ]:[
-      '      local tweak='+runtimeTweak,
-      '      local op=bxor((field(at,1)-SALT-tweak-5)%modulus,'+runtimeOpcodeMask+')',
-      '      local a=((field(at,2)-SALT-tweak-10)%modulus);if a>modulus/2 then a=a-modulus end',
-      '      local b=((field(at,3)-SALT-tweak-15)%modulus);if b>modulus/2 then b=b-modulus end',
-      '      local c=((field(at,4)-SALT-tweak-20)%modulus);if c>modulus/2 then c=c-modulus end'
-    ]),
+    '      local op,a,b,c=columns[1][pc],columns[2][pc],columns[3][pc],columns[4][pc]',
     '      local nextpc=pc+1',
     '      if op==O.K then R[a]=K(b)',
     '      elseif op==O.STRDEC then',
@@ -1878,7 +1918,8 @@ function compile(source, options={}) {
     // *executing prototype* seed and the current VM PC. Return handlers
     // remain inline, so Lua function return semantics are preserved.
     // This diversifies static structures, but tracing still recovers opcodes.
-    dispatcherVariants=profileName==='Maximum'?3:2;
+    dispatcherVariants=options.dispatchFamilies===1||options.dispatchFamilies===3
+      ?options.dispatchFamilies:(profileName==='Maximum'?3:2);
     for(let family=0;family<dispatcherVariants;family++){
       const group=handlers.slice();
       for(let j=group.length-1;j>0;j--){
@@ -1960,7 +2001,9 @@ function compile(source, options={}) {
   }
   const expanded=lines.join('\n').replace(/\bO\.([A-Z]+)\b/g,(_,name)=>{
     if(!Object.hasOwn(codes,name)) throw new Error('Unknown VM opcode '+name);
-    return options.hardened?'spec[8]['+(OPS.indexOf(name)+1)+']':String(codes[name]);
+    const index=OPS.indexOf(name)+1;
+    if(index<1||index>OPS.length)throw new Error('Out-of-range spec[8] opcode '+name);
+    return options.hardened?'spec[8]['+index+']':String(codes[name]);
   });
   // The cleartext V3/V4 diagnostic descriptions disclose the compiler
   // and guard structure. Keep the intentional product banner, but emit
@@ -1975,7 +2018,24 @@ function compile(source, options={}) {
   // Deliberately publish the runtime as a dense single-line Luau chunk.
   // Retain a compact block-comment identifier so newline comments never
   // accidentally consume live code after minification.
-  const code='--[[BLACKMAMER VM '+(options.hardened?'V4.0':'V3.4')+']]'+compactLuau(runtimeText);
+  const rendered=compactLuau(runtimeText);
+  // Maximum output uses a real two-step metatable entrypoint: a generated
+  // method returns the execution closure, which in turn forwards all
+  // arguments and return values into the existing independent VM runtime.
+  // This is a loader topology, not a copy of any third-party obfuscator.
+  const metatableEntrypoint=options.hardened&&profileName==='Maximum';
+  let wrapped=rendered;
+  if(metatableEntrypoint){
+    const initMethod=randomName(),runMethod=randomName();
+    wrapped='return setmetatable({'+initMethod+'=function(self)'+
+      'return function(...)return self.'+runMethod+'(self,...)end end,'+
+      runMethod+'=function(self,...)'+rendered+' end'+
+      '},{}):'+initMethod+'()(...);';
+  }
+  const polymorphic=options.hardened?polymorphRuntime(wrapped):
+    {code:wrapped,aliasCount:0,lineBreaks:0};
+  const code='--[[BLACKMAMER VM '+(options.hardened?'V4.0':'V3.4')+']]'+
+    polymorphic.code+(options.hardened?'--[[WM:'+buildWatermark+']]':'');
   return {code,engine:options.hardened?'BLACKMAMER V4 Native VM':'BLACKMAMER V3 Native VM',
     hardened:options.hardened===true,nativeSealer:sealedBatch.nativeUsed,
     target,protectionLevel:profileName,injectedAstBranches,astFlattenedGroups,
@@ -1988,7 +2048,10 @@ function compile(source, options={}) {
       registerAllocationAudit:builders.map(f=>f.regAudit)
     }:{}),
     cfgFlattenedBlocks:flattenedBlocks,cfgBridgeJumps:flattenedBridges,
-    stringEncryption:true,
+    stringEncryption:true,buildWatermark:options.hardened?buildWatermark:null,
+    runtimeAliasCount:polymorphic.aliasCount,runtimeChaosLineBreaks:polymorphic.lineBreaks,
+    metatableEntrypoint,
+    parsedInstructionColumns:4,predecodedInstructions:true,
     nestedVM,outerVmInstructions:nestedVM?outerProgram[2]:0,
     vmArchitecture:sevenArchitecture?'seven-independent':(nestedVM?'nested':'single'),
     vmInterpreterCount:sevenArchitecture?7:(nestedVM?2:1),
@@ -2012,6 +2075,7 @@ function compile(source, options={}) {
     bytecodeWidths:{compact:sealedFunctions.filter(f=>f[2]===3).length,
       wide:sealedFunctions.filter(f=>f[2]===4).length},
     dispatchStructure,dispatcherVariants,scrubbedRuntimeErrors,
+    stateMachineDispatch:sevenArchitecture,tableDrivenDispatch:sevenArchitecture,
     perFunctionOpcodePalette:options.hardened===true,
     perInstructionOperandRotation:options.hardened===true,
     opcodePaletteSize:options.hardened?OPS.length:0,

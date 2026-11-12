@@ -4,10 +4,16 @@ on:
   pull_request:
     paths:
       - 'blackmamer-vm3.js'
+      - 'v4-presets.js'
+      - 'cli.js'
+      - 'tests/vm4-presets.js'
+      - 'tests/vm4-differential-50.js'
       - 'vm7-independent.js'
       - 'ast-string-layer.js'
       - 'tests/vm4-ast-string-layer.js'
       - 'tests/vm4-seven-independent.js'
+      - 'tests/vm4-loader-topology.js'
+      - 'runtime-polymorph.js'
       - 'native/**'
       - 'native-sealer.js'
       - 'protected-functions.js'
@@ -69,6 +75,9 @@ jobs:
       - name: Verify compiler and frontend syntax
         run: |
           node --check blackmamer-vm3.js
+          node --check cli.js
+          node --check v4-presets.js
+          node tests/vm4-presets.js
           node --check vm7-independent.js
           node --check ast-string-layer.js
           node --check native-sealer.js
@@ -77,6 +86,7 @@ jobs:
           node tests/vm4-external-keys.js
           node tests/vm4-structural-audit.js
           node tests/vm4-seven-independent.js
+          node tests/vm4-loader-topology.js
           node tests/vm4-ast-string-layer.js
           node tests/vm4-binding-hardening.js
           node --check server.js
@@ -119,3 +129,4 @@ jobs:
           node tests/vm4-external-luau.js
           node tests/vm4-remote-luau.js
           node tests/vm4-lua51.js
+          node tests/vm4-differential-50.js

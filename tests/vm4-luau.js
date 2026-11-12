@@ -132,7 +132,7 @@ try {
   assert.equal(seven.vmInterpreterCount,7);
   assert.equal(seven.nestedVM,false);
   assert.equal(seven.vmSelectedPerPrototype,true);
-  assert.match(seven.code,/function execVM7\(/);
+  assert.ok(seven.runtimeAliasCount>=30);
   assert.doesNotMatch(seven.code,/function outerVM\(/);
   assert.equal(run(seven.code,'seven-engines'),run(sevenSource,'seven-source'));
   const moduleSource='return {premium=function(x)return x*7 end}';

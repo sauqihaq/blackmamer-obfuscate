@@ -71,6 +71,16 @@ This architecture is conceptually similar to generic table/state-machine VM obfu
 
 Validate topology with `node tests/vm4-loader-topology.js`; the CI suite also checks Luau execution, Lua 5.1/LuaJIT compatibility, anti-tamper behavior and 50-program differential parity.
 
+## Performance and production integrity hardening
+
+- **Adaptive runtime guard:** V4 runs the initial integrity/debug sanity check at load, then in each executing prototype scales its periodic guard interval by `1 + min(7, floor(instructionCount/64))`. Short functions retain the original per-build jitter; larger functions check less frequently (up to 8× spacing). This avoids repeated expensive `debug.info` probes in larger hot paths, but does **not** eliminate their overhead or guarantee a slowdown-free frame loop. The fixed 1,000,000 VM-instruction safety ceiling is unchanged.
+- **Decode caching:** each `prototype(fid)` reads and unseals the function body once per output chunk into `P[fid]`; `parseStage(fid,spec)` separately caches the four execution columns in `programCache[fid]`. Engine call paths consult `prototype(fid)` and the parse cache. Constants and the optional outer VM have their own separate decode paths; those are not repeated per call.
+- **C++ sealer scope:** `native-sealer.js` accelerates compilation/sealing on the backend only. Generated Lua runs on Lua/Luau and does not execute C++; native sealing **does not speed up Lua runtime instruction dispatch**.
+- **Fail-closed tamper reaction:** the VM keeps a generic error on detected tampering, rather than silently corrupting opcodes or user data. Silent corruption can create difficult-to-diagnose failures and is not a secure substitute for server-side authorization.
+- **Distributed Vault limiter:** the remote key endpoint atomically counts up to 120 requests per license hash in each database-clock minute using PostgreSQL. Multiple Render processes share this limit **only when connected to the same database**. For separate services using different databases, place a shared edge/gateway rate limiter in front of them. Expired counter rows are opportunistically purged after one day.
+- **Strict license shape:** current keys are exactly `BM-` followed by six uppercase 6-hex-character groups (44 characters including hyphens), matching every key already issued by this project's commercial generator.
+- **Actual seven-VM diversity:** the test-only `auditVmTopology:true` mode computes SHA-256 fingerprints of real handler membership and order in each VM's dispatch families, ignoring random labels. `tests/vm4-guard-vm-diversity.js` checks 70 unique handler topologies across 10 builds. These hashes are not included in the generated Lua or normal API responses.
+
 ## Run and test
 
 ```bash

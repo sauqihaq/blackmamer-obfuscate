@@ -21,6 +21,7 @@ const child=spawn(process.execPath,['server.js'],{
 let logs='';
 child.stdout.on('data',d=>logs+=String(d));
 child.stderr.on('data',d=>logs+=String(d));
+let replica=null;
 const db=new Pool({connectionString:conn});
 async function call(endpoint,body={},headers={}){
  const response=await fetch(url+endpoint,{
@@ -85,6 +86,52 @@ async function call(endpoint,body={},headers={}){
   assert.equal(row.rows[0].key_iv.length,12);
   assert.equal(row.rows[0].key_tag.length,16);
   assert.equal(row.rows[0].key_cipher.includes(Buffer.from(secret)),false);
+  // Separate process + shared PostgreSQL: final available slot is atomic.
+  const secondPort=port+1;
+  replica=spawn(process.execPath,['server.js'],{
+   cwd:path.join(__dirname,'..'),env:{...env,PORT:String(secondPort)},
+   stdio:['ignore','pipe','pipe']
+  });
+  let replicaLogs='';
+  replica.stdout.on('data',d=>replicaLogs+=String(d));
+  replica.stderr.on('data',d=>replicaLogs+=String(d));
+  let replicaReady=false;
+  for(let i=0;i<80;i++){
+   try{
+    const r=await fetch('http://127.0.0.1:'+secondPort+'/api/runtime/config');
+    if(r.ok){replicaReady=true;break}
+   }catch{}
+   await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  assert.equal(replicaReady,true,replicaLogs);
+  const token=crypto.createHash('sha256').update(owner.key).digest('hex');
+  await db.query(
+   'INSERT INTO bms_runtime_rate_limits (license_hash,minute_bucket,requests) '+
+   'VALUES($1,FLOOR(EXTRACT(EPOCH FROM NOW())/60)::BIGINT,119) '+
+   'ON CONFLICT (license_hash,minute_bucket) DO UPDATE SET requests=119',[token]);
+  const [first,second]=await Promise.all([
+   call(keyUrl,{}, {'X-BM-License':owner.key,'X-BM-Universe':'1234'}),
+   fetch('http://127.0.0.1:'+secondPort+keyUrl,{
+    method:'POST',headers:{'Content-Type':'application/json',
+     'X-BM-License':owner.key,'X-BM-Universe':'1234'},
+    body:'{}'
+   }).then(r=>({status:r.status}))
+  ]);
+  assert.deepEqual([first.status,second.status].sort((x,y)=>x-y),[200,429],
+   'Both replicas must share one 120-per-minute PostgreSQL counter');
+  const {rows:limitRows}=await db.query(
+   'SELECT requests FROM bms_runtime_rate_limits WHERE license_hash=$1 '+
+   'AND minute_bucket=FLOOR(EXTRACT(EPOCH FROM NOW())/60)::BIGINT',[token]);
+  assert.equal(limitRows[0].requests,120);
+  // Wrong shapes are rejected before PostgreSQL accepts a request.
+  const malformed=await call(keyUrl,{}, {'X-BM-License':owner.key.replace(/-/g,''),
+   'X-BM-Universe':'1234'});
+  assert.equal(malformed.status,401);
+  replica.kill();
+  replica=null;
+  // Restore this disposable fixture's quota before the revocation test;
+  // otherwise it correctly returns 429 before checking revoked status.
+  await db.query('DELETE FROM bms_runtime_rate_limits WHERE license_hash=$1',[token]);
   // Revocation is available only as an authorized PATCH action.
   const patched=await fetch(url+'/api/admin/licenses/'+owner.id,{
    method:'PATCH',headers:{'Content-Type':'application/json',...auth},
@@ -94,7 +141,8 @@ async function call(endpoint,body={},headers={}){
   assert.equal(blocked.status,403);
   console.log('Remote vault PostgreSQL integration: license issuance, owner binding, universe, AES-at-rest, revocation and no plaintext response PASS');
  }finally{
+  replica?.kill();
   child.kill();
   await db.end();
  }
-})().catch(e=>{console.error(e);console.error(logs.slice(-3000));process.exitCode=1;child.kill();db.end().catch(()=>{})});
+})().catch(e=>{console.error(e);console.error(logs.slice(-3000));process.exitCode=1;replica?.kill();child.kill();db.end().catch(()=>{})});

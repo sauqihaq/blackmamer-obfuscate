@@ -4,6 +4,7 @@
 // Privileged server owners can still dump decrypted VM bytes after execution.
 const crypto=require('node:crypto');
 const {Pool}=require('pg');
+const {isLicense}=require('./license-format');
 // Accept both legacy 64-hex secrets and branded BM_ + 64-hex secrets.
 // The prefix is only presentation; AES-256-GCM still receives exactly 32 bytes.
 const rawMasterKey=process.env.BLACKMAMER_VAULT_MASTER_KEY||'';
@@ -20,25 +21,48 @@ const fail=(res,status,code,message)=>res.status(status).json({code,error:messag
 const isUuid=s=>typeof s==='string'&&
  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
 const isKey=s=>typeof s==='string'&&/^[a-fA-F0-9]{64}$/.test(s);
-const isLicense=s=>typeof s==='string'&&/^BM-[A-F0-9-]{35,45}$/.test(s);
 const sha=s=>crypto.createHash('sha256').update(s).digest('hex');
-const attempts=new Map();
 let ready;
 function setup(){
  if(!enabled)throw new Error('Vault requires licensing, PostgreSQL and a 32-byte master key');
- if(!ready)ready=pool.query(
-  'CREATE TABLE IF NOT EXISTS bms_runtime_artifacts ('+
-   'id UUID PRIMARY KEY,'+
-   'license_id UUID NOT NULL REFERENCES bms_licenses(id),'+
-   'universe_id BIGINT,'+
-   'key_iv BYTEA NOT NULL,'+
-   'key_tag BYTEA NOT NULL,'+
-   'key_cipher BYTEA NOT NULL,'+
-   'revoked BOOLEAN NOT NULL DEFAULT FALSE,'+
-   'created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),'+
-   "expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW()+INTERVAL '365 days')"
- ).catch(e=>{ready=null;throw e});
+ if(!ready)ready=(async()=>{
+  await pool.query(
+   'CREATE TABLE IF NOT EXISTS bms_runtime_artifacts ('+
+    'id UUID PRIMARY KEY,'+
+    'license_id UUID NOT NULL REFERENCES bms_licenses(id),'+
+    'universe_id BIGINT,'+
+    'key_iv BYTEA NOT NULL,'+
+    'key_tag BYTEA NOT NULL,'+
+    'key_cipher BYTEA NOT NULL,'+
+    'revoked BOOLEAN NOT NULL DEFAULT FALSE,'+
+    'created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),'+
+    "expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW()+INTERVAL '365 days')"
+  );
+  // One atomic PostgreSQL counter per license and minute is shared across
+  // every application replica using the same database.
+  await pool.query(
+   'CREATE TABLE IF NOT EXISTS bms_runtime_rate_limits ('+
+    'license_hash CHAR(64) NOT NULL,'+
+    'minute_bucket BIGINT NOT NULL,'+
+    'requests INTEGER NOT NULL CHECK(requests>=1),'+
+    'PRIMARY KEY(license_hash,minute_bucket))'
+  );
+ })().catch(e=>{ready=null;throw e});
  return ready;
+}
+async function consumeSharedRateLimit(token){
+ const {rowCount}=await pool.query(
+  'INSERT INTO bms_runtime_rate_limits(license_hash,minute_bucket,requests) '+
+  'VALUES($1,FLOOR(EXTRACT(EPOCH FROM clock_timestamp())/60)::BIGINT,1) '+
+  'ON CONFLICT(license_hash,minute_bucket) DO UPDATE SET '+
+  'requests=bms_runtime_rate_limits.requests+1 '+
+  'WHERE bms_runtime_rate_limits.requests<120 RETURNING requests',[token]);
+ // Opportunistic cleanup of expired daily buckets.
+ if(crypto.randomInt(256)===0){
+  await pool.query('DELETE FROM bms_runtime_rate_limits WHERE '+
+   'minute_bucket < FLOOR(EXTRACT(EPOCH FROM NOW())/60)::BIGINT-1440');
+ }
+ return rowCount>0;
 }
 function encrypted(artifactId,licenseId,keys){
  if(!master||!isUuid(artifactId)||!isUuid(licenseId))throw new Error('Vault is not configured');
@@ -77,7 +101,8 @@ async function store({artifactId,licenseId,keys,universeId=null}){
 function registerRoutes(app){
  app.get('/api/runtime/config',(_req,res)=>res.json({
   enabled,storage:'postgresql-encrypted',auth:'roblox-secret-store',
-  secretName:'BLACKMAMER_LICENSE',serverOnly:true,needsSetup:!enabled
+  secretName:'BLACKMAMER_LICENSE',serverOnly:true,needsSetup:!enabled,
+  rateLimit:'postgresql-shared-per-license',requestsPerMinute:120
  }));
  app.post('/api/runtime/key/:artifactId',async(req,res)=>{
   res.set('Cache-Control','no-store, private').set('Pragma','no-cache');
@@ -87,14 +112,7 @@ function registerRoutes(app){
   const credential=req.get('X-BM-License')||'';
   if(!isUuid(id)||!isLicense(credential))
    return fail(res,401,'VAULT_UNAUTHORIZED','Invalid runtime credential');
-  // Best-effort process-local rate limit; add an edge limiter for multi-instance.
-  const token=sha(credential),now=Date.now();
-  const entry=attempts.get(token)||{count:0,until:now+60000};
-  if(now>entry.until){entry.count=0;entry.until=now+60000}
-  entry.count++;
-  attempts.set(token,entry);
-  if(attempts.size>2000)attempts.clear();
-  if(entry.count>120)return fail(res,429,'VAULT_RATE_LIMIT','Too many runtime requests');
+  const token=sha(credential);
   try{
    await setup();
    const {rows}=await pool.query(
@@ -110,6 +128,10 @@ function registerRoutes(app){
        String(artifact.universe_id)!==claimed)
       return fail(res,403,'VAULT_UNIVERSE','Unexpected Roblox universe');
    }
+   // Apply shared quota only to an authenticated, owned artifact. Invalid
+   // random-looking license strings must not create unlimited database rows.
+   if(!await consumeSharedRateLimit(token))
+    return fail(res,429,'VAULT_RATE_LIMIT','Too many runtime requests');
    const keys=decrypted(id,artifact.license_id,artifact);
    return res.json({keys});
   }catch(e){

@@ -2019,8 +2019,21 @@ function compile(source, options={}) {
   // Retain a compact block-comment identifier so newline comments never
   // accidentally consume live code after minification.
   const rendered=compactLuau(runtimeText);
-  const polymorphic=options.hardened?polymorphRuntime(rendered):
-    {code:rendered,aliasCount:0,lineBreaks:0};
+  // Maximum output uses a real two-step metatable entrypoint: a generated
+  // method returns the execution closure, which in turn forwards all
+  // arguments and return values into the existing independent VM runtime.
+  // This is a loader topology, not a copy of any third-party obfuscator.
+  const metatableEntrypoint=options.hardened&&profileName==='Maximum';
+  let wrapped=rendered;
+  if(metatableEntrypoint){
+    const initMethod=randomName(),runMethod=randomName();
+    wrapped='return setmetatable({'+initMethod+'=function(self)'+
+      'return function(...)return self.'+runMethod+'(self,...)end end,'+
+      runMethod+'=function(self,...)'+rendered+' end'+
+      '},{}):'+initMethod+'()(...);';
+  }
+  const polymorphic=options.hardened?polymorphRuntime(wrapped):
+    {code:wrapped,aliasCount:0,lineBreaks:0};
   const code='--[[BLACKMAMER VM '+(options.hardened?'V4.0':'V3.4')+']]'+
     polymorphic.code+(options.hardened?'--[[WM:'+buildWatermark+']]':'');
   return {code,engine:options.hardened?'BLACKMAMER V4 Native VM':'BLACKMAMER V3 Native VM',
@@ -2037,6 +2050,7 @@ function compile(source, options={}) {
     cfgFlattenedBlocks:flattenedBlocks,cfgBridgeJumps:flattenedBridges,
     stringEncryption:true,buildWatermark:options.hardened?buildWatermark:null,
     runtimeAliasCount:polymorphic.aliasCount,runtimeChaosLineBreaks:polymorphic.lineBreaks,
+    metatableEntrypoint,
     parsedInstructionColumns:4,predecodedInstructions:true,
     nestedVM,outerVmInstructions:nestedVM?outerProgram[2]:0,
     vmArchitecture:sevenArchitecture?'seven-independent':(nestedVM?'nested':'single'),

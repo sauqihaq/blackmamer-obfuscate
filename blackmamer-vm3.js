@@ -1564,7 +1564,9 @@ function compile(source, options={}) {
     '    mix(SALT);mix(SBOX_MASK)',
     '    for _,ar in ipairs(A)do mix(#ar);for _,v in ipairs(ar)do mix(v)end end',
     ...(nestedVM?['    mix(H[1]);mix(#H[2]);for j=1,#H[2]do mix(nativeByte(H[2],j))end']:[]),
-    '    if '+(options.antiTamper===false?'false':'true')+' and h~=CHECK then nativeError("BLACKMAMER V3: bytecode integrity failed") end',
+    ...(options.antiTamper===false?[]:[
+      '    if h~=CHECK then nativeError("BLACKMAMER V3: bytecode integrity failed") end'
+    ]),
     '    if '+(options.antiDebug===false?'false':'true')+' then',
     '      if nativeType(nativeByte)~="function" or nativeType(nativeChar)~="function" or',
     '        nativeChar(65)~="A" or nativeByte("A")~=65 or bxor(9,3)~=10 or',

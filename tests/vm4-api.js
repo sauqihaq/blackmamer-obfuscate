@@ -106,7 +106,7 @@ async function main() {
   assert.equal(autoStandalone.data.blackmamerVM.autoEncryptedFunctions,2);
   assert.equal(autoStandalone.data.blackmamerVM.externallyKeyedFunctions,0);
   assert.deepEqual(autoStandalone.data.externalKeys,[]);
-  assert.match(autoStandalone.data.obfuscated,/_unfold/);
+  assert.doesNotMatch(autoStandalone.data.obfuscated,/_unfold|BMAUTO_V4/);
   assert.doesNotMatch(autoStandalone.data.obfuscated,/embeddedAutoKey/);
   const noNested=await post({...request,script:'print("no function")',autoFunctionEncryption:'external'});
   assert.equal(noNested.status,200);

@@ -68,7 +68,7 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
  if(Buffer.byteLength(source,'utf8')>LIMIT_BYTES)
    return res.status(413).json({error:'Native V4 maksimal 128 KB per script.'});
  if((preset!=='NativeV4'&&!selectedPreset)||(body.vmMode&&body.vmMode!=='native-v4'))
-   return res.status(400).json({error:'Preset harus NativeV4, fast, balanced, atau paranoid.',code:'INVALID_PRESET'});
+   return res.status(400).json({error:'Preset harus NativeV4, fast, balanced, atau paranoid.',code:'V4_ONLY'});
  if(!['standalone','server-vault'].includes(runtimeMode))
    return res.status(400).json({error:'Unknown runtime mode.',code:'INVALID_RUNTIME_MODE'});
  if(remoteRequested){

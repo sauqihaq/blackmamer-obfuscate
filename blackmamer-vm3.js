@@ -2061,6 +2061,7 @@ function compile(source, options={}) {
     bytecodeWidths:{compact:sealedFunctions.filter(f=>f[2]===3).length,
       wide:sealedFunctions.filter(f=>f[2]===4).length},
     dispatchStructure,dispatcherVariants,scrubbedRuntimeErrors,
+    stateMachineDispatch:sevenArchitecture,tableDrivenDispatch:sevenArchitecture,
     perFunctionOpcodePalette:options.hardened===true,
     perInstructionOperandRotation:options.hardened===true,
     opcodePaletteSize:options.hardened?OPS.length:0,

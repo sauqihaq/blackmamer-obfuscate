@@ -20,7 +20,7 @@ for(let attempt=0;attempt<12;attempt++){
   assert.equal(r.dispatcherVariants,2);
   assert.ok(r.scrubbedRuntimeErrors>=10);
   assert.doesNotMatch(r.code,/nativeError\("BLACKMAMER/);
-  assert.match(r.code,/\(\(pc\+spec\[3\]\)%2\)/);
+  assert.match(r.code,/pc\s*\+\s*spec\s*\[\s*3\s*\]\s*\)\s*%\s*2/);
   assert.ok(r.virtualizedFunctions>=4);
   assert.equal(r.opcodePaletteFingerprints.length,r.virtualizedFunctions);
   assert.equal(new Set(r.opcodePaletteFingerprints).size,r.virtualizedFunctions,
@@ -28,7 +28,7 @@ for(let attempt=0;attempt<12;attempt++){
   const signature=r.opcodePaletteFingerprints.join('|');
   assert.equal(seenBuilds.has(signature),false,'New build should reshuffle opcode palettes');
   seenBuilds.add(signature);
-  assert.match(r.code,/spec\[8\]\[/,
+  assert.match(r.code,/spec\s*\[\s*8\s*\]\s*\[/,
     'Runtime dispatcher must compare against the current prototype palette');
   assert.doesNotMatch(r.code,/\b(?:if|elseif) op==\d+\b/,
     'No single static numeric opcode discriminator in V4 dispatcher');

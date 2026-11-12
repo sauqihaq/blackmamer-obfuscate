@@ -129,6 +129,9 @@ async function call(endpoint,body={},headers={}){
   assert.equal(malformed.status,401);
   replica.kill();
   replica=null;
+  // Restore this disposable fixture's quota before the revocation test;
+  // otherwise it correctly returns 429 before checking revoked status.
+  await db.query('DELETE FROM bms_runtime_rate_limits WHERE license_hash=$1',[token]);
   // Revocation is available only as an authorized PATCH action.
   const patched=await fetch(url+'/api/admin/licenses/'+owner.id,{
    method:'PATCH',headers:{'Content-Type':'application/json',...auth},

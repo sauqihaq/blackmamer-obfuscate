@@ -80,7 +80,7 @@ function buildIndependentVmLines(lines,variants,rand){
    replacement.push('        elseif '+state+'=='+states[bucket]+' then');
    replacement.push('          '+state+'=0');
    buckets[bucket].forEach((block,i)=>{
-    const match=/^\\s*(?:if|elseif) op==O\\.([A-Z]+) then(.*)$/.exec(block[0]);
+    const match=/^\s*(?:if|elseif) op==O\.([A-Z]+) then(.*)$/.exec(block[0]);
     replacement.push('          '+(i?'elseif':'if')+' op==O.'+match[1]+
       ' then '+guard+'=true;'+match[2]);
     replacement.push(...block.slice(1));

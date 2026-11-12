@@ -3,6 +3,7 @@
 // No Prometheus/Vmify step in this engine. Unsupported syntax fails closed.
 const crypto = require('node:crypto');
 const {compactLuau} = require('./lua-output-compact');
+const {polymorphRuntime} = require('./runtime-polymorph');
 const {sealBatch} = require('./native-sealer');
 const {buildIndependentVmLines}=require('./vm7-independent');
 const {protectAstStrings}=require('./ast-string-layer');
@@ -619,7 +620,10 @@ function compile(source, options={}) {
     throw new SyntaxErrorV3('autoFunctionEncryption must be off, external, external-full, or standalone');
   if(autoMode!=='off'&&!options.hardened)
     throw new SyntaxErrorV3('Auto Function Encryption requires NativeV4');
-  const autoId='BMAUTO_V4';
+  // Standalone gets a fresh internal ID; external providers retain their
+  // documented BMAUTO_V4 key contract for compatibility.
+  const autoId=autoMode==='standalone'&&options.hardened
+    ?'BM'+crypto.randomBytes(8).toString('hex'):'BMAUTO_V4';
   const used=new Set(), codes={};
   for(const op of OPS){let id;do{id=rand(220)+17;}while(used.has(id));used.add(id);codes[op]=id;}
   const consts=[], constKeys=new Map(), funcs=[], argSets=[];
@@ -688,7 +692,7 @@ function compile(source, options={}) {
         if(n.args.length!==2 || n.args[0].t!=='str' || n.args[1].t!=='fun')
           throw new SyntaxErrorV3('BM_ENCFUNC expects ("id", function(...) ... end)');
         const id=n.args[0].value;
-        if(id===autoId)throw new SyntaxErrorV3('BM_ENCFUNC id BMAUTO_V4 is reserved');
+        if(id===autoId||id==='BMAUTO_V4')throw new SyntaxErrorV3('BM_ENCFUNC id BMAUTO_V4 is reserved');
         // One-script mode absorbs manual markers into the common standalone
         // key, avoiding surprise external modules even for older sources.
         const effectiveId=(autoMode==='standalone'||remoteRuntime)?autoId:id;
@@ -1303,17 +1307,16 @@ function compile(source, options={}) {
       mixed[p]=(keyData[i]+(left[p]^right[p])+(((i+1)*17+bootstrap)%256))%256;
     }
     standaloneKeyLine=[
-      '  local function _unfold()',
-      '    local _s={'+[left,right,mixed].map(b=>JSON.stringify(b.toString('hex'))).join(',')+'}',
-      '    local function _oct(t,p) local q=(p-1)*2+1',
-      '      return tonumber(string.sub(_s[t],q,q+1),16)end',
+      // The self-contained key material is never secret, but random numeric
+      // shares and lexical polymorphism avoid stable _unfold/_s signatures.
+      '  local _BK=(function()',
+      '    local _s={{'+[...left].join(',')+'},{'+[...right].join(',')+'},{'+[...mixed].join(',')+'}}',
       '    local _out={};for i=1,32 do',
       '      local p=((i-1)*'+stride+'+'+offset+')%32+1',
-      '      local x=_oct(1,p);local y=_oct(2,p);local z=_oct(3,p)',
+      '      local x=_s[1][p];local y=_s[2][p];local z=_s[3][p]',
       '      _out[i]=string.format("%02x",(z-bxor(x,y)-((i*17+BOOT)%256))%256)',
       '    end;return nativeConcat(_out)',
-      '  end',
-      '  local _BK=_unfold()'
+      '  end)()'
     ];
   }
   // If antiTamper remains enabled, all encrypted function ciphertext and
@@ -2015,8 +2018,11 @@ function compile(source, options={}) {
   // Deliberately publish the runtime as a dense single-line Luau chunk.
   // Retain a compact block-comment identifier so newline comments never
   // accidentally consume live code after minification.
+  const rendered=compactLuau(runtimeText);
+  const polymorphic=options.hardened?polymorphRuntime(rendered):
+    {code:rendered,aliasCount:0,lineBreaks:0};
   const code='--[[BLACKMAMER VM '+(options.hardened?'V4.0':'V3.4')+']]'+
-    compactLuau(runtimeText)+(options.hardened?'--[[WM:'+buildWatermark+']]':'');
+    polymorphic.code+(options.hardened?'--[[WM:'+buildWatermark+']]':'');
   return {code,engine:options.hardened?'BLACKMAMER V4 Native VM':'BLACKMAMER V3 Native VM',
     hardened:options.hardened===true,nativeSealer:sealedBatch.nativeUsed,
     target,protectionLevel:profileName,injectedAstBranches,astFlattenedGroups,
@@ -2030,6 +2036,7 @@ function compile(source, options={}) {
     }:{}),
     cfgFlattenedBlocks:flattenedBlocks,cfgBridgeJumps:flattenedBridges,
     stringEncryption:true,buildWatermark:options.hardened?buildWatermark:null,
+    runtimeAliasCount:polymorphic.aliasCount,runtimeChaosLineBreaks:polymorphic.lineBreaks,
     parsedInstructionColumns:4,predecodedInstructions:true,
     nestedVM,outerVmInstructions:nestedVM?outerProgram[2]:0,
     vmArchitecture:sevenArchitecture?'seven-independent':(nestedVM?'nested':'single'),

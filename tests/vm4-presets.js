@@ -18,8 +18,8 @@ for(const name of Object.keys(PRESETS)){
   assert.ok(a.opcodePaletteFingerprints.every(Boolean));
   assert.equal(new Set(a.opcodePaletteFingerprints).size,a.virtualizedFunctions);
   assert.equal(a.opcodePaletteSize,49,'The current ISA has 49, not 48, opcodes');
-  assert.match(a.code,/local function parseStage/);
-  assert.match(a.code,/local programCache/);
+  assert.ok(a.runtimeAliasCount>=20,'Expected randomized runtime local identifiers');
+  assert.ok(a.runtimeChaosLineBreaks>0,'Expected mixed lexical layout');
   assert.doesNotMatch(a.code,/if true and h~=CHECK/);
   assert.ok(a.code.includes('WM:'+a.buildWatermark));
   seen.add(a.buildWatermark);

@@ -10,7 +10,7 @@ assert.equal(good.length,44);
 assert.equal(isLicense(good),true);
 for(const bad of [
  good+'A',good.slice(0,-1),good.toLowerCase(),good.replace(/-/g,''),
- 'BM-123456-'+good.slice(10), 'BM-'+'G'.repeat(36),good+' ',
+ good.replace(/^BM-[A-F0-9]{6}-/,'BM-12345-'), 'BM-'+'G'.repeat(36),good+' ',
  '',null,{},'BM-'+('ABCD-'.repeat(8))
 ])assert.equal(isLicense(bad),false,String(bad));
 

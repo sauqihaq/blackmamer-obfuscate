@@ -13,6 +13,8 @@ const RUNTIME_LOCALS=new Set([
   'exec','get','set','nonil','constantCache','constantNil',
   'bmBitPair','bufFrom','bufLen','bufRead','bufRead32',
   '_BK','_s','_out','_oct','_unfold','_vaultProvider','_vaultCachedKey',
+  // VM registers, per-prototype execution state and dispatcher identifiers.
+  'R','pc','op','spec','env','nextpc','fid','passed','captured','frame',
   'outerVM','execVM1','execVM2','execVM3','execVM4',
   'execVM5','execVM6','execVM7'
 ]);
@@ -28,8 +30,17 @@ function polymorphRuntime(source,opts={}){
   // original identifier tokens because of the fixed-length random prefix.
   const aliasFor=name=>{
     if(!aliases.has(name)){
+      // Mix compact alphabetic names with longer hex names. Every alias
+      // is checked against the complete original VM text to avoid collisions
+      // with preexisting locals, globals and method names.
+      const alphabet='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
       let id;
-      do{id='_b'+crypto.randomBytes(9).toString('hex');}while(used.has(id)||source.includes(id));
+      do{
+        if(rand(100)<70){
+          const size=3+rand(3);
+          id=Array.from({length:size},()=>alphabet[rand(alphabet.length)]).join('');
+        }else id='_b'+crypto.randomBytes(9).toString('hex');
+      }while(used.has(id)||source.includes(id));
       used.add(id);aliases.set(name,id);
     }
     return aliases.get(name);

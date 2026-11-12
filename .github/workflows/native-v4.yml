@@ -12,6 +12,8 @@ on:
       - 'ast-string-layer.js'
       - 'tests/vm4-ast-string-layer.js'
       - 'tests/vm4-seven-independent.js'
+      - 'tests/vm4-loader-topology.js'
+      - 'runtime-polymorph.js'
       - 'native/**'
       - 'native-sealer.js'
       - 'protected-functions.js'
@@ -84,6 +86,7 @@ jobs:
           node tests/vm4-external-keys.js
           node tests/vm4-structural-audit.js
           node tests/vm4-seven-independent.js
+          node tests/vm4-loader-topology.js
           node tests/vm4-ast-string-layer.js
           node tests/vm4-binding-hardening.js
           node --check server.js

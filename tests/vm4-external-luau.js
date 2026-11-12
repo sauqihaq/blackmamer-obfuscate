@@ -117,7 +117,7 @@ try {
     const encoded=compile(script,{hardened:true,nestedVM:true,autoFunctionEncryption:'standalone'});
     assert.equal(encoded.generatedKeys.length,0);
     assert.equal(encoded.autoEncryptedFunctions,encoded.virtualizedFunctions);
-    assert.match(encoded.code,/_unfold/);
+    assert.doesNotMatch(encoded.code,/_unfold|BMAUTO_V4/);
     assert.match(encoded.code,/local _BK=/);
     assert.doesNotMatch(encoded.code,/embeddedAutoKey/);
     const name='auto-standalone-'+runs;

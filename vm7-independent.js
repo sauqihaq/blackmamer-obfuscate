@@ -4,6 +4,7 @@
 // Each engine has its own PC loop, call frames, register state, dispatcher,
 // per-engine affine opcode ISA, and an independently shuffled opcode handler
 // ordering. This is a family of engines, not 7 nested runtime layers.
+const crypto=require('node:crypto');
 const shuffle=(items,rand)=>{
  const out=items.slice();
  for(let i=out.length-1;i>0;i--){
@@ -37,6 +38,7 @@ function buildIndependentVmLines(lines,variants,rand){
  if(block)handlers.push(block);
  if(handlers.length<35)throw new Error('Incomplete Lua opcode handler table');
  const all=[];
+ const dispatchFingerprints=[];
  for(const variant of variants){
   const vmName='execVM'+variant.index;
   // Each engine gets unrelated route labels and short-lived route variables.
@@ -64,6 +66,15 @@ function buildIndependentVmLines(lines,variants,rand){
    buckets[bucket].push(block);
    routeEntries.push('[O.'+match[1]+']='+states[bucket]);
   });
+  // Hash the actual per-family opcode handler membership AND ordering,
+  // ignoring generated identifiers/state numbers. A changed fingerprint
+  // therefore means the logical dispatch topology changed, not just names.
+  const topology=buckets.map(bucket=>bucket.map(block=>{
+    const hit=/^\s*(?:if|elseif) op==O\.([A-Z]+) then/.exec(block[0]);
+    if(!hit)throw new Error('Missing handler identity for topology audit');
+    return hit[1];
+  }).join(',')).join('|');
+  dispatchFingerprints.push(crypto.createHash('sha256').update(topology).digest('hex'));
   // A small table-based route resolver and a per-engine state machine
   // replace the stable nested elseif opcode tree. The first transition
   // resolves the op through the executing prototype's shuffled palette;
@@ -124,6 +135,7 @@ function buildIndependentVmLines(lines,variants,rand){
  ];
  lines.splice(start,end-start+1,...all,...router);
  return {variantCount:variants.length,handlerCount:handlers.length,
-   stateMachine:true,statesPerEngine:variants.map(v=>v.index+3)};
+   stateMachine:true,statesPerEngine:variants.map(v=>v.index+3),
+   dispatchFingerprints};
 }
 module.exports={buildIndependentVmLines};

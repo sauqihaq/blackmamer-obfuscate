@@ -20,6 +20,7 @@ for(const name of Object.keys(PRESETS)){
   assert.equal(a.opcodePaletteSize,49,'The current ISA has 49, not 48, opcodes');
   assert.match(a.code,/local function parseStage/);
   assert.match(a.code,/local programCache/);
+  assert.doesNotMatch(a.code,/if true and h~=CHECK/);
   assert.ok(a.code.includes('WM:'+a.buildWatermark));
   seen.add(a.buildWatermark);
   if(name==='fast'){

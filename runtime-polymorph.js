@@ -40,8 +40,11 @@ function polymorphRuntime(source,opts={}){
   function maybeGap(){
     if(!chaos||!lastToken)return;
     const p=rand(100);
-    if(p<3){out.push('\n'+' '.repeat(rand(5)));lineBreaks++;}
-    else if(p<10)out.push(' '.repeat(1+rand(3)));
+    // Luau forbids an ambiguous newline before a call's '(' argument list.
+    // Only emit line breaks after explicit statement separators. Whitespace
+    // elsewhere is limited to spaces, which do not alter the token stream.
+    if(lastToken===';'&&p<55){out.push('\n'+' '.repeat(rand(5)));lineBreaks++;}
+    else if(p<12)out.push(' '.repeat(1+rand(3)));
   }
   while(i<n){
     const ch=source[i],next=source[i+1];

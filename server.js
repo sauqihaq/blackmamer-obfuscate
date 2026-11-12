@@ -162,6 +162,8 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
        vmVariants:result.vmVariants,vmSelectedPerPrototype:result.vmSelectedPerPrototype,
        nativeSealer:result.nativeSealer,
        runtimeBootstrap:result.runtimeBootstrap,opaquePredicates:result.opaquePredicates,
+        runtimeAliasCount:result.runtimeAliasCount,
+        runtimeChaosLineBreaks:result.runtimeChaosLineBreaks,
        periodicRuntimeGuard:result.periodicRuntimeGuard,
        autoFunctionEncryption:result.autoFunctionEncryption,
        autoEncryptedFunctions:result.autoEncryptedFunctions,

@@ -61,6 +61,16 @@ The `paranoid` output requires `BLACKMAMER_KEY_PROVIDER(id)` in a trusted host e
 
 The differential regression executes fifty input programs against official Lua 5.1 and compares stdout after V4 obfuscation (balanced and paranoid). The fixtures cover arithmetic, loops, closures, metatables, coroutines, and object-oriented method patterns. New code that intentionally segfaults debuggers or emits invalid Lua escapes is not used: neither reliably protects a runtime and both break normal execution or tooling.
 
+## Maximum One-Click: polymorphic table/state-machine output
+
+The single-button `NativeV4` profile with `oneClick:true` keeps the same API and frontend runtime choices: `LuaU` (Roblox Script/LocalScript/ModuleScript), `Lua51` (vanilla Lua 5.1) and `LuaJIT` (LuaJIT 2.x). The compiler still rejects unsupported syntax instead of emitting a broken script.
+
+Maximum V4 output now uses an independently implemented two-phase `setmetatable` entrypoint. Its seven independent language VM engines each resolve per-prototype randomized opcodes using a callable route table and randomized control-flow state labels rather than a fixed opcode `elseif` chain. The engine selector is a different encoded function table in each build. The runtime local register, program-counter, opcode and prototype identifiers are polymorphically renamed using mixed short/long collision-checked names.
+
+This architecture is conceptually similar to generic table/state-machine VM obfuscation; it **does not copy code from Loader.luau or Luraph**. Greater static complexity and size are **not** a guarantee of cryptographic strength or protection against runtime tracing. Generated standalone decryption material remains recoverable; external key providers are reserved for trusted host environments. Additional dispatcher transitions add execution overhead; benchmark scripts on Roblox devices and both Lua runtimes before production use.
+
+Validate topology with `node tests/vm4-loader-topology.js`; the CI suite also checks Luau execution, Lua 5.1/LuaJIT compatibility, anti-tamper behavior and 50-program differential parity.
+
 ## Run and test
 
 ```bash

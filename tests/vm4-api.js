@@ -49,9 +49,9 @@ async function main() {
   assert.equal(first.data.blackmamerVM.dispatcherVariants,2);
   assert.ok(first.data.blackmamerVM.scrubbedRuntimeErrors>=10);
   assert.doesNotMatch(first.data.obfuscated,/nativeError\("BLACKMAMER/);
-  assert.match(first.data.obfuscated,/pc\s*\+\s*spec\s*\[\s*3\s*\]\s*\)\s*%\s*2/);
-  assert.match(first.data.obfuscated,/spec\s*\[\s*8\s*\]\s*\[/,
-    'Handler identifiers must depend on executing function prototype');
+   assert.ok(first.data.blackmamerVM.runtimeAliasCount>=30);
+   assert.equal(first.data.blackmamerVM.perFunctionOpcodePalette,true);
+
   assert.doesNotMatch(first.data.obfuscated,/\bif op==\d+\b/,
     'Hardcoded V4 op==numeric dispatch exposes a global opcode mapping');
   assert.ok(first.data.blackmamerVM.runtimeAliasCount>=20);

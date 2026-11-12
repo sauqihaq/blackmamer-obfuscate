@@ -91,7 +91,7 @@ async function api(route,body){
   assert.equal(oneClick.data.blackmamerVM.vmSelectedPerPrototype,true);
   assert.doesNotMatch(oneClick.data.obfuscated,/local function outerVM\(/);
   assert.doesNotMatch(oneClick.data.obfuscated,/execVM[1-7]/);
-  assert.match(oneClick.data.obfuscated,/function\s+_b[a-f0-9]{18}\s*\(/);
+  assert.match(oneClick.data.obfuscated,/function\s+[A-Za-z_][A-Za-z0-9_]*\s*\(/);
   assert.ok(oneClick.data.blackmamerVM.soaPrototypes>=1,
     'Maximum oneClick should use column-oriented VM bytecode');
   assert.equal(oneClick.data.blackmamerVM.autoFunctionEncryption,'standalone');

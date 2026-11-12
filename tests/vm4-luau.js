@@ -146,7 +146,7 @@ try {
   assert.equal(legacy.nestedVM,false);
   assert.equal(run(legacy.code,'legacy-v4'),run('print("legacy")','legacy-source'));
   const corrupted=compile('print("test")',{hardened:true,nestedVM:true});
-  const tampered=corrupted.code.replace(/(local _[a-z]{7}=\{")([A-Za-z0-9_-])/,
+  const tampered=corrupted.code.replace(/(local\s+_[a-z]{7}\s*=\s*\{\s*")([A-Za-z0-9_-])/,
     (_,prefix,c)=>prefix+(c==='A'?'B':'A'));
   assert.notEqual(tampered,corrupted.code);
   const tamperedFile=path.join(dir,'tampered.luau');

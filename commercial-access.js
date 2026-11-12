@@ -4,6 +4,7 @@
 // ADMIN_SESSION_SECRET (>=32 chars). Enable with LICENSE_ENFORCED=true.
 const crypto=require('node:crypto');
 const {Pool}=require('pg');
+const {isLicense}=require('./license-format');
 const enforce=process.env.LICENSE_ENFORCED==='true';
 const secret=process.env.ADMIN_SESSION_SECRET||'';
 const adminPass=process.env.ADMIN_PASSWORD||'';
@@ -36,7 +37,7 @@ const shape=r=>({
 });
 async function findKey(key){
  await setup();
- if(typeof key!=='string'||!/^BM-[A-F0-9-]{35,45}$/.test(key))return null;
+ if(!isLicense(key))return null;
  const {rows}=await pool.query("SELECT l.*,COALESCE(u.used,0) AS used_today FROM bms_licenses l LEFT JOIN bms_usage u ON u.license_id=l.id AND u.usage_day=(NOW() AT TIME ZONE 'UTC')::date WHERE key_hash=$1",[hash(key.trim())]);
  return rows[0]||null;
 }
@@ -60,7 +61,7 @@ async function gate(req,res,next){
  // Invalid request bodies are rejected by existing API validation, uncharged.
  if(typeof req.body?.script!=='string'||!req.body.script.trim()||Buffer.byteLength(req.body.script)>1024*1024)return next();
  const key=req.headers['x-license-key'];
- if(typeof key!=='string'||key.length>120)return fail(res,401,'Masukkan lisensi aktif.','LICENSE_REQUIRED');
+ if(!isLicense(key))return fail(res,401,'Masukkan lisensi aktif.','LICENSE_REQUIRED');
  let db;
  try{
   await setup();db=await pool.connect();await db.query('BEGIN');

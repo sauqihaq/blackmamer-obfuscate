@@ -8,7 +8,10 @@
     "test": "node test-vm2.js",
     "test:luau": "node tests/luau-smoke.js",
     "test:v4": "node tests/vm4-only-api.js",
-    "test:lua51": "node tests/vm4-lua51.js"
+    "test:lua51": "node tests/vm4-lua51.js",
+    "obfuscate": "node cli.js",
+    "test:differential": "node tests/vm4-differential-50.js",
+    "test:presets": "node tests/vm4-presets.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

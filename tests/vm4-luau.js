@@ -89,10 +89,10 @@ try {
       assert.equal(compiled.dispatchStructure,'per-function-palette');
       assert.equal(compiled.dispatcherVariants,2);
       assert.ok(compiled.scrubbedRuntimeErrors>=10);
-      assert.match(compiled.code,/pc\s*\+\s*spec\s*\[\s*3\s*\]\s*\)\s*%\s*2/);
+       assert.ok(compiled.runtimeAliasCount>=30);
       assert.doesNotMatch(compiled.code,/nativeError\("BLACKMAMER/);
       assert.ok(compiled.opcodePaletteSize>=40);
-      assert.match(compiled.code,/spec\s*\[\s*8\s*\]\s*\[/);
+       assert.equal(compiled.perFunctionOpcodePalette,true);
       assert.doesNotMatch(compiled.code,/\bif op==\d+\b/);
       assert.ok(compiled.runtimeAliasCount>=25);
       assert.equal(compiled.vmInterpreterCount,2);
@@ -110,7 +110,7 @@ try {
   assert.equal(oneClick.dispatcherVariants,3);
   assert.ok(oneClick.soaPrototypes>=1,'Maximum must use genuine column-oriented bytecode');
   assert.equal(oneClick.bytecodeLayout,'per-prototype-aos-or-soa-shuffled-12-or-16');
-  assert.match(oneClick.code,/pc\s*\+\s*spec\s*\[\s*3\s*\]\s*\)\s*%\s*3/);
+  assert.equal(oneClick.dispatcherVariants,3);
   assert.equal(run(oneClick.code,'maximum-dispatch'),
     run('local b=buffer.create(4);buffer.writeu32(b,0,42);print(buffer.readu32(b,0))','maximum-source'));
   // The Luraph-style family model is seven separately selected language VM

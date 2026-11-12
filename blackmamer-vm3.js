@@ -1754,7 +1754,10 @@ function compile(source, options={}) {
     '    local env={vars={},parent=captured}',
     '    for j,k in ipairs(spec[1])do local v=passed[j];env.vars[K(k)]=v==nil and NIL or v end',
     '    local R={};local pc=1;local ticks=0;local length=spec[5]',
-    '    local guardAt='+(71+buildDigest[6]%97)+';local guardBias='+(109+buildDigest[7]%143),
+    // Guard scales with each sealed function's instruction count, capped
+    // to bound the gap between runtime hook checks even for large functions.
+    '    local guardScale=1+math.min(7,math.floor(length/64))',
+    '    local guardAt='+(71+buildDigest[6]%97)+'*guardScale;local guardBias='+(109+buildDigest[7]%143)+'*guardScale',
     '    local function get(n)',
     '      local frame=env',
     '      while frame do local v=rawget(frame.vars,n);if v~=nil then return nonil(v)end;frame=frame.parent end',
@@ -1864,9 +1867,11 @@ function compile(source, options={}) {
   // language VM functions and a per-prototype router, with NO outer decoder.
   // The original single-engine dispatcher below is retained for old modes.
   let dispatchStructure,dispatcherVariants=1;
+  let vmEngineDispatchFingerprints=[];
   if(sevenArchitecture){
     const built=buildIndependentVmLines(lines,vmVariants,rand);
     if(built.variantCount!==7)throw new Error('Incomplete multi-engine VM');
+    vmEngineDispatchFingerprints=built.dispatchFingerprints;
     dispatchStructure='seven-per-prototype';
     dispatcherVariants=7;
   }else{
@@ -2076,6 +2081,8 @@ function compile(source, options={}) {
       wide:sealedFunctions.filter(f=>f[2]===4).length},
     dispatchStructure,dispatcherVariants,scrubbedRuntimeErrors,
     stateMachineDispatch:sevenArchitecture,tableDrivenDispatch:sevenArchitecture,
+    guardIntervalPolicy:options.hardened&&options.antiDebug!==false?'prototype-scaled':'disabled',
+    ...(options.auditVmTopology===true?{vmEngineDispatchFingerprints}:{}),
     perFunctionOpcodePalette:options.hardened===true,
     perInstructionOperandRotation:options.hardened===true,
     opcodePaletteSize:options.hardened?OPS.length:0,

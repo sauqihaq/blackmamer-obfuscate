@@ -18,6 +18,8 @@ on:
       - 'native-sealer.js'
       - 'protected-functions.js'
       - 'runtime-key-vault.js'
+      - 'license-format.js'
+      - 'tests/vm4-guard-vm-diversity.js'
       - 'tests/runtime-key-vault.js'
       - 'tests/vm4-remote-luau.js'
       - 'tests/vm4-remote-postgres.js'
@@ -82,10 +84,12 @@ jobs:
           node --check ast-string-layer.js
           node --check native-sealer.js
           node --check protected-functions.js
+          node --check license-format.js
           node --check runtime-key-vault.js
           node tests/vm4-external-keys.js
           node tests/vm4-structural-audit.js
           node tests/vm4-seven-independent.js
+          node tests/vm4-guard-vm-diversity.js
           node tests/vm4-loader-topology.js
           node tests/vm4-ast-string-layer.js
           node tests/vm4-binding-hardening.js

@@ -1119,7 +1119,7 @@ function compile(source, options={}) {
     // adjacent instruction rows. Always include at least one SoA prototype.
     const soa=options.hardened&&(
       options.bytecodeLayout==='soa'||
-      (options.bytecodeLayout!=='aos'&&profileName==='Maximum'&&
+      (options.bytecodeLayout!=='aos'&&(profileName==='Maximum'||options.bytecodeLayout==='poly')&&
         (functionIndex===0||(functionIndex!==1&&rand(2)===0))));
     if(soa)soaPrototypeCount++;
     pack16(f.p.length,raw);
@@ -1913,7 +1913,8 @@ function compile(source, options={}) {
     // *executing prototype* seed and the current VM PC. Return handlers
     // remain inline, so Lua function return semantics are preserved.
     // This diversifies static structures, but tracing still recovers opcodes.
-    dispatcherVariants=profileName==='Maximum'?3:2;
+    dispatcherVariants=options.dispatchFamilies===1||options.dispatchFamilies===3
+      ?options.dispatchFamilies:(profileName==='Maximum'?3:2);
     for(let family=0;family<dispatcherVariants;family++){
       const group=handlers.slice();
       for(let j=group.length-1;j>0;j--){

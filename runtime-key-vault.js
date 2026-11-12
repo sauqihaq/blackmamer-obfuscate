@@ -115,8 +115,6 @@ function registerRoutes(app){
   const token=sha(credential);
   try{
    await setup();
-   if(!await consumeSharedRateLimit(token))
-    return fail(res,429,'VAULT_RATE_LIMIT','Too many runtime requests');
    const {rows}=await pool.query(
      'SELECT a.license_id,a.universe_id,a.key_iv,a.key_tag,a.key_cipher '+
      'FROM bms_runtime_artifacts a JOIN bms_licenses l ON l.id=a.license_id '+
@@ -130,6 +128,10 @@ function registerRoutes(app){
        String(artifact.universe_id)!==claimed)
       return fail(res,403,'VAULT_UNIVERSE','Unexpected Roblox universe');
    }
+   // Apply shared quota only to an authenticated, owned artifact. Invalid
+   // random-looking license strings must not create unlimited database rows.
+   if(!await consumeSharedRateLimit(token))
+    return fail(res,429,'VAULT_RATE_LIMIT','Too many runtime requests');
    const keys=decrypted(id,artifact.license_id,artifact);
    return res.json({keys});
   }catch(e){

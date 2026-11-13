@@ -17,6 +17,7 @@ on:
       - 'tests/vm4-loader-topology.js'
       - 'tests/vm4-no-virtualize.js'
       - 'tests/vm4-metamethod-trap.js'
+      - 'tests/vm4-prototype-schema.js'
       - 'tests/vm4-single-line.js'
       - 'runtime-polymorph.js'
       - 'native/**'
@@ -97,6 +98,7 @@ jobs:
           node tests/vm4-structural-audit.js
           node tests/vm4-seven-independent.js
           node tests/vm4-guard-vm-diversity.js
+          node tests/vm4-prototype-schema.js
           node tests/vm4-loader-topology.js
           node tests/vm4-single-line.js
           node tests/vm4-ast-string-layer.js

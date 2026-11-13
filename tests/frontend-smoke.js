@@ -30,6 +30,7 @@ function byId(id){
 }
 byId('preset').value='NativeV4';
 byId('target').value='LuaU';
+byId('runtimeMode').value='client-standalone';
 let calls=[],badKeys=false;
 const fetchMock=async(url,options)=>{
  calls.push({url,options});
@@ -42,6 +43,7 @@ const fetchMock=async(url,options)=>{
       nestedVM:false,autoEncryptedFunctions:2,applied:true,fallback:false,
       vmArchitecture:'seven-independent',vmInterpreterCount:7,
       astStringEncryption:true,astEncryptedStrings:3},
+    securityModel:{executionContext:JSON.parse(options.body).executionContext,warnings:[]},
     externalKeys:badKeys?[{id:'premium',key:'a1'.repeat(32)}]:[]
   })};
 };
@@ -63,6 +65,7 @@ compiled.runInContext(vm.createContext(sandbox));
  assert.equal(p.vmMode,'native-v4');
  assert.equal(p.oneClick,true);
  assert.equal(p.target,'LuaU');
+ assert.equal(p.executionContext,'client');
  assert.equal(p.protectionLevel,undefined);
  assert.equal(p.autoFunctionEncryption,undefined);
  assert.equal(p.antiDebug,undefined);
@@ -76,6 +79,16 @@ compiled.runInContext(vm.createContext(sandbox));
  request=calls.find(x=>x.url.endsWith('/api/obfuscate'));
  p=JSON.parse(request.options.body);
  assert.equal(p.target,'Lua51');
+ assert.equal(p.executionContext,'portable');
+ byId('target').value='LuaU';
+ byId('target').handlers.change();
+ byId('runtimeMode').value='server-standalone';
+ byId('runtimeMode').handlers.change();
+ calls=[];await byId('obfuscate').click();
+ request=calls.find(x=>x.url.endsWith('/api/obfuscate'));
+ p=JSON.parse(request.options.body);
+ assert.equal(p.executionContext,'server');
+ assert.equal(p.runtimeMode,'standalone');
  badKeys=true;await byId('obfuscate').click();
  assert.equal(byId('download').disabled,true);
  assert.equal(byId('result').value,'');

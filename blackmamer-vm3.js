@@ -7,6 +7,7 @@ const {polymorphRuntime} = require('./runtime-polymorph');
 const {sealBatch} = require('./native-sealer');
 const {buildIndependentVmLines}=require('./vm7-independent');
 const {protectAstStrings}=require('./ast-string-layer');
+const {optimizer:optimizeVmIr,mosaic:injectVmDeadCode}=require('./vm4-deadcode-optimizer');
 const {requireKey,requireId,encryptBytes,runtimeLines:protectedRuntimeLines} = require('./protected-functions');
 const rand = max => crypto.randomInt(max);
 
@@ -1057,6 +1058,35 @@ function compile(source, options={}) {
     }
   }
 
+
+  // Performance-aware Maximum dead-code mosaic:
+  // 1. Prune unreachable ORIGINAL IR via a conservative CFG optimizer.
+  // 2. Insert non-executing, interconnected VM instruction islands only
+  //    behind unconditional control-flow barriers after optimizer/fusion.
+  // 3. Seal everything as ordinary randomized per-prototype VM bytecode.
+  // Runtime has zero decoy opcode dispatches; initialization still decodes
+  // larger payloads and must be benchmarked on actual devices.
+  const optimizerEnabled=options.hardened===true&&profileName==='Maximum'&&
+    options.irOptimizer!==false;
+  let irOptimizerRemoved=0,deadCodeInstructions=0,deadCodeBlocks=0;
+  let vmCoreInstructions=0,remainingDeadBudget=8192;
+  for(const fn of funcs){
+    if(optimizerEnabled){
+      const optimized=optimizeVmIr(fn.ins,codes);
+      fn.ins=optimized.rows;
+      irOptimizerRemoved+=optimized.removed;
+    }
+    vmCoreInstructions+=fn.ins.length;
+    if(optimizerEnabled&&remainingDeadBudget>0){
+      const padded=injectVmDeadCode(fn.ins,codes,consts.length,{
+        density:2.7,budget:remainingDeadBudget
+      });
+      fn.ins=padded.rows;
+      deadCodeInstructions+=padded.added;
+      deadCodeBlocks+=padded.blocks;
+      remainingDeadBudget-=padded.added;
+    }
+  }
 
   // A function index must not disclose the root prototype or lexical order.
   // Shuffle the prototype registry each build and fix all CLOSURE operands
@@ -2247,6 +2277,10 @@ function compile(source, options={}) {
     }:{}),
     fusedInstructions:fusionTotal,superInstructionKinds:fusionCounts,
     vmInstructions:funcs.reduce((n,f)=>n+f.ins.length,0),
+    optimizerEnabled,irOptimizerRemoved,vmCoreInstructions,
+    deadCodeInstructions,deadCodeBlocks,
+    deadCodeStrategy:optimizerEnabled?'sealed-cfg-islands':'disabled',
+    zeroRuntimeDecoyDispatch:optimizerEnabled,
     antiTamper: options.antiTamper!==false, antiDebug: options.antiDebug!==false};
 }
 module.exports={compile,lex,Parser,SyntaxErrorV3};

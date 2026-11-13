@@ -102,6 +102,19 @@ The marker syntax is `BM_NO_VIRTUALIZE(function(args) ... end)`. It accepts **on
 
 Works for `LuaU`, `Lua51` and `LuaJIT` targets if their runtimes expose Lua 5.1-compatible `setfenv`. The compiler emits a fail-closed error rather than attempting to run an incorrectly scoped native callback if this compatibility API is missing. `blackmamerVM.nativeExemptFunctions` reports how many exemptions were applied, and every remaining function stays in the selected VM protection mode.
 
+## Maximum V4 dead-code mosaic and IR optimizer
+
+Maximum One-Click now includes a **two-stage compiler pipeline** that adds more structural decoy code without executing it on normal VM control-flow paths:
+
+1. **CFG optimizer first:** after superinstruction fusion and AST/VM control-flow flattening, a conservative instruction-reachability pass removes unreachable *original* IR and relocates valid `JUMP`, `JF` and `JT` targets. It never reorders user operations or changes the semantics of reachable instructions.
+2. **VM dead-code mosaic second:** the compiler inserts a randomized mix of genuine but unreachable virtual instructions (`K`, `GET`, arithmetic, `TABLE`, `MOV`, branching and return opcodes) behind unconditional VM control-flow barriers. It relocates all real jump targets, and the decoy blocks can link to one another. These instructions are indistinguishable from ordinary VM instruction types in the encrypted payload, but they remain removable by complete CFG reachability analysis.
+3. **Bounded density:** Maximum targets about 2.7 dead instructions per optimized core instruction, capped at 1,024 per prototype and 8,192 across a compilation, with a hard 12,000-instruction per-prototype ceiling. Runtime paths execute **zero dead-code instructions**, although bytecode size, verification, unpacking and first-call decoding costs increase. No unbounded quadratic junk explosion.
+4. **Security and portability unchanged:** independent seven-VM handler layouts, per-prototype opcode permutations, superinstruction fusion, bytecode sealing, native-function exclusions, remote vault, anti-debug and `__tostring` integrity checks remain active. Generated output is still a single physical line for Luau, Lua 5.1 and LuaJIT.
+
+Telemetry fields include `optimizerEnabled`, `irOptimizerRemoved`, `vmCoreInstructions`, `deadCodeInstructions`, `deadCodeBlocks` and `deadCodeStrategy`. To compare benchmark baselines, `compile(...,{irOptimizer:false})` disables this new optimizer-and-mosaic stage (not other existing protections); the production Maximum One-Click default enables it. `tests/vm4-deadcode-optimizer.js` verifies that all decoy rows remain unreachable and that real CFG destinations remain correct.
+
+This is **not** a guarantee of Luraph-level protection: dead code is noise, not encryption. It makes static inspection longer but a capable control-flow deobfuscator can discard it. The density is deliberately limited to balance protection appearance, artifact size and Roblox cold-start latency. Benchmark actual scripts before deciding whether a higher density would be worthwhile.
+
 ## Private metamethod `__tostring` anti-tamper trap
 
 Native V4 hardened builds with `antiTamper:true` now create a **per-build isolated table sentinel** with its own locked `__metatable` and a `__tostring` function. The compiler generates a fresh challenge value for each output, then verifies that the real `tostring(sentinel)` invokes that exact metamethod, returns the correct value, and increments its invocation counter once. It also checks the sentinel's metamethod identity and the integrity of the `tostring`, `setmetatable`, `getmetatable` and `rawget` global functions.

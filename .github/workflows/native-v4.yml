@@ -14,6 +14,7 @@ on:
       - 'tests/vm4-seven-independent.js'
       - 'tests/vm4-loader-topology.js'
       - 'tests/vm4-no-virtualize.js'
+      - 'tests/vm4-metamethod-trap.js'
       - 'tests/vm4-single-line.js'
       - 'runtime-polymorph.js'
       - 'native/**'
@@ -137,4 +138,5 @@ jobs:
           node tests/vm4-remote-luau.js
           node tests/vm4-lua51.js
           node tests/vm4-no-virtualize.js
+          node tests/vm4-metamethod-trap.js
           node tests/vm4-differential-50.js

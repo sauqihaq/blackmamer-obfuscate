@@ -174,6 +174,8 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
         runtimeAliasCount:result.runtimeAliasCount,
         runtimeChaosLineBreaks:result.runtimeChaosLineBreaks,
        periodicRuntimeGuard:result.periodicRuntimeGuard,
+       metamethodTostringTrap:result.metamethodTostringTrap,
+       metamethodTrapPeriodic:result.metamethodTrapPeriodic,
        autoFunctionEncryption:result.autoFunctionEncryption,
        autoEncryptedFunctions:result.autoEncryptedFunctions,
        externallyKeyedFunctions:result.externallyKeyedFunctions,

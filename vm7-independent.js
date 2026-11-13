@@ -45,6 +45,9 @@ function buildIndependentVmLines(lines,variants,rand){
   const guard='_g'+variant.index+'_'+rand(1000000000).toString(36);
   const route='_r'+variant.index+'_'+rand(1000000000).toString(36);
   const state='_q'+variant.index+'_'+rand(1000000000).toString(36);
+  // Metadata ends at spec[10]. Each engine chooses a distinct hidden cache
+  // slot; a prototype only ever runs on its selected engine.
+  const routeCacheSlot=11+rand(29);
   const usedStates=new Set();
   const allocState=()=>{let value;do{value=1000+rand(62000);}while(usedStates.has(value));
     usedStates.add(value);return value;};
@@ -85,7 +88,7 @@ function buildIndependentVmLines(lines,variants,rand){
    '      local '+guard+'=false',
    '      local '+state+'='+initialState,
    '      while '+state+'~=0 do',
-   '        if '+state+'=='+initialState+' then '+state+'='+route+'(op)'
+   '        if '+state+'=='+initialState+' then '+state+'='+route+'[op]'
   ];
   for(let bucket=0;bucket<buckets.length;bucket++){
    replacement.push('        elseif '+state+'=='+states[bucket]+' then');
@@ -109,13 +112,22 @@ function buildIndependentVmLines(lines,variants,rand){
   const specIndex=engineBody.findIndex(x=>x==='    local spec=prototype(fid)');
   if(specIndex<0)throw new Error('Prototype fetch statement missing in engine template');
   engineBody[specIndex]='    spec=spec or prototype(fid)';
-  // Only the executing prototype's randomized palette keys this map.
-  // It is computed once per function call, not on every VM instruction.
-  engineBody.splice(specIndex+1,0,
-    '    local '+route+'=setmetatable({'+routeEntries.join(',')+
-      '},{__call=function(self,value)return self[value] or 0 end})');
-  // Account for the new local statement when replacing the old dispatch.
-  engineBody.splice(markerStart+1,markerEnd-markerStart+1,...replacement);
+  // Build the route map once per SEALED prototype, not on every call of
+  // that function. Its keys are still derived from spec[8]'s unique opcode
+  // palette, and each engine keeps its independently randomized topology.
+  // Use __index only on invalid opcodes; valid instructions take a direct
+  // table lookup instead of invoking Lua's __call metamethod per tick.
+  const routeInit=[
+    '    local '+route+'=spec['+routeCacheSlot+']',
+    '    if not '+route+' then',
+    '      '+route+'=setmetatable({'+routeEntries.join(',')+
+      '},{__index=function()return 0 end})',
+    '      spec['+routeCacheSlot+']='+route,
+    '    end'
+  ];
+  engineBody.splice(specIndex+1,0,...routeInit);
+  // The new route-init statements precede the original opcode dispatcher.
+  engineBody.splice(markerStart+routeInit.length,markerEnd-markerStart+1,...replacement);
   all.push('  local function '+vmName+'(fid,passed,captured,spec)',...engineBody,'  end');
  }
  // Encoded per-build engine routing via a function table. One selected
@@ -135,7 +147,8 @@ function buildIndependentVmLines(lines,variants,rand){
  ];
  lines.splice(start,end-start+1,...all,...router);
  return {variantCount:variants.length,handlerCount:handlers.length,
-   stateMachine:true,statesPerEngine:variants.map(v=>v.index+3),
+   stateMachine:true,cachedRoutes:true,directTableDispatch:true,
+   statesPerEngine:variants.map(v=>v.index+3),
    dispatchFingerprints};
 }
 module.exports={buildIndependentVmLines};

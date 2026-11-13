@@ -70,6 +70,10 @@
     .rule{border:0;border-top:1px solid #284050;margin:20px 0}
     .presets{padding:13px;border-radius:12px;background:#0a2030;color:#9ccbd5;border:1px solid #285265;font-size:12px;line-height:1.65}
     .actionzone{padding:0 18px 19px}
+    .advanced{margin-top:15px;border-top:1px solid #284050;padding-top:13px}
+    .advanced summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:650}
+    .advanced .field{margin-top:12px;margin-bottom:6px}
+    .advanced summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
     .actionzone .primary{width:100%}
     .statusline{min-height:20px;color:var(--muted);font-size:12px;padding-top:11px;text-align:center}
     .output{margin-top:17px}
@@ -106,7 +110,7 @@
       </div>
       <div class="notice">
         <strong>Native V4 • Lua 5.1 / Luau</strong>
-        VM mandiri buatan BLACKMAMER. Proteksi selalu otomatis: satu script keluaran tanpa Key Provider tambahan.
+        Satu klik, Maximum V4 otomatis. Output Roblox bisa digunakan sebagai Script, LocalScript, atau ModuleScript sesuai penempatan script aslinya.
       </div>
     </header>
 
@@ -164,29 +168,23 @@ print(&quot;Hello World&quot;)"></textarea>
 <input type="hidden" id="preset" value="NativeV4">
 <div class="presets" style="border-color:#cb5470;background:linear-gradient(130deg,#381725,#111e2a)">
   <strong>MAXIMUM V4 • AUTO</strong><p>7 VM independen, AST + CFG, C++ sealing, enkripsi fungsi otomatis, serta pemeriksaan integritas.</p>
-  <small>Client: standalone • Server: standalone atau Remote Vault</small>
+  <small>Satu klik • Roblox Script / LocalScript / ModuleScript</small>
 </div>
           </div>
-          <div class="field">
-            <label for="target">Target runtime</label>
-            <select id="target"><option value="LuaU" selected>Roblox / Luau</option>
-<option value="Lua">Lua (5.1-compatible)</option><option value="Lua51">Lua 5.1 vanilla</option><option value="LuaJIT">LuaJIT</option></select>
-          </div>
-          <div class="field"><label for="runtimeMode">Jenis script Roblox</label>
-            <select id="runtimeMode">
-              <option value="client-standalone">LocalScript / ModuleScript client — Standalone</option>
-              <option value="server-standalone">Script / ModuleScript server — Standalone</option>
-              <option value="server-vault">Script / ModuleScript server — Remote Vault (kunci eksternal)</option>
-            </select>
-            <p class="help" id="runtimeHint">Client standalone: script bisa dibaca oleh client; obfuscation hanya memperberat analisis.</p>
-            <div id="runtimeLicensePanel" hidden><label for="runtimeLicense">Lisensi BLACKMAMER untuk Remote Vault</label>
-              <input id="runtimeLicense" type="password" placeholder="BM-XXXXXX-..." autocomplete="off"/>
-              <p class="help">Simpan lisensi sebagai Secret BLACKMAMER_LICENSE di Creator Hub, aktifkan HTTP Requests.</p>
+          <p class="help">Default: <strong>Roblox / Luau</strong>. Tidak perlu memilih LocalScript, Script, atau ModuleScript. Sistem memakai proteksi Maximum V4 standalone otomatis.</p>
+          <details class="advanced">
+            <summary>Opsi runtime lain (Lua 5.1 / LuaJIT)</summary>
+            <div class="field">
+              <label for="target">Runtime output</label>
+              <select id="target"><option value="LuaU" selected>Roblox / Luau (default)</option>
+                <option value="Lua51">Lua 5.1 vanilla</option>
+                <option value="LuaJIT">LuaJIT 2.x</option>
+              </select>
+              <p class="help">Lua 5.1 dan LuaJIT punya output sendiri; satu file Luau Roblox tidak bisa dijamin jalan di semua interpreter.</p>
             </div>
-          </div>
-          <p class="help">Native V4: AST dead branches, CFG flattening, sealed strings, dan 7 VM independen di Maximum.</p>
+          </details>
           <hr class="rule">
-          <div class="presets" id="info">LocalScript tidak boleh menyimpan token/secret server. Untuk fungsi sensitif, pindahkan logikanya ke Script server dan validasi RemoteEvent. Mode Server Vault membutuhkan backend dan lisensi aktif.</div>
+          <div class="presets" id="info">Standalone: kunci dekripsi dapat direkonstruksi dari hasil. Untuk logika sensitif, tetap gunakan Script server Roblox; jangan masukkan password, token, atau kunci rahasia di LocalScript.</div>
         </div>
         <div class="actionzone">
           <button class="btn primary" type="button" id="obfuscate">◆ Obfuscate Script</button>
@@ -211,18 +209,7 @@ print(&quot;Hello World&quot;)"></textarea>
     const result = $('result');
     let lastMode = 'LuaU';
     let running = false;
-    function updateRuntimeMode(){
-      const mode=$('runtimeMode').value;
-      const remote=mode==='server-vault';
-      $('runtimeLicensePanel').hidden=!remote;
-      $('runtimeHint').textContent=remote
-        ? 'Remote Vault: kunci di backend, runtime harus server Roblox dan memerlukan lisensi serta HTTP Requests.'
-        : mode==='server-standalone'
-          ? 'Server standalone: satu file tanpa backend. Kunci tetap dapat direkonstruksi dari output.'
-          : 'LocalScript: kunci dan bytecode dapat diamati oleh client. Jangan masukkan token atau rahasia server.';
-      clearOutput();
-    }
-     
+
 
     function bytes(text) { return new Blob([text]).size; }
     function readable(number) {
@@ -291,26 +278,16 @@ print(&quot;Hello World&quot;)"></textarea>
       if (bytes(script) > MAX_SCRIPT_BYTES) {
         feedback('Ukuran script maksimal 1 MB untuk backend saat ini.', 'bad'); return;
       }
-       const selectedMode=$('runtimeMode').value;
-       const remote=selectedMode==='server-vault';
-       const context=$('target').value==='LuaU'
-         ? (selectedMode==='server-vault'||selectedMode==='server-standalone'?'server':'client')
-         : 'portable';
-       if(remote&&$('target').value!=='LuaU'){
-         feedback('Server vault hanya untuk Roblox Luau.', 'bad');return;
-       }
-       const runtimeLicense=$('runtimeLicense').value.trim();
-       if(remote&&!runtimeLicense){
-         feedback('Masukkan lisensi aktif untuk server vault.', 'bad');return;
-       }
-       const payload = {
-         script,
-        preset: $('preset').value,
-        target: $('target').value,
+      const target=$('target').value;
+      const payload = {
+        script,
+        preset: 'NativeV4',
+        target,
         blackmamerVM: true,
-        vmMode:'native-v4',oneClick:true,
-         runtimeMode:remote?'server-vault':'standalone',
-         executionContext:context
+        vmMode: 'native-v4',
+        oneClick: true,
+        runtimeMode: 'standalone',
+        ...(target!=='LuaU'?{executionContext:'portable'}:{})
       };
       setBusy(true);
       setStatus('Menghubungkan ke backend dan memproses script...');
@@ -322,8 +299,7 @@ print(&quot;Hello World&quot;)"></textarea>
         try {
           response = await fetch(API_BASE + '/api/obfuscate', {
             method: 'POST',
-            headers: {'Content-Type':'application/json',
-               ...(remote?{'X-License-Key':runtimeLicense}:{})},
+            headers: {'Content-Type':'application/json'},
             body: JSON.stringify(payload),
             signal: controller.signal
           });
@@ -339,18 +315,16 @@ print(&quot;Hello World&quot;)"></textarea>
 
         if(Array.isArray(data.externalKeys)&&data.externalKeys.length)
   throw new Error('Mode satu-klik tidak menerima output yang membutuhkan provider key tambahan.');
-const requiredEncryption=remote?'external-full':'standalone';
 if(data.blackmamerVM?.protectionLevel!=='Maximum'||
-   data.blackmamerVM?.autoFunctionEncryption!==requiredEncryption)
-   throw new Error('Backend belum mendukung mode runtime yang dipilih.');
-if(remote&&!data.runtimeKeyVault?.enabled)
-   throw new Error('Remote Vault tidak mengonfirmasi kunci tersimpan.');
-if(data.securityModel?.executionContext!==context)
-   throw new Error('Backend belum mengonfirmasi batas keamanan client/server.');
+   data.blackmamerVM?.autoFunctionEncryption!=='standalone')
+   throw new Error('Backend belum mengaktifkan proteksi Maximum V4 standalone.');
 if(data.blackmamerVM?.vmArchitecture!=='seven-independent'||
    data.blackmamerVM?.vmInterpreterCount!==7||
-   data.blackmamerVM?.astStringEncryption!==true)
-   throw new Error('Backend belum mendukung 7 VM independen + AST string encryption.');
+   data.blackmamerVM?.astStringEncryption!==true||
+   data.blackmamerVM?.fallback===true)
+   throw new Error('Backend tidak mengonfirmasi semua lapisan Maximum V4.');
+if(data.target!==target)
+   throw new Error('Runtime output backend tidak sesuai pilihan.');
 result.value = data.obfuscated;
 lastMode = payload.target;
         $('copy').disabled = false;
@@ -366,15 +340,9 @@ lastMode = payload.target;
         $('metrics').hidden = false;
         setStatus('Selesai dalam ' + ((performance.now() - started) / 1000).toFixed(1) + ' detik.');
 
-        if (m.fallback) {
-          feedback('Obfuscation selesai, tetapi backend menggunakan fallback. Lapisan BLACKMAMER VM tidak seluruhnya diterapkan.', 'warn');
-        } else if (m.cfgFlattenedBlocks>0) {
-           feedback((data.securityModel?.warnings||[]).join(' ')||
-             '7 VM independen + AST/CFG transform diterapkan. Uji output pada runtime target.',
-             context==='client'?'warn':'');
-        } else { feedback(remote
-          ? 'Key Vault siap. SETUP SEKALI: Roblox Secrets Store BLACKMAMER_LICENSE, aktifkan HTTP Requests. Server-only.'
-          : 'Satu file siap diuji. Kunci standalone tetap dapat direkonstruksi dari output.', ''); }
+        feedback('Maximum V4 aktif. Satu file hasil bisa digunakan di runtime '+
+          (target==='LuaU'?'Roblox (Script / LocalScript / ModuleScript)':
+            target)+'. Kunci standalone tetap bisa direkonstruksi; uji fungsinya di runtime tujuan.', 'warn');
       } catch (err) {
         clearOutput();
         const message = err.name === 'AbortError'
@@ -387,11 +355,7 @@ lastMode = payload.target;
 
     $('obfuscate').addEventListener('click', obfuscate);
     $('healthButton').addEventListener('click', healthCheck);
-    $('target').addEventListener('change',()=>{
-      if($('target').value!=='LuaU')$('runtimeMode').value='client-standalone';
-      updateRuntimeMode();
-    });
-    $('runtimeMode').addEventListener('change',updateRuntimeMode);
+    $('target').addEventListener('change',clearOutput);
 source.addEventListener('input', () => { updateStats(); clearOutput(); });
     $('upload').addEventListener('click', () => $('file').click());
     $('file').addEventListener('change', async event => {
@@ -437,7 +401,6 @@ source.addEventListener('input', () => { updateStats(); clearOutput(); });
     });
     
     updateStats();
-    updateRuntimeMode();
     healthCheck();
   </script>
 </body>

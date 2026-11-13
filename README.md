@@ -12,6 +12,23 @@ Independent Lua/Luau virtual-machine obfuscator. The **production backend is V4-
 
 These targets run the **supported BLACKMAMER parser subset**, not every Lua 5.1/Luau language feature. Luau-only constructs such as `+=`, `continue`, and `//` are rejected on Lua51/LuaJIT. For unsupported syntax, the API returns HTTP 422 rather than returning a falsely "protected" script.
 
+## Roblox client/server security (explicit selection)
+
+The one-click website now separates **LocalScript / client ModuleScript**,
+**Script / server ModuleScript (standalone)**, and **server Remote Vault**.
+The API accepts `executionContext: "client" | "server" | "portable"` and
+responds with `securityModel` showing the key location and warnings.
+Existing requests without an explicit context remain supported.
+
+Client builds reject external function keys (including `BM_ENCFUNC`), because
+the client can inspect decrypted code; server scripts can use the independent
+Remote Vault after configuring licensing, PostgreSQL and Roblox Secrets Store.
+The standalone profile works on both sides but its embedded decryption
+material **can be reconstructed**. Obfuscation does not replace server-side
+validation of all RemoteEvent arguments.
+
+See [Roblox client/server security and configuration](docs/ROBLOX_CLIENT_SERVER_SECURITY.md).
+
 ## Five layered V4 presets
 
 | Level | AST dead branches | VM bytecode CFG flatten | Nested VM | Fused ops |

@@ -39,6 +39,13 @@ function checkRuntimePolicy({
   return {ok:true,context};
 }
 
+// Accept lexer tokens rather than matching source text, so comments and
+// string literals mentioning BM_ENCFUNC do not trigger a false alarm.
+function hasProtectedMarker(tokens){
+  return tokens.some((token,i)=>token.type==='id'&&token.value==='BM_ENCFUNC'&&
+    tokens[i+1]?.value==='('&&tokens[i-1]?.value!=='.'&&tokens[i-1]?.value!==':');
+}
+
 function describeRuntimeSecurity({context,runtimeMode,autoFunctionEncryption,
   externallyKeyedFunctions}){
   const remote=runtimeMode==='server-vault';
@@ -63,4 +70,4 @@ function describeRuntimeSecurity({context,runtimeMode,autoFunctionEncryption,
   return {executionContext:context,runtimeMode,keyLocation,warnings};
 }
 
-module.exports={checkRuntimePolicy,describeRuntimeSecurity};
+module.exports={checkRuntimePolicy,describeRuntimeSecurity,hasProtectedMarker};

@@ -1751,6 +1751,7 @@ function compile(source, options={}) {
     '  exec=function(fid,passed,captured)',
     '    local spec=prototype(fid)',
     '    local columns=parseStage(fid,spec)',
+    '    local opCol,aCol,bCol,cCol=columns[1],columns[2],columns[3],columns[4]',
     '    local env={vars={},parent=captured}',
     '    for j,k in ipairs(spec[1])do local v=passed[j];env.vars[K(k)]=v==nil and NIL or v end',
     '    local R={};local pc=1;local ticks=0;local length=spec[5]',
@@ -1773,7 +1774,7 @@ function compile(source, options={}) {
     ...(options.hardened&&options.antiDebug!==false?
       ['      if ticks>=guardAt then runtimeGuard();guardAt=ticks+guardBias+((pc*31+spec[3]+ticks)%191)end']:[]),
     '      if pc<1 or pc>length then nativeError("BLACKMAMER V3 bad PC") end',
-    '      local op,a,b,c=columns[1][pc],columns[2][pc],columns[3][pc],columns[4][pc]',
+    '      local op,a,b,c=opCol[pc],aCol[pc],bCol[pc],cCol[pc]',
     '      local nextpc=pc+1',
     '      if op==O.K then R[a]=K(b)',
     '      elseif op==O.STRDEC then',
@@ -1868,10 +1869,13 @@ function compile(source, options={}) {
   // The original single-engine dispatcher below is retained for old modes.
   let dispatchStructure,dispatcherVariants=1;
   let vmEngineDispatchFingerprints=[];
+  let vmRouterCached=false,vmDirectTableDispatch=false;
   if(sevenArchitecture){
     const built=buildIndependentVmLines(lines,vmVariants,rand);
     if(built.variantCount!==7)throw new Error('Incomplete multi-engine VM');
     vmEngineDispatchFingerprints=built.dispatchFingerprints;
+    vmRouterCached=built.cachedRoutes;
+    vmDirectTableDispatch=built.directTableDispatch;
     dispatchStructure='seven-per-prototype';
     dispatcherVariants=7;
   }else{
@@ -2081,6 +2085,8 @@ function compile(source, options={}) {
       wide:sealedFunctions.filter(f=>f[2]===4).length},
     dispatchStructure,dispatcherVariants,scrubbedRuntimeErrors,
     stateMachineDispatch:sevenArchitecture,tableDrivenDispatch:sevenArchitecture,
+    cachedOpcodeRouter:vmRouterCached,directOpcodeTableDispatch:vmDirectTableDispatch,
+    localInstructionColumns:true,
     guardIntervalPolicy:options.hardened&&options.antiDebug!==false?'prototype-scaled':'disabled',
     ...(options.auditVmTopology===true?{vmEngineDispatchFingerprints}:{}),
     perFunctionOpcodePalette:options.hardened===true,

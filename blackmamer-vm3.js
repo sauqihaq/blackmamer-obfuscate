@@ -7,6 +7,7 @@ const {polymorphRuntime} = require('./runtime-polymorph');
 const {sealBatch} = require('./native-sealer');
 const {buildIndependentVmLines}=require('./vm7-independent');
 const {protectAstStrings}=require('./ast-string-layer');
+const chainedCells=require('./vm4-chained-cells');
 const {optimizer:optimizeVmIr,mosaic:injectVmDeadCode}=require('./vm4-deadcode-optimizer');
 const {requireKey,requireId,encryptBytes,runtimeLines:protectedRuntimeLines} = require('./protected-functions');
 const rand = max => crypto.randomInt(max);
@@ -1114,6 +1115,9 @@ function compile(source, options={}) {
   // every prototype. This is format polymorphism, not key confidentiality:
   // the client-side parser necessarily contains sufficient decoder metadata.
   const schemaEnabled=options.hardened===true&&profileName==='Maximum';
+  // For Maximum standalone, each encoded PC includes feedback from the
+  // preceding decoded instruction. No extra secret or backend is required.
+  const chainEnabled=schemaEnabled&&autoMode==='standalone';
   const schemaCoefA=7+rand(113),schemaCoefB=11+rand(151);
   const schemaMask=(schema,pc,logical)=>{
     if(!schema)return 0;
@@ -1236,13 +1240,19 @@ function compile(source, options={}) {
     for(const v of f.p)pack32(v,raw);
     // AoS: [op0,a0,b0,c0,op1,a1,b1,c1,...]
     // SoA: [op0,op1,...,a0,a1,...,b0,b1,...,c0,c1,...]
+    // Compute feedback states in logical PC order BEFORE emitting physical
+    // rows or SoA columns. SoA storage order does not change the chain.
+    const chainStates=chainEnabled
+      ?chainedCells.states(f.ins,f.schema,f.opSeed,schemaCoefA,schemaCoefB):null;
     // The variable per-PC rotation applies to both representations.
     const writeCell=(row,pc,position)=>{
       const rotation=options.hardened?
         (f.opSeed+pc*7+(pc*pc%13))%4:0;
       const logical=slots[(position-rotation+4)%4];
       const value=f.schema
-        ?(row[logical]+schemaMask(f.schema,pc,logical+1))%modulus
+        ?(row[logical]+schemaMask(f.schema,pc,logical+1)+
+          (chainStates?chainedCells.mask(f.schema,pc,logical+1,
+            chainStates[pc-1],schemaCoefA,schemaCoefB):0))%modulus
         :row[logical];
       if(width===3)pack24(value,raw);
       else pack32(value,raw);
@@ -1919,6 +1929,11 @@ function compile(source, options={}) {
     '    local ops,as,bs,cs={},{},{},{}',
     '    local stream=spec[2];local off=spec[4];local length=spec[5]',
     '    local width=spec[6];local offsets=spec[7];local cursor=1',
+    ...(chainEnabled?[
+      '    local chSchema=spec['+(sevenArchitecture?11:10)+']',
+      '    local chState=(chSchema[1]*97+spec[3]*31+chSchema[3])%modulus',
+      '    local chRow={}'
+    ]:[]),
     '    local function field(at,logical)',
     ...(options.hardened?[
       '      local slot=(offsets[logical]+(spec[3]+cursor*7+(cursor*cursor%13))%4)%4',
@@ -1941,7 +1956,20 @@ function compile(source, options={}) {
       '        ((cursor*logical)%127)*'+schemaCoefA,
       '      else x=x+((cursor*cursor)%1021)*mul+(cursor+logical)*bias+',
       '        ((cursor*logical)%197)*'+schemaCoefB+' end',
-      '      return (cell-x)%modulus'
+      ...(chainEnabled?[
+        // A per-instruction rolling state depends on the LAST decoded row.
+        // A stateless parser cannot unmask arbitrary PCs in isolation.
+        '      local cm',
+        '      if mode==0 then cm=(chState+((cursor*mul)%65521)*bias+logical*'+schemaCoefA+')%modulus',
+        '      elseif mode==1 then cm=((chState*logical)%modulus+',
+        '        ((cursor+logical)*bias)%65521+cursor*'+schemaCoefB+')%modulus',
+        '      elseif mode==2 then cm=(chState+(((cursor+logical)*mul)%65521)*'+schemaCoefB+'+',
+        '        bias*17)%modulus',
+        '      else cm=((chState*(logical+1))%modulus+cursor*bias+',
+        '        ((cursor*logical)%251)*'+schemaCoefA+')%modulus end',
+        '      local plain=(cell-x-cm)%modulus',
+        '      chRow[logical]=plain;return plain'
+      ]:['      return (cell-x)%modulus'])
     ]:['      return cell']),
     '    end',
     '    for pc=1,length do',
@@ -1957,6 +1985,11 @@ function compile(source, options={}) {
       '      local c=((field(at,4)-SALT-tweak-20)%modulus);if c>modulus/2 then c=c-modulus end',
       '      ops[pc]=op;as[pc]=a;bs[pc]=b;cs[pc]=c'
     ]),
+    ...(chainEnabled?[
+      '      chState=(chState+(chRow[1]%65521)*chSchema[2]+',
+      '        (chRow[2]%65521)*chSchema[3]+(chRow[3]%65521)*'+schemaCoefA+'+',
+      '        (chRow[4]%65521)*'+schemaCoefB+'+pc*17+chSchema[1])%modulus'
+    ]:[]),
     '    end',
     '    local result={ops,as,bs,cs};programCache[fid]=result;return result',
     '  end',
@@ -2327,6 +2360,9 @@ function compile(source, options={}) {
     ...(options.auditVmTopology===true?{vmEngineDispatchFingerprints}:{}),
     perFunctionOpcodePalette:options.hardened===true,
     perInstructionOperandRotation:options.hardened===true,
+    chainedInstructionEncoding:chainEnabled,
+    chainedPrototypeCount:chainEnabled?packed.length:0,
+    chainedEncodedCells:chainEnabled?funcs.reduce((n,f)=>n+f.ins.length*4,0):0,
     opcodePaletteSize:options.hardened?OPS.length:0,
     ...(options.auditPalettes===true?{
       // Test-only structural fingerprints; never written into the Lua chunk.

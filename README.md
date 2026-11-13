@@ -12,20 +12,33 @@ Independent Lua/Luau virtual-machine obfuscator. The **production backend is V4-
 
 These targets run the **supported BLACKMAMER parser subset**, not every Lua 5.1/Luau language feature. Luau-only constructs such as `+=`, `continue`, and `//` are rejected on Lua51/LuaJIT. For unsupported syntax, the API returns HTTP 422 rather than returning a falsely "protected" script.
 
-## Roblox client/server security (explicit selection)
+## One-click website: Maximum V4 for Roblox Script / LocalScript / ModuleScript
 
-The one-click website now separates **LocalScript / client ModuleScript**,
-**Script / server ModuleScript (standalone)**, and **server Remote Vault**.
-The API accepts `executionContext: "client" | "server" | "portable"` and
-responds with `securityModel` showing the key location and warnings.
-Existing requests without an explicit context remain supported.
+Paste or upload a source file and press **Obfuscate Script**. The default
+`LuaU` output is a standalone single-file chunk that can be pasted into a
+Roblox **Script**, **LocalScript**, or **ModuleScript**. The one-click compiler
+automatically enables Maximum V4, seven independent VM engines, AST string
+protection, integrity checks, and standalone function encryption. No user
+selection for client/server placement, license, or key provider is required.
+The output's *actual execution permissions and runtime behavior* still depend
+on its original Roblox placement and API calls; obfuscation does not turn a
+client script into a server script or guarantee arbitrary Lua syntax support.
 
-Client builds reject external function keys (including `BM_ENCFUNC`), because
-the client can inspect decrypted code; server scripts can use the independent
-Remote Vault after configuring licensing, PostgreSQL and Roblox Secrets Store.
-The standalone profile works on both sides but its embedded decryption
-material **can be reconstructed**. Obfuscation does not replace server-side
-validation of all RemoteEvent arguments.
+The **optional, collapsed advanced runtime selector** provides Lua 5.1
+and LuaJIT output for users who need those interpreters. It cannot produce
+one universal LuaU/Lua51/LuaJIT file: the interpreters require separate VM
+adapters. The existing advanced API and server vault remain available to
+integrators, but are intentionally not part of the single-click website.
+
+**Security limit:** a client who can execute a LocalScript can recover its
+standalone decrypt material. Maximum V4 raises the cost of static analysis
+but is not unbreakable; put sensitive secrets and authoritative game logic
+on the Roblox server and validate RemoteEvent arguments server-side.
+
+For advanced API users, `executionContext: "client" | "server" | "portable"`
+is still supported. Explicit `client` contexts reject external function
+keys. Server code may opt into the separate server Remote Vault after
+configuring licensing, PostgreSQL and Roblox Secrets Store.
 
 See [Roblox client/server security and configuration](docs/ROBLOX_CLIENT_SERVER_SECURITY.md).
 

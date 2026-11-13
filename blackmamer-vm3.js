@@ -1110,6 +1110,23 @@ function compile(source, options={}) {
   // client-side code: the decoder and its seeds must travel with the output.
   const salt=2000+buildDigest.readUInt32BE(0)%98000;
   const modulus=10000019, hashMod=1000000007;
+  // Standalone Maximum uses a different reversible VM cell encoding for
+  // every prototype. This is format polymorphism, not key confidentiality:
+  // the client-side parser necessarily contains sufficient decoder metadata.
+  const schemaEnabled=options.hardened===true&&profileName==='Maximum';
+  const schemaCoefA=7+rand(113),schemaCoefB=11+rand(151);
+  const schemaMask=(schema,pc,logical)=>{
+    if(!schema)return 0;
+    const {seed,mul,bias,mode}=schema;
+    let mix;
+    if(mode===0)mix=seed+pc*mul+logical*bias+((pc*pc)%251)*schemaCoefA;
+    else if(mode===1)mix=seed+((pc*pc)%997)*mul+logical*bias+pc*schemaCoefB;
+    else if(mode===2)mix=seed+((pc*mul)%65521)+((pc+logical)%251)*bias+
+      ((pc*logical)%127)*schemaCoefA;
+    else mix=seed+((pc*pc)%1021)*mul+(pc+logical)*bias+
+      ((pc*logical)%197)*schemaCoefB;
+    return mix%modulus;
+  };
   // Build-scoped opcode ids are further masked per function and instruction PC.
   // A static row no longer carries an opcode that can be mapped with one
   // global subtraction. This is polymorphism, not secret encryption.
@@ -1121,6 +1138,10 @@ function compile(source, options={}) {
   const packed=funcs.map((f,index)=>{
     const vmFlavor=sevenArchitecture?((index+variantOffset)%7+1):null;
     const opSeed=rand(255)+1;
+    const schema=schemaEnabled?{
+      seed:1+rand(60000),mul:1+rand(255),bias:1+rand(255),
+      mode:rand(4)
+    }:null;
     let palette=null;
     if(options.hardened){
       const pool=Array.from({length:256},(_,i)=>i);
@@ -1145,7 +1166,7 @@ function compile(source, options={}) {
       const masked=j===0 ? (variantOp ^ opcodeMask) : variantOp;
       return (masked+salt+instructionTweak+5*(j+1)+modulus)%modulus;
     }));
-    return {p:f.p,ins,opSeed,palette,vmFlavor,protectedId:f.protectedId};
+    return {p:f.p,ins,opSeed,palette,vmFlavor,schema,protectedId:f.protectedId};
   });
   // Independent S-Box per build; a full inverse table travels with standalone
   // output, so this adds static-analysis work, not secret key confidentiality.
@@ -1206,6 +1227,12 @@ function compile(source, options={}) {
     raw.push(f.opSeed,width,...offsets);
     if(options.hardened)raw.push(soa?1:0,
       ...(sevenArchitecture?[f.vmFlavor]:[]),...f.palette);
+    // Five prototype-local format bytes follow the opcode palette: a
+    // 16-bit seed, two 8-bit coefficients and the formula selector.
+    if(f.schema){
+      pack16(f.schema.seed,raw);
+      raw.push(f.schema.mul,f.schema.bias,f.schema.mode);
+    }
     for(const v of f.p)pack32(v,raw);
     // AoS: [op0,a0,b0,c0,op1,a1,b1,c1,...]
     // SoA: [op0,op1,...,a0,a1,...,b0,b1,...,c0,c1,...]
@@ -1214,8 +1241,11 @@ function compile(source, options={}) {
       const rotation=options.hardened?
         (f.opSeed+pc*7+(pc*pc%13))%4:0;
       const logical=slots[(position-rotation+4)%4];
-      if(width===3)pack24(row[logical],raw);
-      else pack32(row[logical],raw);
+      const value=f.schema
+        ?(row[logical]+schemaMask(f.schema,pc,logical+1))%modulus
+        :row[logical];
+      if(width===3)pack24(value,raw);
+      else pack32(value,raw);
     };
     if(soa){
       for(let position=0;position<4;position++)
@@ -1785,7 +1815,7 @@ function compile(source, options={}) {
     '    local packed=bufFrom(nativeConcat(chars))',
     '    local pn=bufRead(packed,0)+256*bufRead(packed,1)',
     '    local count=bufRead(packed,2)+256*bufRead(packed,3)',
-    '    local opSeed=bufRead(packed,4);local width=bufRead(packed,5);local off='+(options.hardened?11+OPS.length+(sevenArchitecture?1:0):10),
+    '    local opSeed=bufRead(packed,4);local width=bufRead(packed,5);local off='+(options.hardened?11+OPS.length+(sevenArchitecture?1:0)+(schemaEnabled?5:0):10),
     '    if width~=3 and width~=4 then nativeError("BLACKMAMER V3 invalid instruction width") end',
     '    local offsets={}',
     '    for j=1,4 do offsets[j]=bufRead(packed,5+j) end',
@@ -1810,10 +1840,18 @@ function compile(source, options={}) {
     '    end',
     '    local params={}',
     '    for j=1,pn do params[j]=bufRead32(packed,off);off=off+4 end',
+    ...(schemaEnabled?[
+      '    local schOff='+(11+OPS.length+(sevenArchitecture?1:0)),
+      '    local schema={bufRead(packed,schOff)+256*bufRead(packed,schOff+1),',
+      '      bufRead(packed,schOff+2),bufRead(packed,schOff+3),bufRead(packed,schOff+4)}',
+      '    if schema[1]<1 or schema[1]>60000 or schema[2]<1 or schema[3]<1 or',
+      '      schema[4]>3 then nativeError("BLACKMAMER invalid prototype schema")end'
+    ]:[]),
     '    -- Each prototype independently chooses compact/wide and operand order.',
     '    if count<1 or off+count*4*width>bufLen(packed) then nativeError("BLACKMAMER V4 truncated instructions")end',
     '    local spec={params,packed,opSeed,off,count,width,offsets'+
-      (options.hardened?',palette,layout'+(sevenArchitecture?',vmFlavor':''):'')+'}',
+      (options.hardened?',palette,layout'+(sevenArchitecture?',vmFlavor':''):'')+
+      (schemaEnabled?',schema':'')+'}',
     '    P[fid]=spec;return spec',
     '  end',
     '  -- A constant stays sealed until the executing function first references it.',
@@ -1890,8 +1928,21 @@ function compile(source, options={}) {
       '      local p=at+offsets[logical]*width'
     ]),
     '      if p<off or p+width>bufLen(stream) then nativeError("BLACKMAMER truncated field")end',
-    '      if width==4 then return bufRead32(stream,p) end',
-    '      return bufRead(stream,p)+bufRead(stream,p+1)*256+bufRead(stream,p+2)*65536',
+    '      local cell=width==4 and bufRead32(stream,p) or',
+    '        (bufRead(stream,p)+bufRead(stream,p+1)*256+bufRead(stream,p+2)*65536)',
+    ...(schemaEnabled?[
+      // This decode is performed ONCE per prototype in parseStage, never on
+      // every VM dispatch tick. Per-build coefficients are not secret.
+      '      local sh=spec['+(sevenArchitecture?11:10)+']',
+      '      local x=sh[1];local mul=sh[2];local bias=sh[3];local mode=sh[4]',
+      '      if mode==0 then x=x+cursor*mul+logical*bias+((cursor*cursor)%251)*'+schemaCoefA,
+      '      elseif mode==1 then x=x+((cursor*cursor)%997)*mul+logical*bias+cursor*'+schemaCoefB,
+      '      elseif mode==2 then x=x+((cursor*mul)%65521)+((cursor+logical)%251)*bias+',
+      '        ((cursor*logical)%127)*'+schemaCoefA,
+      '      else x=x+((cursor*cursor)%1021)*mul+(cursor+logical)*bias+',
+      '        ((cursor*logical)%197)*'+schemaCoefB+' end',
+      '      return (cell-x)%modulus'
+    ]:['      return cell']),
     '    end',
     '    for pc=1,length do',
     '      cursor=pc;local at=off+(pc-1)*4*width',
@@ -2265,6 +2316,13 @@ function compile(source, options={}) {
     stateMachineDispatch:sevenArchitecture,tableDrivenDispatch:sevenArchitecture,
     cachedOpcodeRouter:vmRouterCached,directOpcodeTableDispatch:vmDirectTableDispatch,
     localInstructionColumns:true,
+    perPrototypeEncodingSchemas:schemaEnabled,
+    prototypeSchemaVariants:schemaEnabled?4:0,
+    prototypeSchemaCount:schemaEnabled?funcs.length:0,
+    ...(options.auditPrototypeSchemas===true?{
+      prototypeSchemaFingerprints:packed.map(f=>f.schema
+        ?[f.schema.mode,f.schema.seed,f.schema.mul,f.schema.bias].join(':'):null)
+    }:{}),
     guardIntervalPolicy:options.hardened&&options.antiDebug!==false?'prototype-scaled':'disabled',
     ...(options.auditVmTopology===true?{vmEngineDispatchFingerprints}:{}),
     perFunctionOpcodePalette:options.hardened===true,

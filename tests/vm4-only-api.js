@@ -104,6 +104,8 @@ async function api(route,body){
   assert.deepEqual(oneClick.data.externalKeys,[]);
   assert.equal(oneClick.data.protection.antiDebug,true);
   assert.equal(oneClick.data.protection.antiTamper,true);
+  assert.equal(oneClick.data.blackmamerVM.metamethodTostringTrap,true);
+  assert.equal(oneClick.data.blackmamerVM.metamethodTrapPeriodic,true);
   assert.doesNotMatch(oneClick.data.obfuscated,/_unfold|BMAUTO_V4/);
   assert.doesNotMatch(oneClick.data.obfuscated,/embeddedAutoKey/);
   const vaultConfig=await(await fetch('http://127.0.0.1:'+port+'/api/runtime/config')).json();

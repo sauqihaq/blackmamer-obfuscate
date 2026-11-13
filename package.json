@@ -11,7 +11,8 @@
     "test:lua51": "node tests/vm4-lua51.js",
     "obfuscate": "node cli.js",
     "test:differential": "node tests/vm4-differential-50.js",
-    "test:presets": "node tests/vm4-presets.js"
+    "test:presets": "node tests/vm4-presets.js",
+    "test:standalone-chain": "node tests/vm4-chained-cells.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

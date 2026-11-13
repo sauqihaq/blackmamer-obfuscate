@@ -5,6 +5,8 @@ on:
     paths:
       - 'blackmamer-vm3.js'
       - 'v4-presets.js'
+      - 'runtime-security-policy.js'
+      - 'tests/runtime-security-policy.js'
       - 'cli.js'
       - 'tests/vm4-presets.js'
       - 'tests/vm4-differential-50.js'
@@ -32,6 +34,8 @@ on:
       - 'tests/vm4-external-keys.js'
       - 'tests/vm4-external-luau.js'
       - 'server.js'
+      - 'runtime-security-policy.js'
+      - 'tests/runtime-security-policy.js'
       - 'Dockerfile'
       - 'netlify-frontend/**'
       - 'tests/native-sealer.js'
@@ -51,6 +55,8 @@ on:
       - 'tests/vm4-external-keys.js'
       - 'tests/vm4-external-luau.js'
       - 'server.js'
+      - 'runtime-security-policy.js'
+      - 'tests/runtime-security-policy.js'
       - 'Dockerfile'
       - 'netlify-frontend/**'
       - 'tests/native-sealer.js'
@@ -85,6 +91,8 @@ jobs:
           node --check blackmamer-vm3.js
           node --check cli.js
           node --check v4-presets.js
+          node --check runtime-security-policy.js
+          node tests/runtime-security-policy.js
           node tests/vm4-presets.js
           node --check vm7-independent.js
           node --check vm4-deadcode-optimizer.js

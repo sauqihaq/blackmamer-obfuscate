@@ -109,7 +109,7 @@ function lex(source) {
   return tokens;
 }
 class Parser {
-  constructor(source) { this.tokens=lex(source); this.i=0; }
+  constructor(source) { this.source=source; this.tokens=lex(source); this.i=0; }
   peek() { return this.tokens[this.i].value; }
   tok() { return this.tokens[this.i]; }
   take(val) { if (this.peek()===val) {this.i++;return true;} return false; }
@@ -137,12 +137,20 @@ class Parser {
     }
     return names;
   }
-  fun(extraSelf) {
+  fun(extraSelf,sourceStart=null) {
     const params=this.params();
     if(extraSelf) params.unshift('self');
     const body=this.block(new Set(['end']));
     this.must('end');
-    return {t:'fun',params,body};
+    const node={t:'fun',params,body};
+    // Preserve only the exact parsed function literal used by an explicit
+    // BM_NO_VIRTUALIZE marker. Do not regex-match source, which would break
+    // nested 'end', comments, multiline strings and quoted contents.
+    if(sourceStart!==null){
+      const endToken=this.tokens[this.i-1];
+      node.nativeSource=this.source.slice(sourceStart,endToken.at+3);
+    }
+    return node;
   }
   statement() {
     if (this.take('local')) {
@@ -256,7 +264,7 @@ class Parser {
     else if(t.type==='str'){this.i++;node={t:'str',value:t.value};}
     else if(this.take('(')){node=this.expr();this.must(')');}
     else if(this.take('{')) node=this.table();
-    else if(this.take('function')) node=this.fun(false);
+    else if(this.take('function')) node=this.fun(false,t.at);
     else if(['-','not','#'].includes(this.peek())){
       const op=this.tok().value;this.i++; node={t:'unary',op,x:this.expr(7)};
     }
@@ -383,6 +391,21 @@ function virtualizeLexicalBindings(ast,audit){
     if(node.t==='table'){for(const f of node.fields){visitExpr(f.key,scope);visitExpr(f.value,scope);}return;}
     if(node.t==='index'){visitExpr(node.obj,scope);visitExpr(node.key,scope);return;}
     if(node.t==='method'){visitExpr(node.obj,scope);for(const a of node.args)visitExpr(a,scope);return;}
+    if(node.t==='call'&&node.fn?.t==='var'&&node.fn.name==='BM_NO_VIRTUALIZE'){
+      // Native source is kept verbatim, while the surrounding virtualized
+      // bindings may have aliases. Resolve free references against the scope
+      // *at the marker*, to bridge mutable VM upvalues from native Lua.
+      const fun=node.args?.[0],captures={};
+      if(fun?.t==='fun'&&typeof fun.nativeSource==='string'){
+        for(const token of lex(fun.nativeSource)){
+          if(token.type!=='id')continue;
+          const alias=resolve(scope,token.value);
+          if(alias!==token.value)captures[token.value]=alias;
+        }
+      }
+      node.nativeCaptureAliases=captures;
+      return; // its body executes natively, never virtualized as bytecode
+    }
     if(node.t==='call'){visitExpr(node.fn,scope);for(const a of node.args)visitExpr(a,scope);return;}
     if(node.t==='unary'){visitExpr(node.x,scope);return;}
     if(node.t==='binary'){visitExpr(node.left,scope);visitExpr(node.right,scope);return;}
@@ -627,6 +650,7 @@ function compile(source, options={}) {
   const used=new Set(), codes={};
   for(const op of OPS){let id;do{id=rand(220)+17;}while(used.has(id));used.add(id);codes[op]=id;}
   const consts=[], constKeys=new Map(), funcs=[], argSets=[];
+  const nativeFunctions=[];
   const protectedKeys=new Map(), generatedKeys=[];
   const optionsKeys=options.functionKeys===undefined?{}:options.functionKeys;
   if(!optionsKeys || typeof optionsKeys!=='object' || Array.isArray(optionsKeys))
@@ -687,6 +711,24 @@ function compile(source, options={}) {
       if(n.t==='index'){const obj=expr(n.obj),k=expr(n.key),dst=reg();emit('INDEX',dst,obj,k);return dst;}
       if(n.t==='table'){const dst=reg();emit('TABLE',dst);for(const f of n.fields){const a=expr(f.key),b=expr(f.value);emit('PUT',dst,a,b);}return dst;}
       if(n.t==='fun'){const fnid=makeBuilder(n.body,n.params,protectedId),dst=reg();emit('CLOSURE',dst,fnid);return dst;}
+      if(n.t==='call'&&n.fn.t==='var'&&n.fn.name==='BM_NO_VIRTUALIZE'){
+        if(!options.hardened)throw new SyntaxErrorV3('BM_NO_VIRTUALIZE requires NativeV4');
+        if(n.args.length!==1||n.args[0].t!=='fun'||
+          typeof n.args[0].nativeSource!=='string')
+          throw new SyntaxErrorV3('BM_NO_VIRTUALIZE expects a function literal: BM_NO_VIRTUALIZE(function(...) ... end)');
+        // Nested exemption markers within native code are not processed by
+        // the VM compiler; fail closed instead of leaving an unresolved macro.
+        const sourceTokens=lex(n.args[0].nativeSource);
+        if(sourceTokens.some(t=>t.type==='id'&&t.value==='BM_NO_VIRTUALIZE'))
+          throw new SyntaxErrorV3('Nested BM_NO_VIRTUALIZE markers are unsupported');
+        const idx=nativeFunctions.push({
+          source:compactLuau(n.args[0].nativeSource),
+          aliases:n.nativeCaptureAliases||{}
+        });
+        const dst=reg();
+        emit('CLOSURE',dst,-idx);
+        return dst;
+      }
       if(n.t==='call' && n.fn.t==='var' && n.fn.name==='BM_ENCFUNC'){
         if(!options.hardened)throw new SyntaxErrorV3('BM_ENCFUNC requires NativeV4');
         if(n.args.length!==2 || n.args[0].t!=='str' || n.args[1].t!=='fun')
@@ -1027,7 +1069,10 @@ function compile(source, options={}) {
   const oldFunctions=funcs.slice();
   for(let i=0;i<funcs.length;i++)funcs[i]=oldFunctions[order[i]-1];
   for(const fn of funcs)for(const row of fn.ins){
-    if(row[0]===codes.CLOSURE)row[2]=reloc.get(row[2]);
+    // Positive CLOSURE ids reference sealed VM prototypes and are
+    // shuffled. Negative ids are explicit native function exemptions and
+    // must keep their own separate native factory registry indexes.
+    if(row[0]===codes.CLOSURE&&row[2]>0)row[2]=reloc.get(row[2]);
   }
   const entry=reloc.get(initialEntry);
   // Each function becomes a compact, per-build sealed binary bytecode blob.
@@ -1502,6 +1547,17 @@ function compile(source, options={}) {
     '    _vaultCachedKey=key;return key',
     '  end'
   ]:[];
+  // Only explicitly exempted functions are emitted as plain native Lua.
+  // All other functions remain encrypted/sealed and run through V4 VM.
+  // Keep native source out of the polymorphic runtime renamer. It is already
+  // explicitly exempt and must retain its own locals/globals and syntax.
+  const nativePlaceholders=nativeFunctions.map(()=>
+    '__bm_native_'+crypto.randomBytes(14).toString('hex'));
+  const nativeFactoriesLua='{'+nativeFunctions.map((f,i)=>
+    'function()return '+nativePlaceholders[i]+' end').join(',')+'}';
+  const nativeAliasesLua='{'+nativeFunctions.map(f=>
+    '{'+Object.entries(f.aliases).map(([from,to])=>
+      '['+JSON.stringify(from)+']='+JSON.stringify(to)).join(',')+'}').join(',')+'}';
   const lines=[
     options.hardened?'-- BLACKMAMER VM V4.0':'-- BLACKMAMER VM V3.4',
     'return (function(...)',
@@ -1520,6 +1576,10 @@ function compile(source, options={}) {
     '  local nativePack=table.pack or function(...)return {n=select("#",...),...}end',
     '  local nativeType=type; local nativePcall=pcall; local nativeError=error',
     '  local dbg=debug; local globals=(getfenv and getfenv()) or _ENV or _G',
+    ...(nativeFunctions.length?[
+      '  local nativeFactories='+nativeFactoriesLua,
+      '  local nativeAliasMaps='+nativeAliasesLua
+    ]:[]),
     ...remoteRuntimeLines,
     '  if nativeType(bxor)~="function" then nativeError("BLACKMAMER V3 requires Luau bit32") end',
     '  local '+mapName+'={}',
@@ -1711,6 +1771,42 @@ function compile(source, options={}) {
     '    return value',
     '  end',
     '  local NIL={};local function nonil(v)if v==NIL then return nil else return v end end',
+    ...(nativeFunctions.length?[
+      // Each returned native closure gets a fresh environment. Every free
+      // upvalue reads/writes the captured VM lexical scope, preserving live
+      // updates after the VM function itself has already returned.
+      '  local nativeSetfenv=setfenv',
+      '  if nativeType(nativeSetfenv)~="function" then nativeError("BM_NO_VIRTUALIZE requires setfenv support")end',
+      '  local function makeNativeFunction(index,capture)',
+      '    local factory=nativeFactories[index]',
+      '    if nativeType(factory)~="function" then nativeError("BLACKMAMER invalid native function")end',
+      '    local aliases=nativeAliasMaps[index] or {}',
+      '    local proxy=setmetatable({}, {',
+      '      __index=function(_,name)',
+      '        local mapped=aliases[name] or name;local frame=capture',
+      '        while frame do',
+      '          local v=rawget(frame.vars,mapped)',
+      '          if v~=nil then return nonil(v)end',
+      '          frame=frame.parent',
+      '        end',
+      '        return globals[mapped]',
+      '      end,',
+      '      __newindex=function(_,name,value)',
+      '        local mapped=aliases[name] or name;local frame=capture',
+      '        while frame do',
+      '          if rawget(frame.vars,mapped)~=nil then',
+      '            frame.vars[mapped]=value==nil and NIL or value;return',
+      '          end',
+      '          frame=frame.parent',
+      '        end',
+      '        globals[mapped]=value',
+      '      end',
+      '    })',
+      '    local fn=factory()',
+      '    nativeSetfenv(fn,proxy)',
+      '    return fn',
+      '  end'
+    ]:[]),
     // Stage 1: decrypt and parse into four independent instruction columns.
     // Stage 2 below ONLY reads these columns and executes semantics.
     '  local programCache={}',
@@ -1821,7 +1917,13 @@ function compile(source, options={}) {
     '        local args=nativePack(R[list[1]](R[list[2]],R[list[3]]))',
     '        local control=args[1];R[list[3]]=control;R[list[4]]=control~=nil',
     '        for j=5,#list do R[list[j]]=args[j-4] end',
-    '      elseif op==O.CLOSURE then local capture=env;R[a]=function(...)return exec(b,{...},capture)end',
+    '      elseif op==O.CLOSURE then local capture=env',
+    ...(nativeFunctions.length?[
+      '        if b<0 then R[a]=makeNativeFunction(-b,capture)',
+      '        else R[a]=function(...)return exec(b,{...},capture)end end'
+    ]:[
+      '        R[a]=function(...)return exec(b,{...},capture)end'
+    ]),
     '      elseif op==O.RET then return a==0 and nil or R[a]',
     '      elseif op==O.RETVOID then return',
     '      elseif op==O.RETM then local regs=A[a];local vals={};local count=0',
@@ -2043,8 +2145,14 @@ function compile(source, options={}) {
   }
   const polymorphic=options.hardened?polymorphRuntime(wrapped):
     {code:wrapped,aliasCount:0,lineBreaks:0};
+  let protectedRuntime=polymorphic.code;
+  for(let i=0;i<nativeFunctions.length;i++){
+    const marker=nativePlaceholders[i];
+    if(!protectedRuntime.includes(marker))throw new Error('Native function placeholder missing');
+    protectedRuntime=protectedRuntime.replace(marker,nativeFunctions[i].source);
+  }
   const code='--[[BLACKMAMER VM '+(options.hardened?'V4.0':'V3.4')+']]'+
-    polymorphic.code+(options.hardened?'--[[WM:'+buildWatermark+']]':'');
+    protectedRuntime+(options.hardened?'--[[WM:'+buildWatermark+']]':'');
   return {code,engine:options.hardened?'BLACKMAMER V4 Native VM':'BLACKMAMER V3 Native VM',
     hardened:options.hardened===true,nativeSealer:sealedBatch.nativeUsed,
     target,protectionLevel:profileName,injectedAstBranches,astFlattenedGroups,
@@ -2077,6 +2185,8 @@ function compile(source, options={}) {
     externallyKeyedFunctions:funcs.filter(f=>f.protectedId&&
       !(autoMode==='standalone'&&f.protectedId===autoId)).length,
     virtualizedFunctions:funcs.length,
+    nativeExemptFunctions:nativeFunctions.length,
+    nativeExemptionMacro:'BM_NO_VIRTUALIZE',
     bytecodeLayout:options.hardened
       ?'per-prototype-aos-or-soa-shuffled-12-or-16'
       :'per-prototype-shuffled-12-or-16',

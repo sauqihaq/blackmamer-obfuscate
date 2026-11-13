@@ -179,6 +179,8 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
        externallyKeyedFunctions:result.externallyKeyedFunctions,
        protectedFunctions:result.protectedFunctions.length,
        virtualizedFunctions:result.virtualizedFunctions,
+       nativeExemptFunctions:result.nativeExemptFunctions,
+       nativeExemptionMacro:result.nativeExemptionMacro,
        vmInstructions:result.vmInstructions,
        bytecodeLayout:result.bytecodeLayout,bytecodeWidths:result.bytecodeWidths,
        soaPrototypes:result.soaPrototypes,

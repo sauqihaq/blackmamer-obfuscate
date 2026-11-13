@@ -128,6 +128,47 @@ async function api(route,body){
   assert.equal(manualClient.status,200);
   assert.deepEqual(manualClient.data.externalKeys,[]);
   assert.equal(manualClient.data.blackmamerVM.runtimeMode,'standalone');
+  const client=await api('/api/obfuscate',{
+    preset:'NativeV4',target:'LuaU',oneClick:true,executionContext:'client',
+    script:'local function f(x)return x*2 end;print(f(21))'
+  });
+  assert.equal(client.status,200,JSON.stringify(client.data).slice(0,600));
+  assert.equal(client.data.securityModel.executionContext,'client');
+  assert.equal(client.data.securityModel.keyLocation,'embedded-reconstructible');
+  assert.equal(client.data.blackmamerVM.executionContext,'client');
+  assert.deepEqual(client.data.externalKeys,[]);
+  const serverStandalone=await api('/api/obfuscate',{
+    preset:'NativeV4',target:'LuaU',oneClick:true,executionContext:'server',
+    script:'print(42)'
+  });
+  assert.equal(serverStandalone.status,200);
+  assert.equal(serverStandalone.data.securityModel.executionContext,'server');
+  assert.match(serverStandalone.data.securityModel.warnings[0],/reconstructible/);
+  const unsafeClient=await api('/api/obfuscate',{
+    preset:'NativeV4',target:'LuaU',executionContext:'client',
+    autoFunctionEncryption:'external-full',script:'print(42)'
+  });
+  assert.equal(unsafeClient.status,400);
+  assert.equal(unsafeClient.data.code,'CLIENT_KEY_POLICY');
+  const keyedClient=await api('/api/obfuscate',{
+    preset:'NativeV4',target:'LuaU',oneClick:true,executionContext:'client',
+    script:'local f=BM_ENCFUNC("feature",function()return 42 end);print(f())'
+  });
+  assert.equal(keyedClient.status,400);
+  assert.equal(keyedClient.data.code,'CLIENT_FUNCTION_KEYS');
+  assert.equal(keyedClient.data.externalKeys,undefined);
+  const vaultClient=await api('/api/obfuscate',{
+    preset:'NativeV4',target:'LuaU',oneClick:true,executionContext:'client',
+    runtimeMode:'server-vault',script:'print(42)'
+  });
+  assert.equal(vaultClient.status,400);
+  assert.equal(vaultClient.data.code,'SERVER_VAULT_CONTEXT');
+  const wrongContext=await api('/api/obfuscate',{
+    preset:'NativeV4',target:'Lua51',executionContext:'client',script:'print(42)'
+  });
+  assert.equal(wrongContext.status,400);
+  assert.equal(wrongContext.data.code,'ROBLOX_CONTEXT_REQUIRES_LUAU');
+
   console.log('V4-only API smoke: 20 target/preset combinations, remote vault fail-closed, client compatibility PASS');
  }finally{backend.kill()}
 })().catch(e=>{console.error(e);process.exitCode=1;backend.kill()});

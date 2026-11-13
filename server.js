@@ -32,6 +32,9 @@ const BANNER = `--[[
 --]]
 
 `;
+// Keep the existing BLACKMAMER ASCII-art branding in one Lua block
+// comment, without actual CR/LF bytes in the downloaded obfuscated file.
+const ONE_LINE_BANNER=BANNER.replace(/\r?\n[ \t]*/g,' ').replace(/[ \t]{2,}/g,' ').trim()+' ';
 app.disable('x-powered-by');
 app.use(cors());
 app.use(express.json({limit:'2mb'}));
@@ -132,7 +135,7 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
    }
    res.set('Cache-Control','no-store');
    res.json({
-     obfuscated:BANNER+result.code,engine:result.engine,target,
+     obfuscated:ONE_LINE_BANNER+result.code,engine:result.engine,target,
      externalKeys:remoteRequested?[]:result.generatedKeys,
      protectedFunctionIds:result.protectedFunctions,
      runtimeKeyVault:remoteRequested?{

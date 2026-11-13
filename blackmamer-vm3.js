@@ -1403,6 +1403,10 @@ function compile(source, options={}) {
       '  local CHECK=bit32.bxor('+checkShare+','+(digest^checkShare^bootstrap)+',BOOT)'
     ]
     : ['  local SALT='+salt+'; local CHECK='+digest];
+  // Private __tostring sentinel augments runtime integrity checks. It never
+  // alters the caller's metatables. Embedded challenge is not a secret.
+  const metamethodTrap=options.hardened===true&&options.antiTamper!==false;
+  const trapChallenge=crypto.randomBytes(12).toString('hex');
   const runtimeTweak=options.hardened
     ? '((spec[3]*97+(pc*(pc%131))*31)%modulus)' : '0';
   const runtimeOpcodeMask=options.hardened
@@ -1643,6 +1647,32 @@ function compile(source, options={}) {
     '    end',
     '  end',
     '  verify()',
+    ...(metamethodTrap?[
+      '  local nativeTostring=tostring;local nativeSetmetatable=setmetatable',
+      '  local nativeGetmetatable=getmetatable;local nativeRawget=rawget',
+      '  local trapToken='+JSON.stringify(trapChallenge),
+      '  local trapObject={};local trapLock={};local trapHits=0;local trapGuardTicks=0',
+      '  local function trapMethod(self)',
+      '    if self~=trapObject then nativeError("BLACKMAMER V4 metamethod sentinel mismatch")end',
+      '    trapHits=trapHits+1;return trapToken',
+      '  end',
+      '  local trapMeta={__tostring=trapMethod,__metatable=trapLock}',
+      '  nativeSetmetatable(trapObject,trapMeta)',
+      '  local function metamethodGuard()',
+      '    if nativeTostring~=tostring or nativeSetmetatable~=setmetatable or',
+      '      nativeGetmetatable~=getmetatable or nativeRawget~=rawget then',
+      '      nativeError("BLACKMAMER V4 metamethod API changed")end',
+      '    if nativeRawget(trapMeta,"__tostring")~=trapMethod or',
+      '      nativeRawget(trapMeta,"__metatable")~=trapLock or',
+      '      nativeGetmetatable(trapObject)~=trapLock then',
+      '      nativeError("BLACKMAMER V4 metamethod trap modified")end',
+      '    local previous=trapHits',
+      '    local ok,value=nativePcall(nativeTostring,trapObject)',
+      '    if not ok or value~=trapToken or trapHits~=previous+1 then',
+      '      nativeError("BLACKMAMER V4 tostring trap bypassed")end',
+      '  end',
+      '  metamethodGuard()'
+    ]:[]),
     ...(options.hardened&&options.antiDebug!==false?[
       '  -- Runtime sanity checks are best-effort; no claim of universal debugger detection.',
       '  local function runtimeGuard()',
@@ -1661,6 +1691,12 @@ function compile(source, options={}) {
       '      if not okA or arity~=1 or variadic~=false then',
       '        nativeError("BLACKMAMER V4 debug.info signature modified")end',
       '    end',
+      ...(metamethodTrap?[
+        // Perform the guarded tostring dispatch every third periodic guard,
+        // with one additional unconditional startup probe.
+        '    trapGuardTicks=trapGuardTicks+1',
+        '    if trapGuardTicks%3==0 then metamethodGuard()end'
+      ]:[]),
       '  end',
       '  runtimeGuard()'
     ]:[]),
@@ -2177,6 +2213,8 @@ function compile(source, options={}) {
     runtimeBootstrap:options.hardened===true,
     opaquePredicates:nestedVM,
     periodicRuntimeGuard:options.hardened===true&&options.antiDebug!==false,
+    metamethodTostringTrap:metamethodTrap,
+    metamethodTrapPeriodic:metamethodTrap&&options.antiDebug!==false,
     protectedFunctions:[...protectedKeys.keys()],generatedKeys,
     autoFunctionEncryption:autoMode,
     remoteRuntimeEnabled:Boolean(remoteRuntime),

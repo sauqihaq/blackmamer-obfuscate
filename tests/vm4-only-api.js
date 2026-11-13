@@ -44,6 +44,7 @@ async function api(route,body){
     assert.equal(typeof info.astFlattenedGroups,'number');
     if(level==='Minify'||level==='Light')assert.equal(info.astFlattenedGroups,0);
     assert.ok(result.data.obfuscated.includes('BLACKMAMER VM V4.0'));
+    assert.doesNotMatch(result.data.obfuscated,/[\r\n]/,target+'/'+level+' full API output must be one physical line');
    }
   }
   const old=await api('/api/obfuscate',{preset:'Medium',script:'print(1)'});

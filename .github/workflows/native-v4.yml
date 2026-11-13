@@ -13,6 +13,7 @@ on:
       - 'tests/vm4-ast-string-layer.js'
       - 'tests/vm4-seven-independent.js'
       - 'tests/vm4-loader-topology.js'
+      - 'tests/vm4-single-line.js'
       - 'runtime-polymorph.js'
       - 'native/**'
       - 'native-sealer.js'
@@ -91,6 +92,7 @@ jobs:
           node tests/vm4-seven-independent.js
           node tests/vm4-guard-vm-diversity.js
           node tests/vm4-loader-topology.js
+          node tests/vm4-single-line.js
           node tests/vm4-ast-string-layer.js
           node tests/vm4-binding-hardening.js
           node --check server.js

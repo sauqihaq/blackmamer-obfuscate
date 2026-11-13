@@ -19,7 +19,8 @@ for(const name of Object.keys(PRESETS)){
   assert.equal(new Set(a.opcodePaletteFingerprints).size,a.virtualizedFunctions);
   assert.equal(a.opcodePaletteSize,49,'The current ISA has 49, not 48, opcodes');
   assert.ok(a.runtimeAliasCount>=20,'Expected randomized runtime local identifiers');
-  assert.ok(a.runtimeChaosLineBreaks>0,'Expected mixed lexical layout');
+  assert.equal(a.runtimeChaosLineBreaks,0,'No runtime newline injection in single-line mode');
+   assert.doesNotMatch(a.code,/[\r\n]/,'Preset output must be one physical line');
   assert.doesNotMatch(a.code,/if true and h~=CHECK/);
   assert.ok(a.code.includes('WM:'+a.buildWatermark));
   seen.add(a.buildWatermark);

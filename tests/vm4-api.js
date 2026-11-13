@@ -60,13 +60,14 @@ async function main() {
   assert.equal(first.data.blackmamerVM.nativeSealer,available());
   assert.equal(first.data.blackmamerVM.applied,true);
   assert.equal(first.data.blackmamerVM.fallback,false);
-  assert.ok(first.data.obfuscated.startsWith('--[[\n'),'Native V4 output must start with large ASCII-art banner');
+  assert.ok(first.data.obfuscated.startsWith('--[['),'Native V4 output must start with branded block comment');
+  assert.doesNotMatch(first.data.obfuscated,/[\r\n]/,'Full API output must be exactly one physical line');
   assert.match(first.data.obfuscated,/OBFUSCATED & SECURED BY BLACKMAMER STUDIO/);
   assert.ok(first.data.obfuscated.includes('BLACKMAMER VM V4.0'));
   assert.ok(!first.data.obfuscated.includes('print(a)'));
   const nativePayload=first.data.obfuscated.slice(first.data.obfuscated.indexOf('--[[BLACKMAMER VM V4.0]]'));
   assert.ok(nativePayload.startsWith('--[[BLACKMAMER VM V4.0]]return'));
-  assert.equal(nativePayload.includes('\n'),true,'Native V4 VM payload now has polymorphic line breaks');
+  assert.equal(nativePayload.includes('\n'),false,'Native V4 VM payload must remain on one physical line');
   const second=await post(request);
   assert.equal(second.status,200);
   assert.notEqual(first.data.obfuscated,second.data.obfuscated);

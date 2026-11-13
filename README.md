@@ -71,6 +71,10 @@ This architecture is conceptually similar to generic table/state-machine VM obfu
 
 Validate topology with `node tests/vm4-loader-topology.js`; the CI suite also checks Luau execution, Lua 5.1/LuaJIT compatibility, anti-tamper behavior and 50-program differential parity.
 
+## Output layout: one physical line
+
+BLACKMAMER V4 produces a **single, dense physical Lua/Luau line** for every standalone runtime (`LuaU`, `Lua51`, `LuaJIT`). The compiler's token-preserving minifier and per-build runtime symbol polymorphism remain active, but optional whitespace chaos only inserts spaces, never line breaks. The API folds the branded ASCII-art block comment into the same physical line, so the entire downloaded `obfuscated` string has no `CR` or `LF` characters. This is a **presentation preference, not a security mechanism**. An editor may still visually soft-wrap long text without changing the file's actual line count.
+
 ## Performance and production integrity hardening
 
 - **Adaptive runtime guard:** V4 runs the initial integrity/debug sanity check at load, then in each executing prototype scales its periodic guard interval by `1 + min(7, floor(instructionCount/64))`. Short functions retain the original per-build jitter; larger functions check less frequently (up to 8× spacing). This avoids repeated expensive `debug.info` probes in larger hot paths, but does **not** eliminate their overhead or guarantee a slowdown-free frame loop. The fixed 1,000,000 VM-instruction safety ceiling is unchanged.

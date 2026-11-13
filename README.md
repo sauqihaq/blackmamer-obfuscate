@@ -75,6 +75,33 @@ Validate topology with `node tests/vm4-loader-topology.js`; the CI suite also ch
 
 BLACKMAMER V4 produces a **single, dense physical Lua/Luau line** for every standalone runtime (`LuaU`, `Lua51`, `LuaJIT`). The compiler's token-preserving minifier and per-build runtime symbol polymorphism remain active, but optional whitespace chaos only inserts spaces, never line breaks. The API folds the branded ASCII-art block comment into the same physical line, so the entire downloaded `obfuscated` string has no `CR` or `LF` characters. This is a **presentation preference, not a security mechanism**. An editor may still visually soft-wrap long text without changing the file's actual line count.
 
+## Excluding performance-critical functions from virtualization
+
+Native V4 Maximum supports **explicit per-function virtualization opt-out** with BLACKMAMER's own `BM_NO_VIRTUALIZE` compile-time marker, similar in purpose (not implementation) to Luraph's `LPH_NO_VIRTUALIZE`. No frontend setting, runtime function, or additional network/backend dependency is needed:
+
+```lua
+local RunService = game:GetService("RunService")
+local total = 0
+
+local update = BM_NO_VIRTUALIZE(function(dt)
+    total = total + dt
+    -- This function runs as native Luau, not the BLACKMAMER VM.
+end)
+
+RunService.RenderStepped:Connect(update)
+
+-- All unmarked functions remain encrypted and VM-virtualized.
+local function protectedLogic()
+    return total * 100
+end
+```
+
+The marker syntax is `BM_NO_VIRTUALIZE(function(args) ... end)`. It accepts **one anonymous function literal**, including direct callback arguments such as `RunService.Heartbeat:Connect(BM_NO_VIRTUALIZE(function(dt) ... end))`; other forms and nested markers fail compilation rather than silently disabling protection. Captures of surrounding virtualized locals are bridged through the original VM lexical environment, including mutable upvalues, so excluded callbacks can update variables that unmarked protected functions later read.
+
+**Security limitation:** exempted function bodies intentionally remain plain native Lua/Luau in the generated output. They are **not encrypted or virtualized**. The rest of the VM, its seven variants, anti-tamper verification of sealed VM bytecode, function encryption and key handling remain active, but **the native function's own source is visible and not covered by the VM bytecode checksum**. Do not exclude licensing checks, secrets or sensitive game logic. Actual speedups depend on workload and extra bridging costs for captured variables; benchmark on Roblox devices.
+
+Works for `LuaU`, `Lua51` and `LuaJIT` targets if their runtimes expose Lua 5.1-compatible `setfenv`. The compiler emits a fail-closed error rather than attempting to run an incorrectly scoped native callback if this compatibility API is missing. `blackmamerVM.nativeExemptFunctions` reports how many exemptions were applied, and every remaining function stays in the selected VM protection mode.
+
 ## VM execution hot-path optimisation
 
 Maximum one-click mode retains all **seven independently shuffled interpreters**, their per-function opcode palettes, state-machine handler families, bytecode encryption, lazy constant decoding, startup/periodic checks, integrity validation, and optional external key providers. This optimization deliberately does **not** replace the virtual interpreter with unprotected native Lua, turn off anti-tamper, or relax any license checks.

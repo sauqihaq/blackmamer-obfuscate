@@ -72,6 +72,37 @@ try{
   assert.equal(sevenResult.status,0,sevenResult.stderr);
   assert.equal(sevenResult.stdout,sevenOriginal.stdout);
   checks++;
+  // Guard against the old per-invocation 49-entry opcode table allocation.
+  // Instrument Lua's setmetatable from the host (not the protected script).
+  // The route table must be created once per sealed function prototype,
+  // even when the virtualized function is called hundreds of times.
+  const repeated='local function f(x)return x+1 end;'+
+    'local sum=0;for i=1,400 do sum=sum+f(i) end;print(sum)';
+  const hot=compile(repeated,{hardened:true,target,
+    protectionLevel:'Maximum',vmArchitecture:'seven-independent',
+    autoFunctionEncryption:'standalone'});
+  assert.equal(hot.cachedOpcodeRouter,true);
+  assert.equal(hot.directOpcodeTableDispatch,true);
+  assert.equal(hot.localInstructionColumns,true);
+  const metatableProbe=[
+    'local previousSetmetatable=setmetatable',
+    'local routeAllocations=0',
+    'setmetatable=function(tbl,mt)',
+    '  routeAllocations=routeAllocations+1',
+    '  return previousSetmetatable(tbl,mt)',
+    'end',
+    'local function runProtected(...)',
+    hot.code,
+    'end',
+    'runProtected()',
+    'print("ROUTE_ALLOCS",routeAllocations)'
+  ].join('\n');
+  const countResult=run(binary,metatableProbe,target+'-hot-router-cache');
+  assert.equal(countResult.status,0,target+' hot path: '+countResult.stderr);
+  assert.match(countResult.stdout,/80600\nROUTE_ALLOCS\t([0-9]+)\n$/);
+  const count=Number(/ROUTE_ALLOCS\t([0-9]+)/.exec(countResult.stdout)[1]);
+  assert.ok(count<=12,target+' VM rebuilt per-prototype opcode routes '+count+' times');
+  checks++;
   const encryptedSource='local function calc(x) return x*7 end;print(calc(6))';
   const standalone=compile(encryptedSource,{hardened:true,target,
     protectionLevel:'Strong',autoFunctionEncryption:'standalone'});

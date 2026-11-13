@@ -33,7 +33,7 @@ function byId(id){
  return elements.get(id);
 }
 byId('target').value='LuaU';
-let calls=[],badKeys=false,badProfile=false,wrongTarget=false;
+let calls=[],badKeys=false,badProfile=false,wrongTarget=false,missingChain=false;
 const fetchMock=async(url,options)=>{
  calls.push({url,options});
  if(url.includes('/api/health'))return {ok:true,json:async()=>({status:'ready'})};
@@ -45,7 +45,8 @@ const fetchMock=async(url,options)=>{
    blackmamerVM:{oneClick:true,protectionLevel:badProfile?'Light':'Maximum',
      autoFunctionEncryption:'standalone',nestedVM:true,autoEncryptedFunctions:2,
      applied:true,fallback:false,vmArchitecture:'seven-independent',
-     vmInterpreterCount:7,astStringEncryption:true,astEncryptedStrings:3},
+     vmInterpreterCount:7,astStringEncryption:true,astEncryptedStrings:3,
+     chainedInstructionEncoding:!missingChain},
    securityModel:{executionContext:request.executionContext||'unspecified',warnings:[]},
    externalKeys:badKeys?[{id:'premium',key:'a1'.repeat(32)}]:[]
  })};
@@ -107,6 +108,12 @@ compiled.runInContext(vm.createContext(sandbox));
  assert.equal(byId('download').disabled,true);
  assert.match(byId('feedback').textContent,/Maximum V4/);
  badProfile=false;
+
+ missingChain=true;
+ await byId('obfuscate').click();
+ assert.equal(byId('download').disabled,true);
+ assert.match(byId('feedback').textContent,/chained instruction encoding/);
+ missingChain=false;
 
  wrongTarget=true;
  await byId('obfuscate').click();

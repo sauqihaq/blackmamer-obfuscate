@@ -321,8 +321,9 @@ if(data.blackmamerVM?.protectionLevel!=='Maximum'||
 if(data.blackmamerVM?.vmArchitecture!=='seven-independent'||
    data.blackmamerVM?.vmInterpreterCount!==7||
    data.blackmamerVM?.astStringEncryption!==true||
+   data.blackmamerVM?.chainedInstructionEncoding!==true||
    data.blackmamerVM?.fallback===true)
-   throw new Error('Backend tidak mengonfirmasi semua lapisan Maximum V4.');
+   throw new Error('Backend belum menjalankan Maximum V4 dengan chained instruction encoding.');
 if(data.target!==target)
    throw new Error('Runtime output backend tidak sesuai pilihan.');
 result.value = data.obfuscated;

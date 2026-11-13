@@ -12,6 +12,8 @@ on:
       - 'tests/vm4-differential-50.js'
       - 'vm7-independent.js'
       - 'vm4-deadcode-optimizer.js'
+      - 'vm4-chained-cells.js'
+      - 'tests/vm4-chained-cells.js'
       - 'tests/vm4-deadcode-optimizer.js'
       - 'ast-string-layer.js'
       - 'tests/vm4-ast-string-layer.js'
@@ -24,6 +26,8 @@ on:
       - 'runtime-polymorph.js'
       - 'native/**'
       - 'native-sealer.js'
+      - 'vm4-chained-cells.js'
+      - 'tests/vm4-chained-cells.js'
       - 'protected-functions.js'
       - 'runtime-key-vault.js'
       - 'license-format.js'
@@ -51,6 +55,8 @@ on:
       - 'blackmamer-vm3.js'
       - 'native/**'
       - 'native-sealer.js'
+      - 'vm4-chained-cells.js'
+      - 'tests/vm4-chained-cells.js'
       - 'protected-functions.js'
       - 'tests/vm4-external-keys.js'
       - 'tests/vm4-external-luau.js'
@@ -89,6 +95,8 @@ jobs:
       - name: Verify compiler and frontend syntax
         run: |
           node --check blackmamer-vm3.js
+          node --check vm4-chained-cells.js
+          node tests/vm4-chained-cells.js
           node --check cli.js
           node --check v4-presets.js
           node --check runtime-security-policy.js

@@ -99,6 +99,10 @@ async function api(route,body){
   assert.ok(oneClick.data.blackmamerVM.soaPrototypes>=1,
     'Maximum oneClick should use column-oriented VM bytecode');
   assert.equal(oneClick.data.blackmamerVM.autoFunctionEncryption,'standalone');
+  assert.equal(oneClick.data.blackmamerVM.chainedInstructionEncoding,true);
+  assert.ok(oneClick.data.blackmamerVM.chainedPrototypeCount>=1);
+  assert.equal(oneClick.data.blackmamerVM.chainedEncodedCells,
+    oneClick.data.blackmamerVM.vmInstructions*4);
   assert.equal(oneClick.data.blackmamerVM.autoEncryptedFunctions,
     oneClick.data.blackmamerVM.virtualizedFunctions);
   assert.deepEqual(oneClick.data.externalKeys,[]);

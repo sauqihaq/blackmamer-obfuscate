@@ -9,6 +9,8 @@ on:
       - 'tests/vm4-presets.js'
       - 'tests/vm4-differential-50.js'
       - 'vm7-independent.js'
+      - 'vm4-deadcode-optimizer.js'
+      - 'tests/vm4-deadcode-optimizer.js'
       - 'ast-string-layer.js'
       - 'tests/vm4-ast-string-layer.js'
       - 'tests/vm4-seven-independent.js'
@@ -84,6 +86,8 @@ jobs:
           node --check v4-presets.js
           node tests/vm4-presets.js
           node --check vm7-independent.js
+          node --check vm4-deadcode-optimizer.js
+          node tests/vm4-deadcode-optimizer.js
           node --check ast-string-layer.js
           node --check native-sealer.js
           node --check protected-functions.js

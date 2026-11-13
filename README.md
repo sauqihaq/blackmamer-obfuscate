@@ -42,6 +42,27 @@ configuring licensing, PostgreSQL and Roblox Secrets Store.
 
 See [Roblox client/server security and configuration](docs/ROBLOX_CLIENT_SERVER_SECURITY.md).
 
+## Standalone Maximum V4: sequential instruction feedback
+
+Maximum V4 standalone now combines its existing per-prototype schema with
+**sequential PC feedback**. All four encoded cells for instruction N use a
+rolling state derived from the *previous decoded instruction*. The encoding
+supports both packed AoS and SoA layouts and four schema families. This
+prevents the previous stateless cell parser from decoding arbitrary PCs in
+isolation, while preserving the same single-file Roblox Script, LocalScript,
+and ModuleScript workflow. Parsing still happens once per function and the
+original VM handler execution semantics are unchanged.
+
+This is **not** extra secret-key protection: the output contains the decoding
+algorithm and enough material to recover plaintext if reverse engineered.
+It raises the work needed to adapt a standalone deobfuscator, not the
+theoretical confidentiality of client-side Luau. The compiler reports
+`chainedInstructionEncoding` and `chainedEncodedCells` in API metrics.
+
+Run `npm run test:standalone-chain` to verify both storage layouts,
+cross-row dependency, and compilation properties. The official Luau CI and
+Lua51/LuaJIT regression suites should pass before deploying.
+
 ## Five layered V4 presets
 
 | Level | AST dead branches | VM bytecode CFG flatten | Nested VM | Fused ops |

@@ -3,9 +3,9 @@
 // Local V4 CLI; --keys-out is mandatory for externally encrypted profiles.
 const fs=require('node:fs');
 const path=require('node:path');
-const {compile}=require('./blackmamer-vm3');
+const {compile,lex}=require('./blackmamer-vm3');
 const {getPreset}=require('./v4-presets');
-const {checkRuntimePolicy}=require('./runtime-security-policy');
+const {checkRuntimePolicy,hasProtectedMarker}=require('./runtime-security-policy');
 function main(argv){
   const opts={},input=[];
   for(const arg of argv){
@@ -29,6 +29,8 @@ function main(argv){
   });
   if(!policy.ok)throw Error(policy.code+': '+policy.error);
   const src=fs.readFileSync(input[0],'utf8');
+  if(policy.context==='client'&&hasProtectedMarker(lex(src)))
+    throw Error('CLIENT_FUNCTION_KEYS: BM_ENCFUNC is not allowed in client context.');
   const result=compile(src,{hardened:true,target,...profile});
   if(policy.context==='client'&&result.externallyKeyedFunctions>0)
     throw Error('CLIENT_FUNCTION_KEYS: BM_ENCFUNC is server-only. Client code cannot contain keyed functions.');

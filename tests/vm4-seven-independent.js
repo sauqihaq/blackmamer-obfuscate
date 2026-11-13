@@ -31,8 +31,13 @@ for(let round=0;round<6;round++){
  // rather than a predictable if/elseif engine selector.
  assert.doesNotMatch(protectedOutput.code,/_routeId|elseif\s+variant|execVM[1-7]/);
  assert.equal((protectedOutput.code.match(/while\s+true\s+do/g)||[]).length,7);
- assert.ok((protectedOutput.code.match(/__call\s*=\s*function/g)||[]).length>=7,
-   'Every VM should have its own callable opcode route table');
+ assert.equal(protectedOutput.cachedOpcodeRouter,true);
+ assert.equal(protectedOutput.directOpcodeTableDispatch,true);
+ assert.equal(protectedOutput.localInstructionColumns,true);
+ assert.ok((protectedOutput.code.match(/__index\s*=\s*function/g)||[]).length>=8,
+   'Every VM retains its own sealed-palette route table and invalid-opcode fallback');
+ assert.doesNotMatch(protectedOutput.code,/__call\s*=\s*function/,
+   'Opcode dispatch must not invoke __call on each instruction');
  assert.ok((protectedOutput.code.match(/setmetatable\s*\(/g)||[]).length>=8,
    'Seven opcode route tables plus an engine-router table expected');
  assert.equal(protectedOutput.dispatcherVariants,7);

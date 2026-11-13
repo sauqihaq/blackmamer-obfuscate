@@ -15,6 +15,7 @@ const RUNTIME_LOCALS=new Set([
   '_BK','_s','_out','_oct','_unfold','_vaultProvider','_vaultCachedKey',
   // VM registers, per-prototype execution state and dispatcher identifiers.
   'R','pc','op','spec','env','nextpc','fid','passed','captured','frame',
+  'opCol','aCol','bCol','cCol',
   'outerVM','execVM1','execVM2','execVM3','execVM4',
   'execVM5','execVM6','execVM7'
 ]);

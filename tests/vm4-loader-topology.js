@@ -20,7 +20,11 @@ for(const target of ['LuaU','Lua51','LuaJIT']){
   assert.equal(r.generatedKeys.length,0);
   assert.ok(r.runtimeAliasCount>=25);
   assert.match(r.code,/^--\[\[BLACKMAMER VM V4\.0\]\]return\s+setmetatable\s*\(/);
-  assert.ok((r.code.match(/__call\s*=\s*function/g)||[]).length>=7);
+  assert.equal(r.cachedOpcodeRouter,true);
+  assert.equal(r.directOpcodeTableDispatch,true);
+  assert.equal(r.localInstructionColumns,true);
+  assert.ok((r.code.match(/__index\s*=\s*function/g)||[]).length>=8,
+    'Seven independently shuffled cached opcode routers and engine router remain');
   assert.ok((r.code.match(/while\s+_[A-Za-z0-9_]+\s*~=\s*0\s*do/g)||[]).length>=7);
   assert.doesNotMatch(r.code,/_routeId|_unfold|BMAUTO_V4|function\s+execVM[1-7]\s*\(/);
   assert.notEqual(seen.has(r.buildWatermark),true);

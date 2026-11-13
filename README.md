@@ -65,7 +65,7 @@ The differential regression executes fifty input programs against official Lua 5
 
 The single-button `NativeV4` profile with `oneClick:true` keeps the same API and frontend runtime choices: `LuaU` (Roblox Script/LocalScript/ModuleScript), `Lua51` (vanilla Lua 5.1) and `LuaJIT` (LuaJIT 2.x). The compiler still rejects unsupported syntax instead of emitting a broken script.
 
-Maximum V4 output now uses an independently implemented two-phase `setmetatable` entrypoint. Its seven independent language VM engines each resolve per-prototype randomized opcodes using a callable route table and randomized control-flow state labels rather than a fixed opcode `elseif` chain. The engine selector is a different encoded function table in each build. The runtime local register, program-counter, opcode and prototype identifiers are polymorphically renamed using mixed short/long collision-checked names.
+Maximum V4 output now uses an independently implemented two-phase `setmetatable` entrypoint. Its seven independent language VM engines each resolve per-prototype randomized opcodes using a lazily cached opcode route table with direct indexed lookups and randomized control-flow state labels rather than a fixed opcode `elseif` chain. The engine selector is a different encoded function table in each build. The runtime local register, program-counter, opcode and prototype identifiers are polymorphically renamed using mixed short/long collision-checked names.
 
 This architecture is conceptually similar to generic table/state-machine VM obfuscation; it **does not copy code from Loader.luau or Luraph**. Greater static complexity and size are **not** a guarantee of cryptographic strength or protection against runtime tracing. Generated standalone decryption material remains recoverable; external key providers are reserved for trusted host environments. Additional dispatcher transitions add execution overhead; benchmark scripts on Roblox devices and both Lua runtimes before production use.
 
@@ -74,6 +74,17 @@ Validate topology with `node tests/vm4-loader-topology.js`; the CI suite also ch
 ## Output layout: one physical line
 
 BLACKMAMER V4 produces a **single, dense physical Lua/Luau line** for every standalone runtime (`LuaU`, `Lua51`, `LuaJIT`). The compiler's token-preserving minifier and per-build runtime symbol polymorphism remain active, but optional whitespace chaos only inserts spaces, never line breaks. The API folds the branded ASCII-art block comment into the same physical line, so the entire downloaded `obfuscated` string has no `CR` or `LF` characters. This is a **presentation preference, not a security mechanism**. An editor may still visually soft-wrap long text without changing the file's actual line count.
+
+## VM execution hot-path optimisation
+
+Maximum one-click mode retains all **seven independently shuffled interpreters**, their per-function opcode palettes, state-machine handler families, bytecode encryption, lazy constant decoding, startup/periodic checks, integrity validation, and optional external key providers. This optimization deliberately does **not** replace the virtual interpreter with unprotected native Lua, turn off anti-tamper, or relax any license checks.
+
+- **Opcode router caching:** Previously, every invocation rebuilt a 49-entry `setmetatable` table keyed by the executing function's opcode palette. Now it is constructed once per decrypted prototype and saved to a per-build-randomized private cache slot on that prototype. A repeatedly invoked function reuses its own router; different prototypes still have independent palettes and engine assignments.
+- **Direct lookup:** The interpreter reads the precomputed route table with `route[op]` rather than invoking `__call` on each VM instruction. A `__index` fallback still returns an invalid state for unknown opcodes, which the original state-machine invalid-opcode guard rejects.
+- **Instruction column locals:** The four pre-decoded instruction arrays are loaded into randomized local aliases at function entry and indexed directly on each VM tick. The `parseStage(fid,spec)` decoding cache remains unchanged.
+- **Trade-off:** The cache consumes approximately one 49-entry route table per executed prototype instead of allocating one per call. This saves route constructions on hot functions while retaining all VM state transitions; high-frequency virtualized loops still pay a substantial VM dispatch cost.
+
+Run `node tests/vm4-lua51.js` with Lua 5.1 and LuaJIT installed: the suite instruments Lua's `setmetatable` to verify that 400 calls to a virtualized function do not create 400 opcode maps. For actual frame-time measurement use representative Roblox `RenderStepped` workloads; code-level changes alone do not establish a guaranteed speed-up or prove an identical attack cost against advanced dynamic instrumentation.
 
 ## Performance and production integrity hardening
 

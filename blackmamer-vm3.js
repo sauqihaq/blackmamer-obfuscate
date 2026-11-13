@@ -1069,7 +1069,10 @@ function compile(source, options={}) {
   const oldFunctions=funcs.slice();
   for(let i=0;i<funcs.length;i++)funcs[i]=oldFunctions[order[i]-1];
   for(const fn of funcs)for(const row of fn.ins){
-    if(row[0]===codes.CLOSURE)row[2]=reloc.get(row[2]);
+    // Positive CLOSURE ids reference sealed VM prototypes and are
+    // shuffled. Negative ids are explicit native function exemptions and
+    // must keep their own separate native factory registry indexes.
+    if(row[0]===codes.CLOSURE&&row[2]>0)row[2]=reloc.get(row[2]);
   }
   const entry=reloc.get(initialEntry);
   // Each function becomes a compact, per-build sealed binary bytecode blob.

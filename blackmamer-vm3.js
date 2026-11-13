@@ -1546,8 +1546,12 @@ function compile(source, options={}) {
   ]:[];
   // Only explicitly exempted functions are emitted as plain native Lua.
   // All other functions remain encrypted/sealed and run through V4 VM.
-  const nativeFactoriesLua='{'+nativeFunctions.map(f=>
-    'function()return '+f.source+' end').join(',')+'}';
+  // Keep native source out of the polymorphic runtime renamer. It is already
+  // explicitly exempt and must retain its own locals/globals and syntax.
+  const nativePlaceholders=nativeFunctions.map(()=>
+    '__bm_native_'+crypto.randomBytes(14).toString('hex'));
+  const nativeFactoriesLua='{'+nativeFunctions.map((f,i)=>
+    'function()return '+nativePlaceholders[i]+' end').join(',')+'}';
   const nativeAliasesLua='{'+nativeFunctions.map(f=>
     '{'+Object.entries(f.aliases).map(([from,to])=>
       '['+JSON.stringify(from)+']='+JSON.stringify(to)).join(',')+'}').join(',')+'}';
@@ -2138,8 +2142,14 @@ function compile(source, options={}) {
   }
   const polymorphic=options.hardened?polymorphRuntime(wrapped):
     {code:wrapped,aliasCount:0,lineBreaks:0};
+  let protectedRuntime=polymorphic.code;
+  for(let i=0;i<nativeFunctions.length;i++){
+    const marker=nativePlaceholders[i];
+    if(!protectedRuntime.includes(marker))throw new Error('Native function placeholder missing');
+    protectedRuntime=protectedRuntime.replace(marker,nativeFunctions[i].source);
+  }
   const code='--[[BLACKMAMER VM '+(options.hardened?'V4.0':'V3.4')+']]'+
-    polymorphic.code+(options.hardened?'--[[WM:'+buildWatermark+']]':'');
+    protectedRuntime+(options.hardened?'--[[WM:'+buildWatermark+']]':'');
   return {code,engine:options.hardened?'BLACKMAMER V4 Native VM':'BLACKMAMER V3 Native VM',
     hardened:options.hardened===true,nativeSealer:sealedBatch.nativeUsed,
     target,protectionLevel:profileName,injectedAstBranches,astFlattenedGroups,

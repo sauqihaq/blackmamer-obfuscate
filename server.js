@@ -8,9 +8,9 @@
 const express=require('express');
 const crypto=require('node:crypto');
 const cors=require('cors');
-const {compile,SyntaxErrorV3}=require('./blackmamer-vm3');
+const {compile,lex,SyntaxErrorV3}=require('./blackmamer-vm3');
 const {PRESETS}=require('./v4-presets');
-const {checkRuntimePolicy,describeRuntimeSecurity}=require('./runtime-security-policy');
+const {checkRuntimePolicy,describeRuntimeSecurity,hasProtectedMarker}=require('./runtime-security-policy');
 const {available:nativeAvailable}=require('./native-sealer');
 const {registerRoutes,gate:licenseGate}=require('./commercial-access');
 const {enabled:vaultEnabled,store:storeRuntimeKey,registerRoutes:registerRuntimeRoutes}=
@@ -103,6 +103,11 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
      (!Number.isSafeInteger(universeId)||universeId<1))
    return res.status(400).json({error:'Universe ID must be a positive integer.',code:'BAD_UNIVERSE'});
  try{
+   if(policy.context==='client'&&hasProtectedMarker(lex(source)))
+     return res.status(400).json({
+       error:'BM_ENCFUNC cannot be used in client context; standalone mode would embed its key.',
+       code:'CLIENT_FUNCTION_KEYS'
+     });
    const result=compile(source,{
      hardened:true,
      target,

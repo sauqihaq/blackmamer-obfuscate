@@ -22,7 +22,8 @@ for(let round=0;round<6;round++){
  assert.deepEqual(protectedOutput.generatedKeys,[]);
  assert.doesNotMatch(protectedOutput.code,/local function outerVM\(/);
  assert.ok(protectedOutput.runtimeAliasCount>=30,'Expected polymorphic VM identifiers');
- assert.ok(protectedOutput.runtimeChaosLineBreaks>0);
+ assert.equal(protectedOutput.runtimeChaosLineBreaks,0,'One-line V4 output must not inject newlines');
+ assert.doesNotMatch(protectedOutput.code,/[\r\n]/,'VM output must have no physical line breaks');
  assert.doesNotMatch(protectedOutput.code,/execVM[1-7]|_unfold|BMAUTO_V4/);
  assert.equal(protectedOutput.stateMachineDispatch,true);
  assert.equal(protectedOutput.tableDrivenDispatch,true);

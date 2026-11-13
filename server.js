@@ -10,6 +10,7 @@ const crypto=require('node:crypto');
 const cors=require('cors');
 const {compile,SyntaxErrorV3}=require('./blackmamer-vm3');
 const {PRESETS}=require('./v4-presets');
+const {checkRuntimePolicy,describeRuntimeSecurity}=require('./runtime-security-policy');
 const {available:nativeAvailable}=require('./native-sealer');
 const {registerRoutes,gate:licenseGate}=require('./commercial-access');
 const {enabled:vaultEnabled,store:storeRuntimeKey,registerRoutes:registerRuntimeRoutes}=
@@ -74,6 +75,11 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
    return res.status(400).json({error:'Preset harus NativeV4, fast, balanced, atau paranoid.',code:'V4_ONLY'});
  if(!['standalone','server-vault'].includes(runtimeMode))
    return res.status(400).json({error:'Unknown runtime mode.',code:'INVALID_RUNTIME_MODE'});
+ const policy=checkRuntimePolicy({
+   target,runtimeMode,executionContext:body.executionContext,preset,
+   autoFunctionEncryption:body.autoFunctionEncryption,functionKeys:body.functionKeys
+ });
+ if(!policy.ok)return res.status(400).json({error:policy.error,code:policy.code});
  if(remoteRequested){
    if(!oneClick||target!=='LuaU')
      return res.status(400).json({error:'Server vault requires Native V4 one-click Luau.',code:'SERVER_ONLY'});
@@ -118,6 +124,13 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
      functionKeys:oneClick?undefined:body.functionKeys,
      remoteRuntime:remoteRequested?{artifactId,apiBaseUrl:publicOrigin}:undefined
    });
+   // A manual BM_ENCFUNC marker can request an external key even when
+   // automatic function encryption is standalone. Never ship that to client.
+   if(policy.context==='client'&&result.externallyKeyedFunctions>0)
+     return res.status(400).json({
+       error:'BM_ENCFUNC requires server execution and a server-only key provider.',
+       code:'CLIENT_FUNCTION_KEYS'
+     });
    if(remoteRequested){
      // Persist before returning output: never hand out a script whose key was
      // not committed. The secret must never appear in the response or logs.
@@ -138,6 +151,11 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
      obfuscated:ONE_LINE_BANNER+result.code,engine:result.engine,target,
      externalKeys:remoteRequested?[]:result.generatedKeys,
      protectedFunctionIds:result.protectedFunctions,
+     securityModel:describeRuntimeSecurity({
+       context:policy.context,runtimeMode,
+       autoFunctionEncryption:result.autoFunctionEncryption,
+       externallyKeyedFunctions:result.externallyKeyedFunctions
+     }),
      runtimeKeyVault:remoteRequested?{
        enabled:true,artifactId,serverOnly:true,
        secretName:'BLACKMAMER_LICENSE',requiresRobloxSecretSetup:true
@@ -145,7 +163,7 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
      protection:{antiTamper:result.antiTamper,antiDebug:result.antiDebug},
      blackmamerVM:{
        enabled:true,applied:true,mode:'native-v4',hardened:true,
-       oneClick,runtimeMode:remoteRequested?'server-vault':'standalone',
+       oneClick,executionContext:policy.context,runtimeMode:remoteRequested?'server-vault':'standalone',
        profileLabel:selectedPreset?'BLACKMAMER '+preset+' V4':
          (oneClick?'BLACKMAMER V4 Unified Protection':'Custom API'),
        protectionLevel:result.protectionLevel,

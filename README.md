@@ -102,6 +102,14 @@ The marker syntax is `BM_NO_VIRTUALIZE(function(args) ... end)`. It accepts **on
 
 Works for `LuaU`, `Lua51` and `LuaJIT` targets if their runtimes expose Lua 5.1-compatible `setfenv`. The compiler emits a fail-closed error rather than attempting to run an incorrectly scoped native callback if this compatibility API is missing. `blackmamerVM.nativeExemptFunctions` reports how many exemptions were applied, and every remaining function stays in the selected VM protection mode.
 
+## Maximum V4: Per-prototype standalone format polymorphism
+
+The old static extractor for sample #3 assumed a fixed 61-byte, seven-engine prototype header and one global per-PC operand decoding formula. Maximum now appends **five encrypted header bytes per prototype** and varies each prototype's pre-decoded instruction field encoding using a random seed, two coefficients and one of four reversible formulas. Two further randomly generated coefficients are compiled into that build's decoder. Because all instructions are converted to `parseStage` columns once per prototype, this adds first-call decoding work **without adding operations to each VM instruction dispatch**.
+
+This changes the on-disk schema for Maximum standalone and Maximum external/remote modes. The new compiler and generated loader are version-compatible with each other. Lower protection profiles and archived V3 remain unchanged. Tests cover all three runtimes and check 15 independent builds for per-prototype variation. Existing differential and tamper suites verify the changed encoding still runs identical code.
+
+**Security boundary:** A standalone output must still carry enough logic and data to compute every required decryption value. Random schemas and formula variants invalidate simple old-format extractors, but can still be reverse-engineered. Neither per-build randomization nor client-side key splitting makes the standalone master key secret. Real secrecy requires moving sensitive computation or key usage to a trusted server.
+
 ## Maximum V4 dead-code mosaic and IR optimizer
 
 Maximum One-Click now includes a **two-stage compiler pipeline** that adds more structural decoy code without executing it on normal VM control-flow paths:

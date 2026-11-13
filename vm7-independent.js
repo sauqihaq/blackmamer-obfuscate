@@ -45,9 +45,10 @@ function buildIndependentVmLines(lines,variants,rand){
   const guard='_g'+variant.index+'_'+rand(1000000000).toString(36);
   const route='_r'+variant.index+'_'+rand(1000000000).toString(36);
   const state='_q'+variant.index+'_'+rand(1000000000).toString(36);
-  // Metadata ends at spec[10]. Each engine chooses a distinct hidden cache
-  // slot; a prototype only ever runs on its selected engine.
-  const routeCacheSlot=11+rand(29);
+  // Maximum V4 now puts its per-prototype field-decoder schema in
+  // spec[11]. Router cache slots MUST start above all reserved metadata.
+  // Each prototype only uses its selected VM engine's cache slot.
+  const routeCacheSlot=12+rand(28);
   const usedStates=new Set();
   const allocState=()=>{let value;do{value=1000+rand(62000);}while(usedStates.has(value));
     usedStates.add(value);return value;};

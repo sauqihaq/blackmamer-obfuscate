@@ -1,6 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict');
-const {checkRuntimePolicy,describeRuntimeSecurity}=require('../runtime-security-policy');
+const {checkRuntimePolicy,describeRuntimeSecurity,hasProtectedMarker}=require('../runtime-security-policy');
+const {lex}=require('../blackmamer-vm3');
 const check=opts=>checkRuntimePolicy({target:'LuaU',...opts});
 
 assert.deepEqual(check({executionContext:'client'}),{ok:true,context:'client'});
@@ -26,4 +27,7 @@ const vault=describeRuntimeSecurity({
 });
 assert.equal(vault.keyLocation,'authenticated-server-vault');
 assert.equal(vault.warnings.length,1);
+assert.equal(hasProtectedMarker(lex('print("BM_ENCFUNC(42)") -- BM_ENCFUNC("x")')),false);
+assert.equal(hasProtectedMarker(lex('local f=BM_ENCFUNC("secure",function() return 42 end)')),true);
+assert.equal(hasProtectedMarker(lex('object.BM_ENCFUNC("x")')),false);
 console.log('Client/server runtime trust boundary policy PASS');

@@ -102,6 +102,17 @@ The marker syntax is `BM_NO_VIRTUALIZE(function(args) ... end)`. It accepts **on
 
 Works for `LuaU`, `Lua51` and `LuaJIT` targets if their runtimes expose Lua 5.1-compatible `setfenv`. The compiler emits a fail-closed error rather than attempting to run an incorrectly scoped native callback if this compatibility API is missing. `blackmamerVM.nativeExemptFunctions` reports how many exemptions were applied, and every remaining function stays in the selected VM protection mode.
 
+## Private metamethod `__tostring` anti-tamper trap
+
+Native V4 hardened builds with `antiTamper:true` now create a **per-build isolated table sentinel** with its own locked `__metatable` and a `__tostring` function. The compiler generates a fresh challenge value for each output, then verifies that the real `tostring(sentinel)` invokes that exact metamethod, returns the correct value, and increments its invocation counter once. It also checks the sentinel's metamethod identity and the integrity of the `tostring`, `setmetatable`, `getmetatable` and `rawget` global functions.
+
+- **Startup:** the `__tostring` probe runs once after existing VM bytecode verification and before executing the script.
+- **Periodic:** when periodic anti-debug checks are enabled, the metamethod probe runs every third adaptive `runtimeGuard()` invocation rather than on every virtual instruction. Disabling `antiTamper` disables the metamethod trap; disabling only `antiDebug` retains the initial metamethod integrity probe.
+- **Safe failure:** tampering terminates the protected script with a generic V4 error. It does **not** deliberately crash the Roblox process, hijack another object's metatable, damage user data, or corrupt the user's program state.
+- **Scope:** this is a best-effort metamethod tamper detector, **not equivalent to Luraph's proprietary techniques** and not a guarantee against instrumentation or rewriting the exposed standalone runtime. The existing seven-VM topology, bytecode sealing, function-key policy, anti-debug guard, native-function opt-outs and single-line output remain unchanged.
+
+Validate with `node tests/vm4-metamethod-trap.js`: test normal table metamethods, startup hook injection, suppressed metamethod calls, corrupted `__tostring` callbacks and periodic metatable modification under Lua 5.1, LuaJIT and the official Luau CLI. A randomized sentinel only adds tamper evidence; it cannot make client-side keys secret.
+
 ## VM execution hot-path optimisation
 
 Maximum one-click mode retains all **seven independently shuffled interpreters**, their per-function opcode palettes, state-machine handler families, bytecode encryption, lazy constant decoding, startup/periodic checks, integrity validation, and optional external key providers. This optimization deliberately does **not** replace the virtual interpreter with unprotected native Lua, turn off anti-tamper, or relax any license checks.

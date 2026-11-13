@@ -109,7 +109,7 @@ function lex(source) {
   return tokens;
 }
 class Parser {
-  constructor(source) { this.tokens=lex(source); this.i=0; }
+  constructor(source) { this.source=source; this.tokens=lex(source); this.i=0; }
   peek() { return this.tokens[this.i].value; }
   tok() { return this.tokens[this.i]; }
   take(val) { if (this.peek()===val) {this.i++;return true;} return false; }
@@ -137,12 +137,20 @@ class Parser {
     }
     return names;
   }
-  fun(extraSelf) {
+  fun(extraSelf,sourceStart=null) {
     const params=this.params();
     if(extraSelf) params.unshift('self');
     const body=this.block(new Set(['end']));
     this.must('end');
-    return {t:'fun',params,body};
+    const node={t:'fun',params,body};
+    // Preserve only the exact parsed function literal used by an explicit
+    // BM_NO_VIRTUALIZE marker. Do not regex-match source, which would break
+    // nested 'end', comments, multiline strings and quoted contents.
+    if(sourceStart!==null){
+      const endToken=this.tokens[this.i-1];
+      node.nativeSource=this.source.slice(sourceStart,endToken.at+3);
+    }
+    return node;
   }
   statement() {
     if (this.take('local')) {
@@ -256,7 +264,7 @@ class Parser {
     else if(t.type==='str'){this.i++;node={t:'str',value:t.value};}
     else if(this.take('(')){node=this.expr();this.must(')');}
     else if(this.take('{')) node=this.table();
-    else if(this.take('function')) node=this.fun(false);
+    else if(this.take('function')) node=this.fun(false,t.at);
     else if(['-','not','#'].includes(this.peek())){
       const op=this.tok().value;this.i++; node={t:'unary',op,x:this.expr(7)};
     }
@@ -383,6 +391,21 @@ function virtualizeLexicalBindings(ast,audit){
     if(node.t==='table'){for(const f of node.fields){visitExpr(f.key,scope);visitExpr(f.value,scope);}return;}
     if(node.t==='index'){visitExpr(node.obj,scope);visitExpr(node.key,scope);return;}
     if(node.t==='method'){visitExpr(node.obj,scope);for(const a of node.args)visitExpr(a,scope);return;}
+    if(node.t==='call'&&node.fn?.t==='var'&&node.fn.name==='BM_NO_VIRTUALIZE'){
+      // Native source is kept verbatim, while the surrounding virtualized
+      // bindings may have aliases. Resolve free references against the scope
+      // *at the marker*, to bridge mutable VM upvalues from native Lua.
+      const fun=node.args?.[0],captures={};
+      if(fun?.t==='fun'&&typeof fun.nativeSource==='string'){
+        for(const token of lex(fun.nativeSource)){
+          if(token.type!=='id')continue;
+          const alias=resolve(scope,token.value);
+          if(alias!==token.value)captures[token.value]=alias;
+        }
+      }
+      node.nativeCaptureAliases=captures;
+      return; // its body executes natively, never virtualized as bytecode
+    }
     if(node.t==='call'){visitExpr(node.fn,scope);for(const a of node.args)visitExpr(a,scope);return;}
     if(node.t==='unary'){visitExpr(node.x,scope);return;}
     if(node.t==='binary'){visitExpr(node.left,scope);visitExpr(node.right,scope);return;}
@@ -627,6 +650,7 @@ function compile(source, options={}) {
   const used=new Set(), codes={};
   for(const op of OPS){let id;do{id=rand(220)+17;}while(used.has(id));used.add(id);codes[op]=id;}
   const consts=[], constKeys=new Map(), funcs=[], argSets=[];
+  const nativeFunctions=[];
   const protectedKeys=new Map(), generatedKeys=[];
   const optionsKeys=options.functionKeys===undefined?{}:options.functionKeys;
   if(!optionsKeys || typeof optionsKeys!=='object' || Array.isArray(optionsKeys))
@@ -687,6 +711,24 @@ function compile(source, options={}) {
       if(n.t==='index'){const obj=expr(n.obj),k=expr(n.key),dst=reg();emit('INDEX',dst,obj,k);return dst;}
       if(n.t==='table'){const dst=reg();emit('TABLE',dst);for(const f of n.fields){const a=expr(f.key),b=expr(f.value);emit('PUT',dst,a,b);}return dst;}
       if(n.t==='fun'){const fnid=makeBuilder(n.body,n.params,protectedId),dst=reg();emit('CLOSURE',dst,fnid);return dst;}
+      if(n.t==='call'&&n.fn.t==='var'&&n.fn.name==='BM_NO_VIRTUALIZE'){
+        if(!options.hardened)throw new SyntaxErrorV3('BM_NO_VIRTUALIZE requires NativeV4');
+        if(n.args.length!==1||n.args[0].t!=='fun'||
+          typeof n.args[0].nativeSource!=='string')
+          throw new SyntaxErrorV3('BM_NO_VIRTUALIZE expects a function literal: BM_NO_VIRTUALIZE(function(...) ... end)');
+        // Nested exemption markers within native code are not processed by
+        // the VM compiler; fail closed instead of leaving an unresolved macro.
+        const sourceTokens=lex(n.args[0].nativeSource);
+        if(sourceTokens.some(t=>t.type==='id'&&t.value==='BM_NO_VIRTUALIZE'))
+          throw new SyntaxErrorV3('Nested BM_NO_VIRTUALIZE markers are unsupported');
+        const idx=nativeFunctions.push({
+          source:compactLuau(n.args[0].nativeSource),
+          aliases:n.nativeCaptureAliases||{}
+        });
+        const dst=reg();
+        emit('CLOSURE',dst,-idx);
+        return dst;
+      }
       if(n.t==='call' && n.fn.t==='var' && n.fn.name==='BM_ENCFUNC'){
         if(!options.hardened)throw new SyntaxErrorV3('BM_ENCFUNC requires NativeV4');
         if(n.args.length!==2 || n.args[0].t!=='str' || n.args[1].t!=='fun')

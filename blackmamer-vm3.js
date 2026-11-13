@@ -1544,6 +1544,13 @@ function compile(source, options={}) {
     '    _vaultCachedKey=key;return key',
     '  end'
   ]:[];
+  // Only explicitly exempted functions are emitted as plain native Lua.
+  // All other functions remain encrypted/sealed and run through V4 VM.
+  const nativeFactoriesLua='{'+nativeFunctions.map(f=>
+    'function()return '+f.source+' end').join(',')+'}';
+  const nativeAliasesLua='{'+nativeFunctions.map(f=>
+    '{'+Object.entries(f.aliases).map(([from,to])=>
+      '['+JSON.stringify(from)+']='+JSON.stringify(to)).join(',')+'}').join(',')+'}';
   const lines=[
     options.hardened?'-- BLACKMAMER VM V4.0':'-- BLACKMAMER VM V3.4',
     'return (function(...)',
@@ -1562,6 +1569,10 @@ function compile(source, options={}) {
     '  local nativePack=table.pack or function(...)return {n=select("#",...),...}end',
     '  local nativeType=type; local nativePcall=pcall; local nativeError=error',
     '  local dbg=debug; local globals=(getfenv and getfenv()) or _ENV or _G',
+    ...(nativeFunctions.length?[
+      '  local nativeFactories='+nativeFactoriesLua,
+      '  local nativeAliasMaps='+nativeAliasesLua
+    ]:[]),
     ...remoteRuntimeLines,
     '  if nativeType(bxor)~="function" then nativeError("BLACKMAMER V3 requires Luau bit32") end',
     '  local '+mapName+'={}',
@@ -1753,6 +1764,42 @@ function compile(source, options={}) {
     '    return value',
     '  end',
     '  local NIL={};local function nonil(v)if v==NIL then return nil else return v end end',
+    ...(nativeFunctions.length?[
+      // Each returned native closure gets a fresh environment. Every free
+      // upvalue reads/writes the captured VM lexical scope, preserving live
+      // updates after the VM function itself has already returned.
+      '  local nativeSetfenv=setfenv',
+      '  if nativeType(nativeSetfenv)~="function" then nativeError("BM_NO_VIRTUALIZE requires setfenv support")end',
+      '  local function makeNativeFunction(index,capture)',
+      '    local factory=nativeFactories[index]',
+      '    if nativeType(factory)~="function" then nativeError("BLACKMAMER invalid native function")end',
+      '    local aliases=nativeAliasMaps[index] or {}',
+      '    local proxy=setmetatable({}, {',
+      '      __index=function(_,name)',
+      '        local mapped=aliases[name] or name;local frame=capture',
+      '        while frame do',
+      '          local v=rawget(frame.vars,mapped)',
+      '          if v~=nil then return nonil(v)end',
+      '          frame=frame.parent',
+      '        end',
+      '        return globals[mapped]',
+      '      end,',
+      '      __newindex=function(_,name,value)',
+      '        local mapped=aliases[name] or name;local frame=capture',
+      '        while frame do',
+      '          if rawget(frame.vars,mapped)~=nil then',
+      '            frame.vars[mapped]=value==nil and NIL or value;return',
+      '          end',
+      '          frame=frame.parent',
+      '        end',
+      '        globals[mapped]=value',
+      '      end',
+      '    })',
+      '    local fn=factory()',
+      '    nativeSetfenv(fn,proxy)',
+      '    return fn',
+      '  end'
+    ]:[]),
     // Stage 1: decrypt and parse into four independent instruction columns.
     // Stage 2 below ONLY reads these columns and executes semantics.
     '  local programCache={}',
@@ -1863,7 +1910,13 @@ function compile(source, options={}) {
     '        local args=nativePack(R[list[1]](R[list[2]],R[list[3]]))',
     '        local control=args[1];R[list[3]]=control;R[list[4]]=control~=nil',
     '        for j=5,#list do R[list[j]]=args[j-4] end',
-    '      elseif op==O.CLOSURE then local capture=env;R[a]=function(...)return exec(b,{...},capture)end',
+    '      elseif op==O.CLOSURE then local capture=env',
+    ...(nativeFunctions.length?[
+      '        if b<0 then R[a]=makeNativeFunction(-b,capture)',
+      '        else R[a]=function(...)return exec(b,{...},capture)end end'
+    ]:[
+      '        R[a]=function(...)return exec(b,{...},capture)end'
+    ]),
     '      elseif op==O.RET then return a==0 and nil or R[a]',
     '      elseif op==O.RETVOID then return',
     '      elseif op==O.RETM then local regs=A[a];local vals={};local count=0',
@@ -2119,6 +2172,8 @@ function compile(source, options={}) {
     externallyKeyedFunctions:funcs.filter(f=>f.protectedId&&
       !(autoMode==='standalone'&&f.protectedId===autoId)).length,
     virtualizedFunctions:funcs.length,
+    nativeExemptFunctions:nativeFunctions.length,
+    nativeExemptionMacro:'BM_NO_VIRTUALIZE',
     bytecodeLayout:options.hardened
       ?'per-prototype-aos-or-soa-shuffled-12-or-16'
       :'per-prototype-shuffled-12-or-16',

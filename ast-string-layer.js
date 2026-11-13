@@ -35,6 +35,11 @@ function protectAstStrings(ast,options={}){
      count++;totalBytes+=Buffer.byteLength(str,'utf8');
      return;
    }
+   // Native-exempt functions are not put into the VM. Do not claim their
+   // plaintext literals were AST-encrypted: their original native source
+   // is emitted explicitly, outside the sealed instruction pool.
+   if(node.t==='call'&&node.fn?.t==='var'&&node.fn.name==='BM_NO_VIRTUALIZE')
+     return;
    // The compiler macro identifies protected functions through the exact
    // string ID on its first argument; do not rewrite this compile-time input.
    if(node.t==='call'&&node.fn&&node.fn.t==='var'&&node.fn.name==='BM_ENCFUNC'){

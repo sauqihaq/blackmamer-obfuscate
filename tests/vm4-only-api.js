@@ -116,7 +116,10 @@ async function api(route,body){
   assert.ok(oneClick.data.blackmamerVM.autoEncryptedFunctions<=
     oneClick.data.blackmamerVM.virtualizedFunctions);
   assert.deepEqual(oneClick.data.externalKeys,[]);
-  assert.equal(oneClick.data.blackmamerVM.robloxApiGuard,true);
+  assert.equal(oneClick.data.blackmamerVM.robloxApiGuard,false);
+  assert.equal(oneClick.data.blackmamerVM.platform,'universal');
+  assert.equal(oneClick.data.blackmamerVM.portableApiIntegrityGuard,true);
+  assert.doesNotMatch(oneClick.data.obfuscated,/Roblox Instance proxy detected|IsA\("DataModel"\)/);
   assert.equal(oneClick.data.protection.antiDebug,true);
   assert.equal(oneClick.data.protection.antiTamper,true);
   assert.equal(oneClick.data.blackmamerVM.metamethodTostringTrap,true);
@@ -149,7 +152,8 @@ async function api(route,body){
   });
   assert.equal(client.status,200,JSON.stringify(client.data).slice(0,600));
   assert.equal(client.data.securityModel.executionContext,'client');
-  assert.equal(client.data.blackmamerVM.robloxApiGuard,true);
+  assert.equal(client.data.blackmamerVM.robloxApiGuard,false);
+  assert.equal(client.data.blackmamerVM.platform,'universal');
   assert.equal(client.data.securityModel.keyLocation,'embedded-reconstructible');
   assert.equal(client.data.blackmamerVM.executionContext,'client');
   assert.deepEqual(client.data.externalKeys,[]);
@@ -159,8 +163,32 @@ async function api(route,body){
   });
   assert.equal(serverStandalone.status,200);
   assert.equal(serverStandalone.data.securityModel.executionContext,'server');
-  assert.equal(serverStandalone.data.blackmamerVM.robloxApiGuard,true);
+  assert.equal(serverStandalone.data.blackmamerVM.robloxApiGuard,false);
   assert.match(serverStandalone.data.securityModel.warnings[0],/reconstructible/);
+  const explicitRoblox=await api('/api/obfuscate',{
+    preset:'NativeV4',target:'LuaU',platform:'roblox',antiDebug:true,
+    script:'print("roblox")'
+  });
+  assert.equal(explicitRoblox.status,200);
+  assert.equal(explicitRoblox.data.blackmamerVM.robloxApiGuard,true);
+  assert.equal(explicitRoblox.data.blackmamerVM.platform,'roblox');
+  assert.equal(explicitRoblox.data.blackmamerVM.portableApiIntegrityGuard,true);
+  const invalidPlatform=await api('/api/obfuscate',{
+    preset:'NativeV4',target:'LuaU',platform:'invalid',script:'print(2)'
+  });
+  assert.equal(invalidPlatform.status,400);
+  assert.equal(invalidPlatform.data.code,'INVALID_PLATFORM');
+  const robloxLua51=await api('/api/obfuscate',{
+    preset:'NativeV4',target:'Lua51',platform:'roblox',script:'print(2)'
+  });
+  assert.equal(robloxLua51.status,400);
+  assert.equal(robloxLua51.data.code,'ROBLOX_PLATFORM_REQUIRES_LUAU');
+  const vaultUniversal=await api('/api/obfuscate',{
+    preset:'NativeV4',target:'LuaU',oneClick:true,
+    runtimeMode:'server-vault',platform:'universal',script:'print(2)'
+  });
+  assert.equal(vaultUniversal.status,400);
+  assert.equal(vaultUniversal.data.code,'SERVER_VAULT_REQUIRES_ROBLOX');
   const unsafeClient=await api('/api/obfuscate',{
     preset:'NativeV4',target:'LuaU',executionContext:'client',
     autoFunctionEncryption:'external-full',script:'print(42)'

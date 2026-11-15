@@ -69,6 +69,9 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
  const oneClick=body.oneClick===true;
  const runtimeMode=body.runtimeMode||'standalone';
  const remoteRequested=runtimeMode==='server-vault';
+ // Language target and host platform are separate; Luau also runs in the
+ // official CLI and third-party hosts with no Roblox game/script globals.
+ const platform=body.platform||(remoteRequested?'roblox':'universal');
  // True double VM is the default for one-click standalone only.
  // A failure in EITHER compiler fails the request; never silently downgrade.
  const doubleVM=oneClick&&!remoteRequested;
@@ -84,6 +87,12 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
    return res.status(400).json({error:'Preset harus NativeV4, fast, balanced, atau paranoid.',code:'V4_ONLY'});
  if(!['standalone','server-vault'].includes(runtimeMode))
    return res.status(400).json({error:'Unknown runtime mode.',code:'INVALID_RUNTIME_MODE'});
+ if(!['universal','roblox'].includes(platform))
+   return res.status(400).json({error:'Platform must be universal or roblox.',code:'INVALID_PLATFORM'});
+ if(platform==='roblox'&&target!=='LuaU')
+   return res.status(400).json({error:'Roblox host checks require Luau.',code:'ROBLOX_PLATFORM_REQUIRES_LUAU'});
+ if(remoteRequested&&platform!=='roblox')
+   return res.status(400).json({error:'Server Vault requires Roblox server platform.',code:'SERVER_VAULT_REQUIRES_ROBLOX'});
  const policy=checkRuntimePolicy({
    target,runtimeMode,executionContext:body.executionContext,preset,
    autoFunctionEncryption:body.autoFunctionEncryption,functionKeys:body.functionKeys
@@ -120,9 +129,9 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
    const buildOptions={
      hardened:true,
      target,
-     // Server-issued one-click Roblox output checks the real Roblox host
-     // APIs before executing VM instructions. This is detection, not attestation.
-     robloxApiGuard:oneClick&&target==='LuaU',
+     // All one-click dialects use portable API integrity probes.
+     // Instance-specific checks are opt-in, except for Roblox server vault.
+     robloxApiGuard:platform==='roblox'&&target==='LuaU',
      doubleVmOptimized:doubleVM,
      protectionLevel:level,
      antiTamper:selectedPreset?selectedPreset.antiTamper:(oneClick||body.antiTamper!==false),
@@ -186,7 +195,7 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
      protection:{antiTamper:result.antiTamper,antiDebug:result.antiDebug},
      blackmamerVM:{
        enabled:true,applied:true,mode:'native-v4',hardened:true,
-       oneClick,executionContext:policy.context,runtimeMode:remoteRequested?'server-vault':'standalone',
+       oneClick,platform,executionContext:policy.context,runtimeMode:remoteRequested?'server-vault':'standalone',
        doubleVM,
        prometheusStage:stage?stage.meta:{applied:false,vm:false},
        dualVmOptimization:result.doubleVmOptimized===true,
@@ -223,6 +232,7 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
         runtimeChaosLineBreaks:result.runtimeChaosLineBreaks,
        periodicRuntimeGuard:result.periodicRuntimeGuard,
        robloxApiGuard:result.robloxApiGuard===true,
+       portableApiIntegrityGuard:result.portableApiIntegrityGuard===true,
        metamethodTostringTrap:result.metamethodTostringTrap,
        metamethodTrapPeriodic:result.metamethodTrapPeriodic,
        autoFunctionEncryption:result.autoFunctionEncryption,

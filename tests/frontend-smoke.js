@@ -46,7 +46,8 @@ const fetchMock=async(url,options)=>{
    target:wrongTarget?'Lua51':request.target,
    blackmamerVM:{oneClick:true,protectionLevel:badProfile?'Light':'Maximum',
      autoFunctionEncryption:request.runtimeMode==='server-vault'?'external-full':'standalone',
-     runtimeMode:request.runtimeMode,robloxApiGuard:request.target==='LuaU',
+     runtimeMode:request.runtimeMode,platform:request.platform,
+      robloxApiGuard:request.platform==='roblox',portableApiIntegrityGuard:true,
      nestedVM:true,autoEncryptedFunctions:2,
      applied:true,fallback:false,vmArchitecture:'seven-independent',
      vmInterpreterCount:7,astStringEncryption:true,astEncryptedStrings:3,
@@ -85,7 +86,8 @@ compiled.runInContext(vm.createContext(sandbox));
  assert.equal(p.oneClick,true);
  assert.equal(p.target,'LuaU');
  assert.equal(p.runtimeMode,'standalone');
- assert.equal(p.executionContext,'client','Default Roblox runtime is guarded client output');
+ assert.equal(p.executionContext,'client','Portable Luau retains client security policy without Roblox host dependency');
+ assert.equal(p.platform,'universal');
  assert.equal(p.protectionLevel,undefined);
  assert.equal(p.autoFunctionEncryption,undefined);
  assert.equal(p.antiDebug,undefined);
@@ -104,6 +106,7 @@ compiled.runInContext(vm.createContext(sandbox));
  p=JSON.parse(request.options.body);
  assert.equal(p.target,'LuaU');
  assert.equal(p.runtimeMode,'server-vault');
+ assert.equal(p.platform,'roblox');
  assert.equal(p.executionContext,'server');
  assert.equal(request.options.headers['X-License-Key'],'TEST-LICENSE-NOT-A-SECRET');
  assert.equal(byId('download').disabled,false);
@@ -118,6 +121,7 @@ compiled.runInContext(vm.createContext(sandbox));
  assert.equal(p.target,'Lua51');
  assert.equal(p.executionContext,'portable');
  assert.equal(p.runtimeMode,'standalone');
+ assert.equal(p.platform,'universal');
 
  byId('target').value='LuaJIT';
  byId('target').handlers.change();

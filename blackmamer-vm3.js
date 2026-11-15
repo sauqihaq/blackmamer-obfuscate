@@ -713,13 +713,14 @@ function compile(source, options={}) {
     // V4 uses an independent random virtual register allocation in each
     // function. Dataflow remains correct because all IR consumers use the
     // returned physical ID rather than assuming sequential register numbers.
+    const maxRegisters=options.doubleVmFull===true?65536:16384;
     const registerPool=options.hardened?
-      Array.from({length:16384},(_,i)=>i+1):null;
+      Array.from({length:maxRegisters},(_,i)=>i+1):null;
     if(registerPool)for(let i=registerPool.length-1;i>0;i--){
       const j=rand(i+1);[registerPool[i],registerPool[j]]=[registerPool[j],registerPool[i]];
     }
     const reg=()=>{
-      if(++builder.regs>16384)throw new SyntaxErrorV3('V3 register limit exceeded');
+      if(++builder.regs>maxRegisters)throw new SyntaxErrorV3('V3 register limit exceeded');
       const value=registerPool?registerPool[builder.regs-1]:builder.regs;
       if(builder.regAudit)builder.regAudit.push(value);
       return value;

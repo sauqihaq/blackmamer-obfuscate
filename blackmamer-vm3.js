@@ -134,7 +134,11 @@ class Parser {
   params() {
     this.must('('); const names=[];
     if (!this.take(')')) {
-      do { names.push(this.name()); } while(this.take(','));
+      for(;;){
+        if(this.take('...')){names.push('...');break;}
+        names.push(this.name());
+        if(!this.take(','))break;
+      }
       this.must(')');
     }
     return names;
@@ -230,9 +234,16 @@ class Parser {
       const op=this.tok().value;this.i++;
       return {t:'compound',target:lhs,op,value:this.expr()};
     }
-    if(this.take('=')) {
-      if(!['var','index'].includes(lhs.t)) throw new SyntaxErrorV3('Assignment target must be name or index');
-      return {t:'assign',target:lhs,value:this.expr()};
+    if(this.peek()==='='||this.peek()===','){
+      const targets=[lhs];
+      while(this.take(','))targets.push(this.expr(10));
+      this.must('=');
+      for(const target of targets)if(!['var','index'].includes(target.t))
+        throw new SyntaxErrorV3('Assignment target must be name or index');
+      const values=this.exprlist();
+      if(targets.length===1&&values.length===1)
+        return {t:'assign',target:lhs,value:values[0]};
+      return {t:'assignmulti',targets,values};
     }
     if(lhs.t==='call' || lhs.t==='method') return {t:'callstmt',value:lhs};
     throw new SyntaxErrorV3('Unsupported statement at ' + this.tok().at + ': '+this.peek());
@@ -240,12 +251,12 @@ class Parser {
   table() {
     const fields=[];let ordinal=1;
     while(!this.take('}')) {
-      let key,value;
+      let key,value,implicit=false;
       if(this.take('[')){key=this.expr();this.must(']');this.must('=');value=this.expr();}
       else if(this.tok().type==='id' && this.tokens[this.i+1].value==='=') {
         key={t:'str',value:this.name()};this.must('=');value=this.expr();
-      } else {key={t:'num',value:ordinal++};value=this.expr();}
-      fields.push({key,value});
+      } else {key={t:'num',value:ordinal++};value=this.expr();implicit=true;}
+      fields.push({key,value,implicit});
       if(this.take(',')||this.take(';')) continue;
       this.must('}');break;
     }
@@ -260,6 +271,7 @@ class Parser {
       this.must('else');node={t:'ifexpr',branches,otherwise:this.expr()};
     }
     else if(this.take('nil')) node={t:'nil'};
+    else if(this.take('...')) node={t:'vararg'};
     else if(this.take('true')) node={t:'bool',value:true};
     else if(this.take('false')) node={t:'bool',value:false};
     else if(t.type==='num'){this.i++;node={t:'num',value:t.value};}
@@ -387,7 +399,7 @@ function virtualizeLexicalBindings(ast,audit){
     if(node.t==='var'){node.name=resolve(scope,node.name);return;}
     if(node.t==='fun'){
       const inner=newScope(scope);
-      node.params=node.params.map(name=>declare(inner,name));
+      node.params=node.params.map(name=>name==='...'?name:declare(inner,name));
       visitStatements(node.body,inner);return;
     }
     if(node.t==='table'){for(const f of node.fields){visitExpr(f.key,scope);visitExpr(f.value,scope);}return;}

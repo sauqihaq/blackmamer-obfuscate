@@ -15,6 +15,13 @@ The portable format is a versioned one-byte mode:
 - `0`: raw bytes with one-byte codec header.
 - `1`: four-byte uncompressed size and bounded LZ literal/back-reference
   token stream (1–128 byte literals, 4–131 byte matches, 16-bit distance).
+- `2`: four-byte uncompressed size and zero-suppressed occupancy bitmap:
+  each block of eight original bytes has one mask byte followed by only
+  the nonzero bytes. This helps with high-order zero bytes in four-byte
+  encrypted-operand transport.
+
+The encoder chooses whichever packed representation actually saves the
+most bytes, falling back to raw mode when savings are too small.
 
 A per-prototype encoder **keeps the original payload** if compression would
 save fewer than 16 bytes. Decoding uses only Lua tables and arithmetic,
@@ -51,7 +58,9 @@ and `vmPayloadCompressedFunctions`.
 The compile-only diagnostic `vmPayloadCompression:false` is used for
 cross-runtime parity checks. Internal `vmPayloadForcePacked` forces the
 decoder through a compressed stream so tests cover even a random-looking
-bytecode prototype. Neither is exposed to one-click browser users.
+bytecode prototype; `vmPayloadTestCodec:'zero-map'` additionally tests the
+bitmap codec directly. None of these diagnostic controls is exposed to
+one-click browser users.
 
 ## Tests
 

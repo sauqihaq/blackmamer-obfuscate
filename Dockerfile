@@ -20,13 +20,13 @@ RUN mkdir prometheus && cd prometheus && git init -q && \
 FROM alpine:3.21
 RUN apk add --no-cache nodejs npm libstdc++ lua5.1 luajit
 WORKDIR /app
-COPY server.js blackmamer-vm3.js vm7-independent.js vm4-deadcode-optimizer.js vm4-chained-cells.js runtime-security-policy.js prometheus-stage.js full-prometheus-pipeline.js prometheus-maximal.lua prometheus-compat-patch.js ast-string-layer.js lua-output-compact.js runtime-polymorph.js v4-presets.js license-format.js native-sealer.js \
+COPY server.js blackmamer-vm3.js vm7-independent.js vm4-deadcode-optimizer.js vm4-chained-cells.js runtime-security-policy.js prometheus-stage.js full-prometheus-pipeline.js luau-compat-lowering.js prometheus-maximal.lua prometheus-compat-patch.js ast-string-layer.js lua-output-compact.js runtime-polymorph.js v4-presets.js license-format.js native-sealer.js \
   protected-functions.js commercial-access.js runtime-key-vault.js package.json ./
 COPY --from=native-build /build/bm-sealer /app/native/bm-sealer
 COPY --from=prometheus-build /build/prometheus /app/vendor/prometheus
 RUN node prometheus-compat-patch.js
 RUN chmod +x /app/native/bm-sealer && npm install --omit=dev --no-audit --no-fund
-RUN node --check server.js && node -e "require('./blackmamer-vm3');require('./vm4-deadcode-optimizer');require('./vm4-chained-cells');require('./runtime-security-policy');require('./full-prometheus-pipeline');if(!require('./prometheus-stage').available())process.exit(1)"
+RUN node --check luau-compat-lowering.js && node --check server.js && node -e "require('./blackmamer-vm3');require('./vm4-deadcode-optimizer');require('./vm4-chained-cells');require('./runtime-security-policy');require('./full-prometheus-pipeline');if(!require('./prometheus-stage').available())process.exit(1)"
 ENV BLACKMAMER_REQUIRE_NATIVE=1
 # LuaJIT accelerates the compiler process; output dialect remains selected by --LuaU/--Lua51.
 ENV BLACKMAMER_PROMETHEUS_LUA=luajit

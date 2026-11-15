@@ -50,8 +50,12 @@ try{
   }
   const compactBytes=Buffer.byteLength(compact.code);
   const legacyBytes=Buffer.byteLength(legacy.code);
-  assert.ok(compactBytes<legacyBytes,
-   target+' dense ciphertext must be smaller: '+compactBytes+' vs '+legacyBytes);
+  // Every compiler build also randomizes AST branches, encrypted strings,
+  // opcode palettes and IR layout. Two independently randomized builds are
+  // NOT the same-bytecode A/B comparison. Assert the specific transport
+  // optimization (fragment count), not uncorrelated final output bytes.
+  assert.ok(compact.cipherFragmentCount*2<legacy.cipherFragmentCount,
+   target+' compact ciphertext must reduce serialized reference overhead');
   for(const [label,built] of [['compact',compact],['legacy',legacy]]){
    const result=execute(runtime,built.code,target+'-'+label);
    assert.equal(result.status,0,target+'/'+label+' runtime: '+result.stderr);

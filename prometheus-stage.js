@@ -8,13 +8,16 @@ const os=require('node:os');
 const path=require('node:path');
 const {execFile}=require('node:child_process');
 const {promisify}=require('node:util');
+const {lowerLuau}=require('./luau-compat-lowering');
 const execFileAsync=promisify(execFile);
 
 const PROMETHEUS_REVISION='a98c50165f2a53f6d765a82eee60dfea53803445';
 const MAX_BYTES=128*1024;
 // Full 11-step VM output has a fixed bootstrap >120 KB even for trivial source.
 // Allow realistic functions, while keeping a strict cap for Render Free.
-const MAX_FULL_INTERMEDIATE_BYTES=384*1024;
+// Full 11-step VM output is much larger than its original Luau input.
+ // Keep a bounded larger ceiling, rather than randomly rejecting 1 KB code.
+const MAX_FULL_INTERMEDIATE_BYTES=2*1024*1024;
 // Leave room for the outer VM and the 120s browser deadline.
 // Render Free can need longer than 40s for the complete 11-step profile.
 const configuredTimeout=Number(process.env.BLACKMAMER_PROMETHEUS_TIMEOUT_MS);
@@ -56,20 +59,32 @@ async function preprocess(source,target,{timeoutMs=TIMEOUT_MS,profile='Vmify',lu
     throw new PrometheusStageError('PROMETHEUS_FULL_CONFIG_UNAVAILABLE',
       'BLACKMAMER full Prometheus configuration is missing');
   ensureSource(source,target);
+  let sourceForPrometheus=source;
+  let lowering={applied:false,features:[]};
+  if(target==='LuaU'&&full){
+    try{
+      lowering=lowerLuau(source,'LuaU');
+      sourceForPrometheus=lowering.source;
+    }catch(error){
+      throw new PrometheusStageError('LUAU_SYNTAX_UNSUPPORTED',
+        'Luau source cannot be prepared for Prometheus: '+String(error.message).slice(0,150),error);
+    }
+  }
   if(!available())throw new PrometheusStageError('PROMETHEUS_UNAVAILABLE',
     'Pinned Prometheus compiler not installed on this backend.');
   const temp=await fs.mkdtemp(path.join(os.tmpdir(),'blackmamer-double-vm-'));
   try{
     await fs.chmod(temp,0o700);
     const src=path.join(temp,'source.lua'),output=path.join(temp,'prometheus.lua');
-    await fs.writeFile(src,source,{mode:0o600,flag:'wx'});
+    await fs.writeFile(src,sourceForPrometheus,{mode:0o600,flag:'wx'});
     const args=[path.join(HOME,'cli.lua'),
       ...(full?['--config',FULL_CONFIG]:['--preset',PROFILE]),
       target==='LuaU'?'--LuaU':'--Lua51','--nocolors','--out',output,src];
     const started=Date.now();
     console.info('[BLACKMAMER PROMETHEUS START]',JSON.stringify({
       profile:full?FULL_PROFILE:PROFILE,target,inputBytes:Buffer.byteLength(source),
-      runner:path.basename(luaBinary),timeoutMs
+      normalizedBytes:Buffer.byteLength(sourceForPrometheus),
+      luauCompatibility:lowering.features,runner:path.basename(luaBinary),timeoutMs
     }));
     try{
       await execFileAsync(luaBinary,args,{
@@ -94,10 +109,15 @@ async function preprocess(source,target,{timeoutMs=TIMEOUT_MS,profile='Vmify',lu
     try{stat=await fs.stat(output);}
     catch(e){throw new PrometheusStageError('PROMETHEUS_EMPTY_OUTPUT',
       'Prometheus did not produce an output file.',e);}
-    if(stat.size>(full?MAX_FULL_INTERMEDIATE_BYTES:MAX_BYTES))
+    if(stat.size>(full?MAX_FULL_INTERMEDIATE_BYTES:MAX_BYTES)){
+      console.warn('[BLACKMAMER PROMETHEUS CAPACITY]',JSON.stringify({
+        profile:full?FULL_PROFILE:PROFILE,target,intermediateBytes:stat.size,
+        maxBytes:full?MAX_FULL_INTERMEDIATE_BYTES:MAX_BYTES
+      }));
       throw new PrometheusStageError('PROMETHEUS_OUTPUT_TOO_LARGE',
         'Prometheus VM produced '+stat.size+' bytes; Full profile intermediate limit is '+
           Math.round(MAX_FULL_INTERMEDIATE_BYTES/1024)+' KB.');
+    }
     if(stat.size===0)throw new PrometheusStageError('PROMETHEUS_EMPTY_OUTPUT',
       'Prometheus generated an empty Lua script.');
     const transformed=await fs.readFile(output,'utf8');
@@ -113,7 +133,8 @@ async function preprocess(source,target,{timeoutMs=TIMEOUT_MS,profile='Vmify',lu
         steps:full?FULL_STEPS.slice():['Vmify'],allPrometheusSteps:full,
         revision:PROMETHEUS_REVISION,
         inputBytes:Buffer.byteLength(source),outputBytes:stat.size,
-        elapsedMs:Date.now()-started}
+        elapsedMs:Date.now()-started,luauCompatibility:lowering.features,
+        sourceNormalized:lowering.applied}
     };
   }finally{await fs.rm(temp,{recursive:true,force:true})}
 }

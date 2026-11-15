@@ -25,16 +25,31 @@ async function compileFull(source,target,options={},maxAttempts=MAX_ATTEMPTS){
         allPrometheusSteps:true,steps:FULL_STEPS.slice()}},attempts:attempt};
     }catch(error){
       lastError=error;
+      // Classify errors without logging the user's script or transformed code.
+      const phase=error.code==='PROMETHEUS_OUTPUT_TOO_LARGE'?'intermediate-size':
+        error.code==='V3_UNSUPPORTED_SYNTAX'?
+          (/register limit/i.test(error.message)?'register-budget':
+            /instruction limit/i.test(error.message)?'instruction-budget':
+              /source limit/i.test(error.message)?'source-budget':'outer-parser'):
+        error.code==='PROMETHEUS_TIMEOUT'?'timeout':'prepass';
+      console.warn('[BLACKMAMER FULL ATTEMPT]',JSON.stringify({
+        attempt,phase,code:error.code||error.name
+      }));
       if(process.env.BLACKMAMER_FULL_DIAGNOSTIC==='1')
-        console.warn('PROMETHEUS_FULL_ATTEMPT',JSON.stringify({
-          attempt,code:error.code||error.name,message:String(error.message).slice(0,190)
+        console.warn('PROMETHEUS_FULL_DIAGNOSTIC',JSON.stringify({
+          attempt,phase,code:error.code||error.name,
+          message:String(error.message).slice(0,190)
         }));
       if(!RETRYABLE_CODES.has(error.code))throw error;
     }
   }
+  const hint=lastError?.code==='PROMETHEUS_OUTPUT_TOO_LARGE'?
+    'Output sementara Prometheus melewati batas kapasitas.' :
+    lastError?.code==='V3_UNSUPPORTED_SYNTAX'?
+      'Outer VM membutuhkan perluasan sintaks atau kapasitas IR.' :
+      'Compiler tidak berhasil menyelesaikan seluruh tahap.';
   throw new PrometheusStageError('PROMETHEUS_FULL_UNSUPPORTED',
-    'Semua 11 langkah Prometheus telah dicoba '+maxAttempts+
-    ' kali, tetapi output tidak kompatibel dengan BLACKMAMER Maximum. '+
-    'Proses dihentikan tanpa menurunkan tingkat proteksi.',lastError);
+    'Semua 11 langkah Prometheus sudah dicoba '+maxAttempts+
+    ' kali. '+hint+' Tidak ada fitur proteksi yang diturunkan.',lastError);
 }
 module.exports={compileFull,MAX_ATTEMPTS};

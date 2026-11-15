@@ -10,6 +10,9 @@ on:
       - 'tests/vm4-cipher-fragment-density.js'
       - 'tests/vm4-environment-preflight.js'
       - 'prometheus-stage.js'
+      - 'luau-compat-lowering.js'
+      - 'tests/luau-compat-lowering.js'
+      - 'tests/roblox-luau-full-compat.js'
       - 'prometheus-maximal.lua'
       - 'prometheus-compat-patch.js'
       - 'tests/prometheus-full-runtime.js'
@@ -192,6 +195,11 @@ jobs:
           node prometheus-compat-patch.js
       - name: Build native sealer for official Luau runtime tests
         run: g++ -O2 -std=c++17 -Wall -Wextra -Werror native/sealer.cpp -o native/bm-sealer
+      - name: Verify Roblox-like nested callbacks and Luau-only syntax in full 11-step VM
+        env:
+          BLACKMAMER_PROMETHEUS_LUA: luajit
+          BLACKMAMER_FULL_DIAGNOSTIC: '1'
+        run: timeout 150s node --max-old-space-size=1024 tests/roblox-luau-full-compat.js
       - name: Run hardened V4 execution and tamper regression
         env:
           BLACKMAMER_PROMETHEUS_LUA: luajit
@@ -199,6 +207,7 @@ jobs:
         run: |
           # Fast boundary sanity first: avoid hiding regression behind a flaky
           # unrelated randomized full-Prometheus parity run.
+          node tests/luau-compat-lowering.js
           node tests/vm4-api-boundary.js
           node tests/vm4-cipher-fragment-density.js
           node tests/vm4-environment-preflight.js

@@ -596,7 +596,7 @@ function flattenCfgInstructions(rows,codes){
 const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','RETVOID','RETM','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV','KRET','GETRET','MOVRET','STRDEC','VARG','VARGM','CALLX','CALLMX','PUTM'];
 function compile(source, options={}) {
   if(typeof source!=='string') throw new TypeError('Expected Luau source string');
-  if(Buffer.byteLength(source)>(options.doubleVmFull===true?384*1024:128*1024))
+  if(Buffer.byteLength(source)>(options.doubleVmFull===true?2*1024*1024:128*1024))
     throw new SyntaxErrorV3('V3 source limit exceeded');
   // Each build gets independent source-bound material. Public watermarks are
   // identifiers, NOT secrets; the random build secret is never serialized.
@@ -715,25 +715,31 @@ function compile(source, options={}) {
     // function. Dataflow remains correct because all IR consumers use the
     // returned physical ID rather than assuming sequential register numbers.
     // Full Prometheus output needs more IR temporaries; these operands have 24/32-bit cells.
-    const maxRegisters=options.doubleVmFull===true?262144:16384;
-    const registerPool=options.hardened?
-      Array.from({length:maxRegisters},(_,i)=>i+1):null;
-    // Keep legacy <=64K register operands in their original range for
-    // small full-VM functions. Only functions that exhaust 64K use higher
-    // segments, each independently randomized without collisions.
-    if(registerPool){
-      const segment=options.doubleVmFull===true?65536:maxRegisters;
-      for(let first=0;first<registerPool.length;first+=segment){
-        const end=Math.min(registerPool.length,first+segment);
-        for(let i=end-1;i>first;i--){
-          const j=first+rand(i-first+1);
-          [registerPool[i],registerPool[j]]=[registerPool[j],registerPool[i]];
-        }
-      }
-    }
+    // Sparse Fisher-Yates permutations avoid allocating/shuffling a 256K+
+    // register array once for EVERY function produced by full Prometheus.
+    // Keep 64K segments for the existing 16-bit physical register profile.
+    const maxRegisters=options.doubleVmFull===true?524288:16384;
+    const registersPerSegment=options.doubleVmFull===true?65536:maxRegisters;
+    const segmentSwaps=new Map();
     const reg=()=>{
       if(++builder.regs>maxRegisters)throw new SyntaxErrorV3('V3 register limit exceeded');
-      const value=registerPool?registerPool[builder.regs-1]:builder.regs;
+      let value=builder.regs;
+      if(options.hardened){
+        const logical=builder.regs-1;
+        const first=Math.floor(logical/registersPerSegment)*registersPerSegment;
+        const offset=logical-first;
+        const length=Math.min(registersPerSegment,maxRegisters-first);
+        let swaps=segmentSwaps.get(first);
+        if(!swaps){swaps=new Map();segmentSwaps.set(first,swaps);}
+        const remaining=length-offset;
+        const index=rand(remaining);
+        const picked=swaps.has(index)?swaps.get(index):index;
+        const tail=remaining-1;
+        const tailValue=swaps.has(tail)?swaps.get(tail):tail;
+        swaps.set(index,tailValue);
+        swaps.delete(tail);
+        value=first+picked+1;
+      }
       if(builder.regAudit)builder.regAudit.push(value);
       return value;
     };
@@ -1044,7 +1050,7 @@ function compile(source, options={}) {
           }
           default:throw new SyntaxErrorV3('Unsupported statement type '+n.t);
         }
-        if(builder.ins.length>(options.doubleVmFull===true?262144:12000))
+        if(builder.ins.length>(options.doubleVmFull===true?524288:12000))
           throw new SyntaxErrorV3('V3 instruction limit exceeded');
       }
     };

@@ -7,6 +7,7 @@ on:
       - 'prometheus-compat-patch.js'
       - 'Dockerfile'
       - 'tests/prometheus-compiler-benchmark.js'
+      - 'tests/prometheus-medium-pipeline.js'
       - '.github/workflows/prometheus-compiler-benchmark.yml'
   push:
     branches: [main]
@@ -14,6 +15,7 @@ on:
       - 'prometheus-stage.js'
       - 'Dockerfile'
       - 'tests/prometheus-compiler-benchmark.js'
+      - 'tests/prometheus-medium-pipeline.js'
       - '.github/workflows/prometheus-compiler-benchmark.yml'
 jobs:
   full-protection-compiler-benchmark:
@@ -39,3 +41,10 @@ jobs:
         run: node --check prometheus-stage.js && node --check tests/prometheus-compiler-benchmark.js
       - name: Benchmark LuaJIT vs Lua51 with all eleven steps and compare semantic output
         run: node tests/prometheus-compiler-benchmark.js
+      - name: Build native sealer for medium double-VM execution
+        run: g++ -O2 -std=c++17 native/sealer.cpp -o native/bm-sealer
+      - name: Run full eleven-step plus seven-VM medium regression under bounded heap
+        env:
+          BLACKMAMER_PROMETHEUS_LUA: luajit
+          BLACKMAMER_REQUIRE_NATIVE: '1'
+        run: timeout 100s node --max-old-space-size=384 tests/prometheus-medium-pipeline.js

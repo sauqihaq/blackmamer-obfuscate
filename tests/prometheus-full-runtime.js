@@ -50,7 +50,7 @@ async function main(){
        debugRuntimeErrors:true
      });
    }catch(e){
-     const m=/ at (\\d+)/.exec(String(e.message));
+     const m=/ at ([0-9]+)/.exec(String(e.message));
      const offset=m?Number(m[1]):-1;
      console.error('PROMETHEUS_FULL_COMPILE_CONTEXT',JSON.stringify({
        target,name,offset,

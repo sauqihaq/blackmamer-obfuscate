@@ -25,12 +25,12 @@ function run(binary,code,label,timeout=12000){
   const stage=await preprocess(src,target);
   const baseline=run(binary,src,target+'-plain',3000);
   const inner=run(binary,stage.source,target+'-prometheus',3000);
-  for(const antiDebug of [false,true]){
+  for(const [antiDebug,autoEncryption] of [[false,'standalone'],[false,'off'],[true,'standalone']]){
    const v4=compile(stage.source,{hardened:true,target,protectionLevel:'Maximum',
-     vmArchitecture:'seven-independent',autoFunctionEncryption:'standalone',
+     vmArchitecture:'seven-independent',autoFunctionEncryption:autoEncryption,
      antiTamper:true,antiDebug,doubleVmOptimized:true});
-   const outer=run(binary,v4.code,target+'-double-'+antiDebug);
-   console.log('PERF',JSON.stringify({target,antiDebug,
+   const outer=run(binary,v4.code,target+'-double-'+antiDebug+'-'+autoEncryption);
+   console.log('PERF',JSON.stringify({target,antiDebug,autoEncryption,
      innerBytes:stage.meta.outputBytes,outerBytes:Buffer.byteLength(v4.code),
      baseline,inner,outer}));
   }

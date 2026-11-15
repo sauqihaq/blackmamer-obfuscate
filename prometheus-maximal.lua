@@ -16,7 +16,6 @@ return {
     } },
     { Name = "ProxifyLocals", Settings = { LiteralType = "string" } },
     { Name = "AddVararg", Settings = {} },
-    { Name = "Cff", Settings = { ExcludeVm = true } },
     { Name = "Vmify", Settings = {} },
     { Name = "EncryptStrings", Settings = { HoistVmStrings = true } },
     { Name = "AntiTamper", Settings = { UseDebug = false } },
@@ -25,6 +24,7 @@ return {
       Shuffle = true, Rotate = true, LocalWrapperThreshold = 0
     } },
     { Name = "WrapInFunction", Settings = {} },
+    { Name = "Cff", Settings = { ExcludeVm = true } },
     { Name = "NumbersToExpressions", Settings = {
       NumberRepresentationMutation = false
     } },

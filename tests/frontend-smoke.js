@@ -121,13 +121,13 @@ compiled.runInContext(vm.createContext(sandbox));
  missingChain=true;
  await byId('obfuscate').click();
  assert.equal(byId('download').disabled,true);
- assert.match(byId('feedback').textContent,/Prometheus VM/);
+ assert.match(byId('feedback').textContent,/11 fitur Prometheus/);
  missingChain=false;
 
  missingDoubleVM=true;
  await byId('obfuscate').click();
  assert.equal(byId('download').disabled,true);
- assert.match(byId('feedback').textContent,/Prometheus VM/);
+ assert.match(byId('feedback').textContent,/11 fitur Prometheus/);
  missingDoubleVM=false;
 
  missingFull=true;

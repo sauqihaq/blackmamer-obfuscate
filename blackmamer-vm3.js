@@ -1040,7 +1040,8 @@ function compile(source, options={}) {
     if(node.t==='vararg')return true;
     return Object.values(node).some(hasChunkVarargs);
   };
-  const initialEntry=makeBuilder(parsed,hasChunkVarargs(parsed)?['...']:[]);
+  const rootVarargs=hasChunkVarargs(parsed);
+  const initialEntry=makeBuilder(parsed,rootVarargs?['...']:[]);
   let autoFunctionCount=0;
   if(autoMode!=='off'){
     for(let i=0;i<funcs.length;i++){
@@ -2227,7 +2228,7 @@ function compile(source, options={}) {
     '      pc=nextpc',
     '    end',
     '  end',
-    '  return exec('+entry+',nativePack(...),nil)',
+    '  return exec('+entry+','+(rootVarargs?'nativePack(...)':'{}')+',nil)',
     'end)(...)'
   ];
   // Maximum multi-engine architecture installs seven complete, distinct

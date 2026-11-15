@@ -10,8 +10,9 @@ const express=require('express');
 const crypto=require('node:crypto');
 const cors=require('cors');
 const {compile,lex,SyntaxErrorV3}=require('./blackmamer-vm3');
-const {preprocess:prometheusPrepass,available:prometheusAvailable,
+const {available:prometheusAvailable,
   PrometheusStageError,PROMETHEUS_REVISION}=require('./prometheus-stage');
+const {compileFull}=require('./full-prometheus-pipeline');
 const {PRESETS}=require('./v4-presets');
 const {checkRuntimePolicy,describeRuntimeSecurity,hasProtectedMarker}=require('./runtime-security-policy');
 const {available:nativeAvailable}=require('./native-sealer');
@@ -116,9 +117,7 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
        error:'BM_ENCFUNC cannot be used in client context; standalone mode would embed its key.',
        code:'CLIENT_FUNCTION_KEYS'
      });
-   const stage=doubleVM?await prometheusPrepass(source,target):null;
-   const compiledSource=stage?stage.source:source;
-   const result=compile(compiledSource,{
+   const buildOptions={
      hardened:true,
      target,
      doubleVmOptimized:doubleVM,
@@ -139,7 +138,12 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
          (oneClick?'standalone':(body.autoFunctionEncryption||'off'))),
      functionKeys:oneClick?undefined:body.functionKeys,
      remoteRuntime:remoteRequested?{artifactId,apiBaseUrl:publicOrigin}:undefined
-   });
+   };
+   // One-click: execute all 11 real Prometheus steps, then wrap them in
+   // BLACKMAMER Maximum V4. Retries never remove or downgrade any step.
+   const full=doubleVM?await compileFull(source,target,buildOptions):null;
+   const stage=full?full.stage:null;
+   const result=full?full.result:compile(source,buildOptions);
    // A manual BM_ENCFUNC marker can request an external key even when
    // automatic function encryption is standalone. Never ship that to client.
    if(policy.context==='client'&&result.externallyKeyedFunctions>0)
@@ -183,6 +187,7 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
        doubleVM,
        prometheusStage:stage?stage.meta:{applied:false,vm:false},
        dualVmOptimization:result.doubleVmOptimized===true,
+       fullPrometheusProtection:stage?.meta?.allPrometheusSteps===true,
        profileLabel:selectedPreset?'BLACKMAMER '+preset+' V4':
          (oneClick?'BLACKMAMER V4 Unified Protection':'Custom API'),
        protectionLevel:result.protectionLevel,

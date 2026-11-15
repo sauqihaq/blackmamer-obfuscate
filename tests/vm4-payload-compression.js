@@ -78,8 +78,9 @@ try{
     if(tag==='packed-forced')
       assert.ok(vm.vmPayloadCompressedFunctions>0,
         target+' test-only build must exercise true LZ VM decode');
-    assert.ok(vm.vmPayloadBytesAfter<=vm.vmPayloadBytesBefore+vm.vmPayloadFunctionCount,
-      target+' default codec must not bloat payload beyond mode flag');
+    if(tag==='packed-default')
+      assert.ok(vm.vmPayloadBytesAfter<=vm.vmPayloadBytesBefore+vm.vmPayloadFunctionCount,
+        target+' default codec must not bloat payload beyond mode flag');
    }
    const actual=execute(runtime,vm.code,target+'-'+tag);
    assert.equal(actual.status,0,target+'/'+tag+': '+actual.stderr);

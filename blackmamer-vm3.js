@@ -616,8 +616,15 @@ function compile(source, options={}) {
       throw new SyntaxErrorV3('Lua 5.1/LuaJIT target cannot compile Luau-only syntax: '+t.value);
   }
   const parsed=new Parser(source).parse();
-  const astFlattenedGroups=options.hardened?flattenSimpleAstSequences(parsed,profile.astFlatten):0;
-  const injectedAstBranches=options.hardened?addDeadAstBranches(parsed,profile.deadChance):0;
+  // The inner Prometheus VM already contributes deep control-flow complexity.
+  // Avoid duplicating the heaviest outer decoy work: preserve actual V4 VM
+  // virtualization, optimizer, strong encryption and seven engines.
+  const dualOptimized=options.doubleVmOptimized===true&&
+    options.hardened===true&&profileName==='Maximum';
+  const astFlattenedGroups=options.hardened?flattenSimpleAstSequences(parsed,
+    dualOptimized?profile.astFlatten*0.35:profile.astFlatten):0;
+  const injectedAstBranches=options.hardened?addDeadAstBranches(parsed,
+    dualOptimized?profile.deadChance*0.3:profile.deadChance):0;
   const bindingAudit=options.auditBindings===true?[]:null;
   const virtualizedLexicalBindings=options.hardened
     ? virtualizeLexicalBindings(parsed,bindingAudit) : 0;
@@ -1127,7 +1134,7 @@ function compile(source, options={}) {
   const optimizerEnabled=options.hardened===true&&profileName==='Maximum'&&
     options.irOptimizer!==false;
   let irOptimizerRemoved=0,deadCodeInstructions=0,deadCodeBlocks=0;
-  let vmCoreInstructions=0,remainingDeadBudget=8192;
+  let vmCoreInstructions=0,remainingDeadBudget=dualOptimized?512:8192;
   for(const fn of funcs){
     if(optimizerEnabled){
       const optimized=optimizeVmIr(fn.ins,codes);
@@ -1137,7 +1144,7 @@ function compile(source, options={}) {
     vmCoreInstructions+=fn.ins.length;
     if(optimizerEnabled&&remainingDeadBudget>0){
       const padded=injectVmDeadCode(fn.ins,codes,consts.length,{
-        density:2.7,budget:remainingDeadBudget
+        density:dualOptimized?0.5:2.7,budget:remainingDeadBudget
       });
       fn.ins=padded.rows;
       deadCodeInstructions+=padded.added;
@@ -2450,6 +2457,7 @@ function compile(source, options={}) {
     }:{}),
     fusedInstructions:fusionTotal,superInstructionKinds:fusionCounts,
     vmInstructions:funcs.reduce((n,f)=>n+f.ins.length,0),
+    doubleVmOptimized:dualOptimized,
     optimizerEnabled,irOptimizerRemoved,vmCoreInstructions,
     deadCodeInstructions,deadCodeBlocks,
     deadCodeStrategy:optimizerEnabled?'sealed-cfg-islands':'disabled',

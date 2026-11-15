@@ -2124,7 +2124,8 @@ function compile(source, options={}) {
     '      globals[n]=v',
     '    end',
     '    while true do',
-    '      ticks=ticks+1; if ticks>1000000 then nativeError("BLACKMAMER V3 instruction limit") end',
+    '      ticks=ticks+1; if ticks>'+(options.doubleVmFull===true?10000000:1000000)+
+      ' then nativeError("BLACKMAMER V3 instruction limit") end',
     ...(options.hardened&&options.antiDebug!==false?
       ['      if ticks>=guardAt then runtimeGuard();guardAt=ticks+guardBias+((pc*31+spec[3]+ticks)%191)end']:[]),
     '      if pc<1 or pc>length then nativeError("BLACKMAMER V3 bad PC") end',

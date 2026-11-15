@@ -25,6 +25,10 @@ async function compileFull(source,target,options={},maxAttempts=MAX_ATTEMPTS){
         allPrometheusSteps:true,steps:FULL_STEPS.slice()}},attempts:attempt};
     }catch(error){
       lastError=error;
+      if(process.env.BLACKMAMER_FULL_DIAGNOSTIC==='1')
+        console.warn('PROMETHEUS_FULL_ATTEMPT',JSON.stringify({
+          attempt,code:error.code||error.name,message:String(error.message).slice(0,190)
+        }));
       if(!RETRYABLE_CODES.has(error.code))throw error;
     }
   }

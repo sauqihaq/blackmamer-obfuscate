@@ -195,6 +195,11 @@ jobs:
           node prometheus-compat-patch.js
       - name: Build native sealer for official Luau runtime tests
         run: g++ -O2 -std=c++17 -Wall -Wextra -Werror native/sealer.cpp -o native/bm-sealer
+      - name: Verify Roblox-like nested callbacks and Luau-only syntax in full 11-step VM
+        env:
+          BLACKMAMER_PROMETHEUS_LUA: luajit
+          BLACKMAMER_FULL_DIAGNOSTIC: '1'
+        run: timeout 150s node --max-old-space-size=1024 tests/roblox-luau-full-compat.js
       - name: Run hardened V4 execution and tamper regression
         env:
           BLACKMAMER_PROMETHEUS_LUA: luajit
@@ -217,11 +222,6 @@ jobs:
           node tests/vm4-no-virtualize.js
           node tests/vm4-metamethod-trap.js
           node tests/vm4-differential-50.js
-      - name: Verify Roblox-like nested callbacks and Luau-only syntax in full 11-step VM
-        env:
-          BLACKMAMER_PROMETHEUS_LUA: luajit
-          BLACKMAMER_FULL_DIAGNOSTIC: '1'
-        run: timeout 150s node --max-old-space-size=1024 tests/roblox-luau-full-compat.js
       - name: Validate medium-size LuaU through all eleven Prometheus steps and V4
         env:
           LUAU_BIN: ./luau-build/luau

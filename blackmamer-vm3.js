@@ -1376,7 +1376,8 @@ function compile(source, options={}) {
           writeCell(f.ins[index],index+1,position);
     }
     const seed=rand(60000)+1000;
-    const prepared=vmPayloadCompression?packVmBytes(raw):
+    const prepared=vmPayloadCompression?packVmBytes(raw,
+      options.vmPayloadForcePacked===true?-Number.MAX_SAFE_INTEGER:16):
       {bytes:raw,compressed:false,plainBytes:raw.length};
     vmPayloadBytesBefore+=raw.length;
     vmPayloadBytesAfter+=prepared.bytes.length;

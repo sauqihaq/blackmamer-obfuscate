@@ -13,7 +13,11 @@ const execFileAsync=promisify(execFile);
 const PROMETHEUS_REVISION='a98c50165f2a53f6d765a82eee60dfea53803445';
 const MAX_BYTES=128*1024;
 const MAX_FULL_INTERMEDIATE_BYTES=192*1024;
-const TIMEOUT_MS=40000;
+// Leave room for the outer VM and the 120s browser deadline.
+// Render Free can need longer than 40s for the complete 11-step profile.
+const configuredTimeout=Number(process.env.BLACKMAMER_PROMETHEUS_TIMEOUT_MS);
+const TIMEOUT_MS=Number.isInteger(configuredTimeout)&&configuredTimeout>=1000&&configuredTimeout<=90000
+  ?configuredTimeout:75000;
 const HOME=path.resolve(process.env.BLACKMAMER_PROMETHEUS_HOME||
   path.join(__dirname,'vendor','prometheus'));
 const LUA_BINARY=process.env.BLACKMAMER_PROMETHEUS_LUA||'lua5.1';
@@ -41,7 +45,7 @@ function ensureSource(source,target){
   if(Buffer.byteLength(source)>MAX_BYTES)
     throw new PrometheusStageError('DOUBLE_VM_INPUT_TOO_LARGE','Original Lua exceeds 128 KB.');
 }
-async function preprocess(source,target,{timeoutMs=TIMEOUT_MS,profile='Vmify'}={}){
+async function preprocess(source,target,{timeoutMs=TIMEOUT_MS,profile='Vmify',luaBinary=LUA_BINARY}={}){
   if(!['Vmify','full'].includes(profile))
     throw new PrometheusStageError('PROMETHEUS_PROFILE',
       'Unsupported Prometheus profile');
@@ -61,14 +65,23 @@ async function preprocess(source,target,{timeoutMs=TIMEOUT_MS,profile='Vmify'}={
       ...(full?['--config',FULL_CONFIG]:['--preset',PROFILE]),
       target==='LuaU'?'--LuaU':'--Lua51','--nocolors','--out',output,src];
     const started=Date.now();
+    console.info('[BLACKMAMER PROMETHEUS START]',JSON.stringify({
+      profile:full?FULL_PROFILE:PROFILE,target,inputBytes:Buffer.byteLength(source),
+      runner:path.basename(luaBinary),timeoutMs
+    }));
     try{
-      await execFileAsync(LUA_BINARY,args,{
-        cwd:HOME,timeout:timeoutMs,maxBuffer:512*1024,
+      await execFileAsync(luaBinary,args,{
+        cwd:HOME,timeout:timeoutMs,maxBuffer:2*1024*1024,
         windowsHide:true,env:{...process.env,NO_COLOR:'1'}
       });
     }catch(error){
       const timedOut=error.killed||error.signal==='SIGTERM'||
         error.code==='ETIMEDOUT';
+      console.warn('[BLACKMAMER PROMETHEUS PROCESS FAILED]',JSON.stringify({
+        profile:full?FULL_PROFILE:PROFILE,target,runner:path.basename(luaBinary),
+        elapsedMs:Date.now()-started,timeoutMs,reason:timedOut?'timeout':'process-error',
+        exitCode:String(error.code||error.signal||'unknown').slice(0,40)
+      }));
       if(timedOut)throw new PrometheusStageError('PROMETHEUS_TIMEOUT',
         'Prometheus exceeded the prepass time limit.',error);
       throw new PrometheusStageError('PROMETHEUS_STAGE_FAILED',
@@ -87,6 +100,10 @@ async function preprocess(source,target,{timeoutMs=TIMEOUT_MS,profile='Vmify'}={
     const transformed=await fs.readFile(output,'utf8');
     if(!transformed.trim())throw new PrometheusStageError('PROMETHEUS_EMPTY_OUTPUT',
       'Prometheus generated no Lua code.');
+    console.info('[BLACKMAMER PROMETHEUS COMPLETE]',JSON.stringify({
+      profile:full?FULL_PROFILE:PROFILE,target,runner:path.basename(luaBinary),
+      elapsedMs:Date.now()-started,inputBytes:Buffer.byteLength(source),outputBytes:stat.size
+    }));
     return {
       source:transformed,
       meta:{applied:true,vm:true,preset:full?FULL_PROFILE:PROFILE,

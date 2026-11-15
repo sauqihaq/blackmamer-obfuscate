@@ -726,6 +726,14 @@ function compile(source, options={}) {
     };
     const emit=(op,a=0,b=0,c=0)=>{builder.ins.push([codes[op],a,b,c]);return builder.ins.length;};
     const scope=(body)=>{emit('ENTER');builder.depth++;statements(body);builder.depth--;emit('EXIT');};
+    // A source-level macro call constructs one function, not a real Lua
+    // vararg-returning function call. Do not feed it to CALLX/CALLMX.
+    const canExpand=n=>n&&(
+      n.t==='vararg'||n.t==='method'||(
+        n.t==='call'&&!(n.fn?.t==='var'&&
+          ['BM_NO_VIRTUALIZE','BM_ENCFUNC'].includes(n.fn.name))
+      )
+    );
     const expr=(n,multiple=false)=>{
       if(['nil','bool','str','num'].includes(n.t)){const dst=reg();emit('K',dst,key(n.t==='nil'?null:n.value));return dst;}
       if(n.t==='aststring'){
@@ -741,7 +749,7 @@ function compile(source, options={}) {
         const dst=reg();emit('TABLE',dst);
         for(let i=0;i<n.fields.length;i++){
           const f=n.fields[i],expand=f.implicit&&i===n.fields.length-1&&
-            ['call','method','vararg'].includes(f.value.t);
+            canExpand(f.value);
           if(expand)emit('PUTM',dst,expr(f.value,true),f.key.value);
           else{const a=expr(f.key),b=expr(f.value);emit('PUT',dst,a,b);}
         }
@@ -786,7 +794,7 @@ function compile(source, options={}) {
           fn=reg();emit('INDEX',fn,obj,k);regs.push(obj);
         } else fn=expr(n.fn);
         const tail=n.args[n.args.length-1];
-        const expand=Boolean(tail&&['call','method','vararg'].includes(tail.t));
+        const expand=Boolean(canExpand(tail));
         for(let i=0;i<n.args.length;i++)
           regs.push(expr(n.args[i],expand&&i===n.args.length-1));
         const idx=argSets.push(regs),dst=reg();
@@ -831,7 +839,7 @@ function compile(source, options={}) {
     };
     const expandedRhs=values=>{
       const last=values.length-1;
-      const expand=last>=0&&['call','method','vararg'].includes(values[last].t);
+      const expand=last>=0&&canExpand(values[last]);
       const rhs=values.map((v,i)=>expr(v,expand&&i===last));
       return j=>{
         let value;
@@ -910,7 +918,7 @@ function compile(source, options={}) {
           case 'forin':{
             if(!n.iterators.length)throw new SyntaxErrorV3('Missing generic for iterator');
             let iterReg,stateReg,controlReg;
-            if(n.iterators.length===1 && ['call','method'].includes(n.iterators[0].t)){
+            if(n.iterators.length===1 && canExpand(n.iterators[0])){
               const values=expr(n.iterators[0],true);
               iterReg=reg();stateReg=reg();controlReg=reg();
               emit('MVGET',iterReg,values,1);
@@ -1011,7 +1019,7 @@ function compile(source, options={}) {
             const values=n.values;
             if(values.length===0){emit('RETVOID');break;}
             const tail=values[values.length-1];
-            const expand=['call','method','vararg'].includes(tail.t);
+            const expand=canExpand(tail);
             if(values.length===1&&!expand){
               emit('RET',expr(tail));break;
             }

@@ -14,6 +14,8 @@ return {
       ConcatenationType = "custom", CustomFunctionType = "local",
       CustomLocalFunctionsCount = 2
     } },
+    { Name = "ProxifyLocals", Settings = { LiteralType = "string" } },
+    { Name = "AddVararg", Settings = {} },
     { Name = "Vmify", Settings = {} },
     { Name = "EncryptStrings", Settings = { HoistVmStrings = true } },
     { Name = "AntiTamper", Settings = { UseDebug = false } },
@@ -21,7 +23,6 @@ return {
       Threshold = 1, StringsOnly = true,
       Shuffle = true, Rotate = true, LocalWrapperThreshold = 0
     } },
-    { Name = "ProxifyLocals", Settings = { LiteralType = "string" } },
     { Name = "WrapInFunction", Settings = {} },
     { Name = "Cff", Settings = { ExcludeVm = true } },
     { Name = "NumbersToExpressions", Settings = {
@@ -29,7 +30,6 @@ return {
     } },
     { Name = "WatermarkCheck", Settings = {
       Content = "BLACKMAMER STUDIO - FULL PROTECTION"
-    } },
-    { Name = "AddVararg", Settings = {} }
+    } }
   }
 }

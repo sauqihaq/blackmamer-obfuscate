@@ -590,7 +590,7 @@ function flattenCfgInstructions(rows,codes){
   return {rows:result,blocks:blocks.length,bridges};
 }
 
-const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','RETVOID','RETM','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV','KRET','GETRET','MOVRET','STRDEC'];
+const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','RETVOID','RETM','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV','KRET','GETRET','MOVRET','STRDEC','VARG','VARGM','CALLX','CALLMX','PUTM'];
 function compile(source, options={}) {
   if(typeof source!=='string') throw new TypeError('Expected Luau source string');
   if(Buffer.byteLength(source)>128*1024) throw new SyntaxErrorV3('V3 source limit: 128 KB');
@@ -722,8 +722,21 @@ function compile(source, options={}) {
         const dst=reg();emit('STRDEC',dst,key(n.hex),key(n.seed));return dst;
       }
       if(n.t==='var'){const dst=reg();emit('GET',dst,key(n.name));return dst;}
+      if(n.t==='vararg'){
+        if(!params.includes('...'))throw new SyntaxErrorV3('vararg outside variadic function');
+        const dst=reg();emit(multiple?'VARGM':'VARG',dst);return dst;
+      }
       if(n.t==='index'){const obj=expr(n.obj),k=expr(n.key),dst=reg();emit('INDEX',dst,obj,k);return dst;}
-      if(n.t==='table'){const dst=reg();emit('TABLE',dst);for(const f of n.fields){const a=expr(f.key),b=expr(f.value);emit('PUT',dst,a,b);}return dst;}
+      if(n.t==='table'){
+        const dst=reg();emit('TABLE',dst);
+        for(let i=0;i<n.fields.length;i++){
+          const f=n.fields[i],expand=f.implicit&&i===n.fields.length-1&&
+            ['call','method','vararg'].includes(f.value.t);
+          if(expand)emit('PUTM',dst,expr(f.value,true),f.key.value);
+          else{const a=expr(f.key),b=expr(f.value);emit('PUT',dst,a,b);}
+        }
+        return dst;
+      }
       if(n.t==='fun'){const fnid=makeBuilder(n.body,n.params,protectedId),dst=reg();emit('CLOSURE',dst,fnid);return dst;}
       if(n.t==='call'&&n.fn.t==='var'&&n.fn.name==='BM_NO_VIRTUALIZE'){
         if(!options.hardened)throw new SyntaxErrorV3('BM_NO_VIRTUALIZE requires NativeV4');
@@ -762,9 +775,13 @@ function compile(source, options={}) {
           const obj=expr(n.obj),k=expr({t:'str',value:n.name});
           fn=reg();emit('INDEX',fn,obj,k);regs.push(obj);
         } else fn=expr(n.fn);
-        for(const arg of n.args)regs.push(expr(arg));
-        const idx=argSets.push(regs);const dst=reg();
-        emit(multiple?'CALLM':'CALL',dst,fn,idx);return dst;
+        const tail=n.args[n.args.length-1];
+        const expand=Boolean(tail&&['call','method','vararg'].includes(tail.t));
+        for(let i=0;i<n.args.length;i++)
+          regs.push(expr(n.args[i],expand&&i===n.args.length-1));
+        const idx=argSets.push(regs),dst=reg();
+        emit(expand?(multiple?'CALLMX':'CALLX'):(multiple?'CALLM':'CALL'),dst,fn,idx);
+        return dst;
       }
       if(n.t==='unary'){
         const from=expr(n.x),dst=reg();
@@ -802,6 +819,21 @@ function compile(source, options={}) {
       if(target.t==='var')emit('SET',key(target.name),valueReg);
       else{const objectReg=expr(target.obj),indexReg=expr(target.key);emit('PUT',objectReg,indexReg,valueReg);}
     };
+    const expandedRhs=values=>{
+      const last=values.length-1;
+      const expand=last>=0&&['call','method','vararg'].includes(values[last].t);
+      const rhs=values.map((v,i)=>expr(v,expand&&i===last));
+      return j=>{
+        let value;
+        if(j<last)value=rhs[j];
+        else if(last>=0){
+          if(expand){value=reg();emit('MVGET',value,rhs[last],j-last+1);}
+          else if(j===last)value=rhs[last];
+        }
+        if(!value){value=reg();emit('K',value,key(null));}
+        return value;
+      };
+    };
     const compound=(n)=>{
       const map={'+=':'ADD','-=':'SUB','*=':'MUL','/=':'DIV',
         '//=':'IDIV','%=':'MOD','^=':'POW','..=':'CAT'};
@@ -826,22 +858,9 @@ function compile(source, options={}) {
           case 'localmulti':{
             // Evaluate every RHS before declaring any local. In Lua/Luau only
             // the final call may expand into extra return values.
-            const values=n.values;
-            const rhs=values.map((v,i)=>expr(v,i===values.length-1&&
-              (v.t==='call'||v.t==='method')));
-            const last=values.length-1;
-            for(let j=0;j<n.names.length;j++){
-              let value;
-              if(j<last)value=rhs[j];
-              else if(last>=0){
-                const tail=values[last];
-                if(tail.t==='call'||tail.t==='method'){
-                  value=reg();emit('MVGET',value,rhs[last],j-last+1);
-                }else if(j===last)value=rhs[last];
-              }
-              if(!value){value=reg();emit('K',value,key(null));}
-              emit('DECL',key(n.names[j]),value);
-            }
+            const getValue=expandedRhs(n.values);
+            for(let j=0;j<n.names.length;j++)
+              emit('DECL',key(n.names[j]),getValue(j));
             break;
           }
           case 'localfun':{
@@ -849,6 +868,19 @@ function compile(source, options={}) {
             const r=expr(n.fun);emit('SET',key(n.name),r);break;
           }
           case 'assign':write(n.target,n.value);break;
+          case 'assignmulti':{
+            const targets=n.targets.map(target=>target.t==='var'
+              ?{name:key(target.name)}:
+                {obj:expr(target.obj),idx:expr(target.key)});
+            const getValue=expandedRhs(n.values);
+            const valueRegs=targets.map((_,j)=>getValue(j));
+            for(let j=0;j<targets.length;j++){
+              const t=targets[j],value=valueRegs[j];
+              if(t.name!==undefined)emit('SET',t.name,value);
+              else emit('PUT',t.obj,t.idx,value);
+            }
+            break;
+          }
           case 'compound':compound(n);break;
           case 'callstmt':expr(n.value);break;
           case 'do':scope(n.body);break;
@@ -969,7 +1001,7 @@ function compile(source, options={}) {
             const values=n.values;
             if(values.length===0){emit('RETVOID');break;}
             const tail=values[values.length-1];
-            const expand=['call','method'].includes(tail.t);
+            const expand=['call','method','vararg'].includes(tail.t);
             if(values.length===1&&!expand){
               emit('RET',expr(tail));break;
             }

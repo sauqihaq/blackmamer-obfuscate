@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - 'blackmamer-vm3.js'
+      - 'prometheus-stage.js'
+      - 'prometheus-maximal.lua'
+      - 'tests/prometheus-full-runtime.js'
       - 'v4-presets.js'
       - 'runtime-security-policy.js'
       - 'prometheus-stage.js'
@@ -57,6 +60,9 @@ on:
     branches: [main, feature/native-v4-cpp-hardening]
     paths:
       - 'blackmamer-vm3.js'
+      - 'prometheus-stage.js'
+      - 'prometheus-maximal.lua'
+      - 'tests/prometheus-full-runtime.js'
       - 'native/**'
       - 'native-sealer.js'
       - 'vm4-chained-cells.js'
@@ -182,6 +188,7 @@ jobs:
           LUAU_BIN: ./luau-build/luau
         run: |
           node tests/double-vm-runtime.js
+          node tests/prometheus-full-runtime.js
           node tests/vm4-luau.js
           node tests/vm4-external-luau.js
           node tests/vm4-remote-luau.js

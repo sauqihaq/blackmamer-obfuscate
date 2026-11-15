@@ -10,6 +10,8 @@ on:
       - 'tests/vm4-cipher-fragment-density.js'
       - 'tests/vm4-environment-preflight.js'
       - 'prometheus-stage.js'
+      - 'luau-compat-lowering.js'
+      - 'tests/luau-compat-lowering.js'
       - 'prometheus-maximal.lua'
       - 'prometheus-compat-patch.js'
       - 'tests/prometheus-full-runtime.js'
@@ -199,6 +201,7 @@ jobs:
         run: |
           # Fast boundary sanity first: avoid hiding regression behind a flaky
           # unrelated randomized full-Prometheus parity run.
+          node tests/luau-compat-lowering.js
           node tests/vm4-api-boundary.js
           node tests/vm4-cipher-fragment-density.js
           node tests/vm4-environment-preflight.js

@@ -714,7 +714,8 @@ function compile(source, options={}) {
     // V4 uses an independent random virtual register allocation in each
     // function. Dataflow remains correct because all IR consumers use the
     // returned physical ID rather than assuming sequential register numbers.
-    const maxRegisters=options.doubleVmFull===true?65536:16384;
+    // Full Prometheus output needs more IR temporaries; these operands have 24/32-bit cells.
+    const maxRegisters=options.doubleVmFull===true?262144:16384;
     const registerPool=options.hardened?
       Array.from({length:maxRegisters},(_,i)=>i+1):null;
     if(registerPool)for(let i=registerPool.length-1;i>0;i--){
@@ -1033,7 +1034,7 @@ function compile(source, options={}) {
           }
           default:throw new SyntaxErrorV3('Unsupported statement type '+n.t);
         }
-        if(builder.ins.length>(options.doubleVmFull===true?96000:12000))
+        if(builder.ins.length>(options.doubleVmFull===true?262144:12000))
           throw new SyntaxErrorV3('V3 instruction limit exceeded');
       }
     };
@@ -1292,6 +1293,9 @@ function compile(source, options={}) {
     bytes.push(int&255,(int>>>8)&255,(int>>>16)&255);
   }
   let soaPrototypeCount=0;
+  // Full builds extend the instruction-count header by 2 bytes. Other
+  // V4 builds keep the exact existing binary layout and decoder offsets.
+  const fullHeaderExtra=options.doubleVmFull===true?2:0;
   const rawFunctions=packed.map((f,functionIndex)=>{
     const raw=[];
     const width=options.bytecodeWidth==='compact'?3:
@@ -1309,7 +1313,8 @@ function compile(source, options={}) {
         (functionIndex===0||(functionIndex!==1&&rand(2)===0))));
     if(soa)soaPrototypeCount++;
     pack16(f.p.length,raw);
-    pack16(f.ins.length,raw);
+    if(options.doubleVmFull===true)pack32(f.ins.length,raw);
+    else pack16(f.ins.length,raw);
     raw.push(f.opSeed,width,...offsets);
     if(options.hardened)raw.push(soa?1:0,
       ...(sevenArchitecture?[f.vmFlavor]:[]),...f.palette);
@@ -1928,21 +1933,22 @@ function compile(source, options={}) {
     '    for j,b in ipairs(raw)do chars[j]=nativeChar(b)end',
     '    local packed=bufFrom(nativeConcat(chars))',
     '    local pn=bufRead(packed,0)+256*bufRead(packed,1)',
-    '    local count=bufRead(packed,2)+256*bufRead(packed,3)',
-    '    local opSeed=bufRead(packed,4);local width=bufRead(packed,5);local off='+(options.hardened?11+OPS.length+(sevenArchitecture?1:0)+(schemaEnabled?5:0):10),
+    '    local count='+(options.doubleVmFull===true?
+      'bufRead32(packed,2)':'bufRead(packed,2)+256*bufRead(packed,3)'),
+    '    local opSeed=bufRead(packed,'+(4+fullHeaderExtra)+');local width=bufRead(packed,'+(5+fullHeaderExtra)+');local off='+(options.hardened?11+OPS.length+(sevenArchitecture?1:0)+(schemaEnabled?5:0)+fullHeaderExtra:10+fullHeaderExtra),
     '    if width~=3 and width~=4 then nativeError("BLACKMAMER V3 invalid instruction width") end',
     '    local offsets={}',
-    '    for j=1,4 do offsets[j]=bufRead(packed,5+j) end',
+    '    for j=1,4 do offsets[j]=bufRead(packed,'+(5+fullHeaderExtra)+'+j) end',
     ...(options.hardened?[
-      '    local layout=bufRead(packed,10)',
+      '    local layout=bufRead(packed,'+(10+fullHeaderExtra)+')',
       '    if layout~=0 and layout~=1 then nativeError("BLACKMAMER V4 invalid layout")end',
       ...(sevenArchitecture?[
-        '    local vmFlavor=bufRead(packed,11)',
+        '    local vmFlavor=bufRead(packed,'+(11+fullHeaderExtra)+')',
         '    if vmFlavor<1 or vmFlavor>7 then nativeError("BLACKMAMER invalid VM variant")end'
       ]:[]),
       '    local palette={};local paletteSeen={}',
       '    for j=1,'+OPS.length+' do',
-      '      local value=bufRead(packed,'+(sevenArchitecture?11:10)+'+j)',
+      '      local value=bufRead(packed,'+((sevenArchitecture?11:10)+fullHeaderExtra)+'+j)',
       '      if paletteSeen[value]then nativeError("BLACKMAMER V4 duplicate opcode palette")end',
       '      paletteSeen[value]=true;palette[j]=value',
       '    end',
@@ -1955,7 +1961,7 @@ function compile(source, options={}) {
     '    local params={}',
     '    for j=1,pn do params[j]=bufRead32(packed,off);off=off+4 end',
     ...(schemaEnabled?[
-      '    local schOff='+(11+OPS.length+(sevenArchitecture?1:0)),
+      '    local schOff='+(11+OPS.length+(sevenArchitecture?1:0)+fullHeaderExtra),
       '    local schema={bufRead(packed,schOff)+256*bufRead(packed,schOff+1),',
       '      bufRead(packed,schOff+2),bufRead(packed,schOff+3),bufRead(packed,schOff+4)}',
       '    if schema[1]<1 or schema[1]>60000 or schema[2]<1 or schema[3]<1 or',

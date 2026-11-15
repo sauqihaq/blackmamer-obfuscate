@@ -1577,6 +1577,10 @@ function compile(source, options={}) {
   // before startup; no client-side API attestation can be cryptographic.
   const robloxApiGuard=target==='LuaU'&&options.hardened===true&&
     options.robloxApiGuard===true;
+  // Platform-neutral host API boundary. It guards only bindings already
+  // present in the environment at startup; scripts may legitimately bind
+  // their own globals and need not have Roblox-specific API objects.
+  const apiBoundaryGuard=options.hardened===true&&options.antiDebug!==false;
   const trapChallenge=crypto.randomBytes(12).toString('hex');
   const runtimeTweak=options.hardened
     ? '((spec[3]*97+(pc*(pc%131))*31)%modulus)' : '0';
@@ -1773,6 +1777,38 @@ function compile(source, options={}) {
     '  local nativePack=table.pack or function(...)return {n=select("#",...),...}end',
     '  local nativeType=type; local nativePcall=pcall; local nativeError=error',
     '  local dbg=debug; local globals=(getfenv and getfenv()) or _ENV or _G',
+    ...(apiBoundaryGuard?[
+      '  local boundaryRawget=rawget',
+      '  local boundaryKeys={"print","warn","require","assert","error","type","tostring",',
+      '    "tonumber","pcall","xpcall","pairs","ipairs","next","select",',
+      '    "getmetatable","setmetatable","rawget","rawset","unpack",',
+      '    "string","table","math","coroutine","bit32"}',
+      '  local boundaryPresent={};local boundarySnapshot={}',
+      '  if nativeType(globals)=="table" then',
+      '    for _,key in ipairs(boundaryKeys) do',
+      '      local value=boundaryRawget(globals,key)',
+      // Luau CLI/Roblox may expose standard APIs via an inherited environment.
+      // Only read the known standard API whitelist; never require game/script.
+      ...(target==='LuaU'?['      if value==nil then value=globals[key]end']:[]),
+      '      if value~=nil then boundaryPresent[key]=true;boundarySnapshot[key]=value end',
+      '    end',
+      '  end',
+      '  local function boundaryCheck(key)',
+      '    if boundaryPresent[key] and globals[key]~=boundarySnapshot[key] then',
+      '      nativeError("BLACKMAMER V4 API boundary binding changed")end',
+      '  end',
+      '  local function boundaryRead(key)',
+      '    if boundaryPresent[key] then boundaryCheck(key);return boundarySnapshot[key]end',
+      '    return globals[key]',
+      '  end',
+      '  local function boundaryWrite(key,value)',
+      '    boundaryCheck(key);globals[key]=value',
+      '    if boundaryPresent[key] then boundarySnapshot[key]=value end',
+      '  end',
+      '  local function boundaryPoll()',
+      '    for _,key in ipairs(boundaryKeys) do boundaryCheck(key)end',
+      '  end'
+    ]:[]),
     ...(robloxApiGuard?[
       '  local _bmGame=game;local _bmScript=script;local _bmTypeof=typeof',
       '  local _bmTask=task;local _bmTaskWait=_bmTask and _bmTask.wait',
@@ -1917,6 +1953,7 @@ function compile(source, options={}) {
     ...(options.hardened&&options.antiDebug!==false?[
       '  -- Runtime sanity checks are best-effort; no claim of universal debugger detection.',
       '  local function runtimeGuard()',
+      ...(apiBoundaryGuard?['    boundaryPoll()']:[]),
       ...(robloxApiGuard?['    _bmHostGuard()']:[]),
     '    if nativeByte~=string.byte or nativeChar~=string.char or',
       '      nativeConcat~=table.concat or nativeType~=type or nativePcall~=pcall or',
@@ -2190,7 +2227,7 @@ function compile(source, options={}) {
     ...(robloxApiGuard?[
       '      if n=="game" or n=="script" or n=="task" or n=="typeof" then _bmHostGuard()end'
     ]:[]),
-    '      return globals[n]',
+    '      return '+(apiBoundaryGuard?'boundaryRead(n)':'globals[n]'),
     '    end',
     '    local function set(n,v)',
     '      local frame=env;while frame do if rawget(frame.vars,n)~=nil then',
@@ -2199,7 +2236,7 @@ function compile(source, options={}) {
       '      if n=="game" or n=="script" or n=="task" or n=="typeof" then',
       '        nativeError("BLACKMAMER protected Roblox global is read-only")end'
     ]:[]),
-    '      globals[n]=v',
+    '      '+(apiBoundaryGuard?'boundaryWrite(n,v)':'globals[n]=v'),
     '    end',
     '    while true do',
     '      ticks=ticks+1; if ticks>'+(options.doubleVmFull===true?10000000:1000000)+
@@ -2533,6 +2570,7 @@ function compile(source, options={}) {
     periodicRuntimeGuard:options.hardened===true&&options.antiDebug!==false,
     robloxApiGuard,
     portableApiIntegrityGuard:options.hardened===true&&options.antiDebug!==false,
+    protectedApiBoundary:apiBoundaryGuard,
     metamethodTostringTrap:metamethodTrap,
     metamethodTrapPeriodic:metamethodTrap&&options.antiDebug!==false,
     protectedFunctions:[...protectedKeys.keys()],generatedKeys,

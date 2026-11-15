@@ -77,7 +77,15 @@ try{
    ['metamethod-exception',
     'local s=setmetatable;setmetatable=function(t,mt)'+
     'if type(mt)=="table" and type(rawget(mt,"__tostring"))=="function" then '+
-    'rawset(mt,"__tostring",function()error("injected") end) end;return s(t,mt)end;']
+    'rawset(mt,"__tostring",function()error("injected") end) end;return s(t,mt)end;'],
+   // Portable anti-hook checks exercise __index, __newindex, and __call.
+   ...['__index','__newindex','__call'].map(name=>[
+    'host-hook-'+name,
+    'local s=setmetatable;setmetatable=function(t,mt)'+
+    'if type(mt)=="table" and type(rawget(mt,"__tostring"))=="function"'+
+    ' and type(rawget(mt,"'+name+'"))=="function" then '+
+    'rawset(mt,"'+name+'",function()return "spoof"end) end;return s(t,mt)end;'
+   ])
   ];
   for(const [name,prefix] of attacks){
    const result=exec(binary,prefix+simple.code,target+'-attack-'+name);

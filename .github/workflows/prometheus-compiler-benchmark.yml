@@ -1,0 +1,41 @@
+name: BLACKMAMER Full Prometheus Compiler Benchmark
+on:
+  pull_request:
+    paths:
+      - 'prometheus-stage.js'
+      - 'prometheus-maximal.lua'
+      - 'prometheus-compat-patch.js'
+      - 'Dockerfile'
+      - 'tests/prometheus-compiler-benchmark.js'
+      - '.github/workflows/prometheus-compiler-benchmark.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'prometheus-stage.js'
+      - 'Dockerfile'
+      - 'tests/prometheus-compiler-benchmark.js'
+      - '.github/workflows/prometheus-compiler-benchmark.yml'
+jobs:
+  full-protection-compiler-benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install both compiler Lua runtimes
+        run: sudo apt-get update && sudo apt-get install -y lua5.1 luajit
+      - name: Install pinned full Prometheus and compatibility patch
+        run: |
+          mkdir -p vendor/prometheus
+          git -C vendor/prometheus init -q
+          git -C vendor/prometheus remote add origin https://github.com/prometheus-lua/Prometheus.git
+          git -C vendor/prometheus fetch -q --depth 1 origin a98c50165f2a53f6d765a82eee60dfea53803445
+          git -C vendor/prometheus checkout -q --detach FETCH_HEAD
+          test "$(git -C vendor/prometheus rev-parse HEAD)" = "a98c50165f2a53f6d765a82eee60dfea53803445"
+          node prometheus-compat-patch.js
+      - name: Verify benchmark and compiler syntax
+        run: node --check prometheus-stage.js && node --check tests/prometheus-compiler-benchmark.js
+      - name: Benchmark LuaJIT vs Lua51 with all eleven steps and compare semantic output
+        run: node tests/prometheus-compiler-benchmark.js

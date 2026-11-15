@@ -23,7 +23,7 @@ try{
    console.log('PROBE',target,preset,'PASS',JSON.stringify({
      inner:length,outer:Buffer.byteLength(result.code),functions:result.virtualizedFunctions,
      chained:result.chainedInstructionEncoding,elapsed:Date.now()-started,compileMs:Date.now()-begin}));
-  }catch(err){console.log('PROBE',target,preset,'OUTER_PARSE_ERROR',err.name,String(err.message).slice(0,700),'inner',length,'firstOutput',encoded.slice(0,220))}
+  }catch(err){console.log('PROBE',target,preset,'OUTER_PARSE_ERROR',err.name,String(err.message).slice(0,700),'inner',length,'atError',encoded.slice(Math.max(0,err.offset-80),err.offset+140),'firstOutput',encoded.slice(0,220))}
  }
  }
 }finally{fs.rmSync(dir,{recursive:true,force:true})}

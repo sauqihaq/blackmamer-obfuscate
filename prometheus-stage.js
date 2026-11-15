@@ -19,9 +19,9 @@ const LUA_BINARY=process.env.BLACKMAMER_PROMETHEUS_LUA||'lua5.1';
 const PROFILE='Vmify'; // Legacy independently verified default.
 const FULL_PROFILE='BlackmamerFull';
 const FULL_CONFIG=path.join(__dirname,'prometheus-maximal.lua');
-const FULL_STEPS=['SplitStrings','Vmify','EncryptStrings','AntiTamper',
-  'ConstantArray','ProxifyLocals','WrapInFunction','Cff',
-  'NumbersToExpressions','WatermarkCheck','AddVararg'];
+const FULL_STEPS=['SplitStrings','ProxifyLocals','AddVararg',
+  'Vmify','EncryptStrings','AntiTamper','ConstantArray',
+  'WrapInFunction','Cff','NumbersToExpressions','WatermarkCheck'];
 class PrometheusStageError extends Error {
   constructor(code,message,cause){
     super(message);this.name='PrometheusStageError';this.code=code;

@@ -35,5 +35,7 @@ async function main(){
    runner:process.env.BLACKMAMER_PROMETHEUS_LUA||'lua5.1'
  }));
 }
-main().catch(err=>{console.error('BLACKMAMER_FULL_MEDIUM_FAIL',err.stack||err);process.exitCode=1})
+main().catch(err=>{console.error('BLACKMAMER_FULL_MEDIUM_FAIL',err.stack||err);
+  if(err.cause)console.error('BLACKMAMER_FULL_MEDIUM_CAUSE',err.cause.code||err.cause.name,String(err.cause.message).slice(0,600));
+  process.exitCode=1})
  .finally(()=>fs.rmSync(dir,{recursive:true,force:true}));

@@ -1603,16 +1603,27 @@ function compile(source, options={}) {
   ]:[];
 
   const lua51BitOps=lua51?[
-    '  -- Standard Lua 5.1 has no bit32. Portable integer-bit fallback.',
+    '  -- Nibble-table bit32 adapter: 8 lookups per 32-bit operation rather',
+    '  -- than the old 32-iteration per-bit interpreter. LuaJIT uses native bit.',
+    '  local bmNibble={{},{},{}}',
+    '  for x=0,15 do for y=0,15 do',
+    '    local a=x;local b=y;local xv=0;local av=0;local ov=0;local place=1',
+    '    for k=1,4 do',
+    '      local aa=a%2;local bb=b%2',
+    '      if aa~=bb then xv=xv+place end',
+    '      if aa==1 and bb==1 then av=av+place end',
+    '      if aa==1 or bb==1 then ov=ov+place end',
+    '      a=math.floor(a/2);b=math.floor(b/2);place=place*2',
+    '    end',
+    '    local idx=x*16+y;bmNibble[1][idx]=xv;bmNibble[2][idx]=av;bmNibble[3][idx]=ov',
+    '  end end',
     '  local function bmBitPair(a,b,kind)',
+    '    local tbl=bmNibble[kind];local result=0;local place=1',
     '    a=a%4294967296;b=b%4294967296',
-    '    local result=0;local bitvalue=1',
-    '    for i=1,32 do',
-    '      local x=a%2;local y=b%2',
-    '      local take=(kind==1 and x~=y) or (kind==2 and x==1 and y==1) or',
-    '        (kind==3 and (x==1 or y==1))',
-    '      if take then result=result+bitvalue end',
-    '      a=math.floor(a/2);b=math.floor(b/2);bitvalue=bitvalue*2',
+    '    for j=1,8 do',
+    '      local nib=tbl[(a%16)*16+b%16]',
+    '      result=result+nib*place',
+    '      a=math.floor(a/16);b=math.floor(b/16);place=place*16',
     '    end',
     '    return result',
     '  end',
@@ -1638,7 +1649,18 @@ function compile(source, options={}) {
     '    n=n%32;a=a%4294967296',
     '    if n==0 then return a end',
     '    return (math.floor(a/2^n)+(a%2^n)*2^(32-n))%4294967296',
-    '  end'
+    '  end',
+    ...(target==='LuaJIT'?[
+      '  local ok,bmNativeBit=pcall(require,"bit")',
+      '  if ok and bmNativeBit and bmNativeBit.bxor then',
+      '    bit32.bxor=function(...)return bmNativeBit.bxor(...)%4294967296 end',
+      '    bit32.band=function(...)return bmNativeBit.band(...)%4294967296 end',
+      '    bit32.bor=function(...)return bmNativeBit.bor(...)%4294967296 end',
+      '    bit32.bnot=function(a)return bmNativeBit.bnot(a)%4294967296 end',
+      '    bit32.rshift=function(a,n)return bmNativeBit.rshift(a,n)%4294967296 end',
+      '    bit32.rrotate=function(a,n)return bmNativeBit.ror(a,n)%4294967296 end',
+      '  end'
+    ]:[])
   ]:[];
   const lua51Buffers=lua51?[
     '  local bufFrom=function(bytes)return bytes end',

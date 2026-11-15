@@ -33,6 +33,14 @@ async function main(){
    assert.equal(inner.meta.preset,FULL_PROFILE);
    assert.equal(inner.meta.allPrometheusSteps,true);
    assert.deepEqual(inner.meta.steps,FULL_STEPS);
+   const intermediate=run(bin,inner.source,target+'-'+name+'-prometheus',10000);
+   console.log('PROMETHEUS_FULL_INNER',JSON.stringify({
+     target,name,status:intermediate.status,signal:intermediate.signal,
+     actual:intermediate.stdout?.trim(),error:intermediate.stderr?.slice(0,500),
+     runtimeMs:intermediate.ms
+   }));
+   assert.equal(intermediate.status,0,'Prometheus Full stage alone failed');
+   assert.equal(intermediate.stdout,expected.stdout,'Prometheus Full stage changed stdout');
    const transformed=compile(inner.source,{
      hardened:true,target,protectionLevel:'Maximum',
      vmArchitecture:'seven-independent',autoFunctionEncryption:'standalone',

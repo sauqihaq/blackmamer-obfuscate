@@ -1787,6 +1787,9 @@ function compile(source, options={}) {
       '  if nativeType(globals)=="table" then',
       '    for _,key in ipairs(boundaryKeys) do',
       '      local value=boundaryRawget(globals,key)',
+      // Luau CLI/Roblox may expose standard APIs via an inherited environment.
+      // Only read the known standard API whitelist; never require game/script.
+      ...(target==='LuaU'?['      if value==nil then value=globals[key]end']:[]),
       '      if value~=nil then boundaryPresent[key]=true;boundarySnapshot[key]=value end',
       '    end',
       '  end',

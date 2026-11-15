@@ -201,3 +201,10 @@ jobs:
           node tests/vm4-no-virtualize.js
           node tests/vm4-metamethod-trap.js
           node tests/vm4-differential-50.js
+      - name: Validate medium-size LuaU through all eleven Prometheus steps and V4
+        env:
+          LUAU_BIN: ./luau-build/luau
+          BLACKMAMER_MEDIUM_TARGET: LuaU
+          BLACKMAMER_PROMETHEUS_LUA: luajit
+          BLACKMAMER_REQUIRE_NATIVE: '1'
+        run: timeout 100s node --max-old-space-size=384 tests/prometheus-medium-pipeline.js

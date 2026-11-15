@@ -12,7 +12,9 @@ const execFileAsync=promisify(execFile);
 
 const PROMETHEUS_REVISION='a98c50165f2a53f6d765a82eee60dfea53803445';
 const MAX_BYTES=128*1024;
-const MAX_FULL_INTERMEDIATE_BYTES=192*1024;
+// Full 11-step VM output has a fixed bootstrap >120 KB even for trivial source.
+// Allow realistic functions, while keeping a strict cap for Render Free.
+const MAX_FULL_INTERMEDIATE_BYTES=384*1024;
 // Leave room for the outer VM and the 120s browser deadline.
 // Render Free can need longer than 40s for the complete 11-step profile.
 const configuredTimeout=Number(process.env.BLACKMAMER_PROMETHEUS_TIMEOUT_MS);
@@ -94,7 +96,8 @@ async function preprocess(source,target,{timeoutMs=TIMEOUT_MS,profile='Vmify',lu
       'Prometheus did not produce an output file.',e);}
     if(stat.size>(full?MAX_FULL_INTERMEDIATE_BYTES:MAX_BYTES))
       throw new PrometheusStageError('PROMETHEUS_OUTPUT_TOO_LARGE',
-        'Prometheus VM produced '+stat.size+' bytes; Full profile intermediate limit is 192 KB.');
+        'Prometheus VM produced '+stat.size+' bytes; Full profile intermediate limit is '+
+          Math.round(MAX_FULL_INTERMEDIATE_BYTES/1024)+' KB.');
     if(stat.size===0)throw new PrometheusStageError('PROMETHEUS_EMPTY_OUTPUT',
       'Prometheus generated an empty Lua script.');
     const transformed=await fs.readFile(output,'utf8');

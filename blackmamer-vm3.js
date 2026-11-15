@@ -1031,7 +1031,8 @@ function compile(source, options={}) {
           }
           default:throw new SyntaxErrorV3('Unsupported statement type '+n.t);
         }
-        if(builder.ins.length>12000)throw new SyntaxErrorV3('V3 instruction limit exceeded');
+        if(builder.ins.length>(options.doubleVmFull===true?96000:12000))
+          throw new SyntaxErrorV3('V3 instruction limit exceeded');
       }
     };
     statements(ast);emit('RETVOID');

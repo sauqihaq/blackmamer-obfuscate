@@ -1581,6 +1581,9 @@ function compile(source, options={}) {
   // present in the environment at startup; scripts may legitimately bind
   // their own globals and need not have Roblox-specific API objects.
   const apiBoundaryGuard=options.hardened===true&&options.antiDebug!==false;
+  // Best-effort portable preflight rejects malformed primitive APIs and
+  // callable-table proxies before executing the VM; it is not host attestation.
+  const environmentPreflight=apiBoundaryGuard;
   const trapChallenge=crypto.randomBytes(12).toString('hex');
   const runtimeTweak=options.hardened
     ? '((spec[3]*97+(pc*(pc%131))*31)%modulus)' : '0';
@@ -1808,6 +1811,43 @@ function compile(source, options={}) {
       '  local function boundaryPoll()',
       '    for _,key in ipairs(boundaryKeys) do boundaryCheck(key)end',
       '  end'
+    ]:[]),
+    ...(environmentPreflight?[
+      '  local function _bmEnvironmentPreflight()',
+      '    if nativeType(globals)~="table" or nativeType(nil)~="nil" or',
+      '      nativeType(false)~="boolean" or nativeType(19)~="number" or',
+      '      nativeType("BM")~="string" or nativeType({})~="table" or',
+      '      nativeType(function()end)~="function" then',
+      '      nativeError("BLACKMAMER V4 environment type preflight failed")end',
+      '    if nativeType(rawget)~="function" or nativeType(rawset)~="function" or',
+      '      nativeType(rawequal)~="function" or nativeType(setmetatable)~="function" then',
+      '      nativeError("BLACKMAMER V4 raw primitive proxy detected")end',
+      '    local sentinel={};local targetObject={};local targetMeta={',
+      '      __index=function(_,key)if key=="probe" then return sentinel end end}',
+      '    setmetatable(targetObject,targetMeta)',
+      '    if rawget(targetObject,"probe")~=nil or targetObject.probe~=sentinel or',
+      '      not rawequal(targetObject,targetObject) or rawequal(targetObject,{}) then',
+      '      nativeError("BLACKMAMER V4 rawget/rawequal preflight failed")end',
+      '    rawset(targetObject,"stored",sentinel)',
+      '    if rawget(targetObject,"stored")~=sentinel then',
+      '      nativeError("BLACKMAMER V4 rawset preflight failed")end',
+      '    local ok,v,n=nativePcall(function()return "BM",17 end)',
+      '    local bad=nativePcall(function()nativeError("BM preflight",0)end)',
+      '    if not ok or v~="BM" or n~=17 or bad then',
+      '      nativeError("BLACKMAMER V4 pcall/error preflight failed")end',
+      '    if nativeByte("AZ",2)~=90 or nativeChar(65,90)~="AZ" or',
+      '      nativeConcat({"B","M"})~="BM" or bxor(9,3)~=10 then',
+      '      nativeError("BLACKMAMER V4 standard primitive preflight failed")end',
+      '    local functionNames={"print","warn","require","assert","error","type",',
+      '      "tostring","tonumber","pcall","xpcall","pairs","ipairs","next",',
+      '      "select","rawget","rawset","rawequal","getmetatable","setmetatable"}',
+      '    for _,key in ipairs(functionNames)do',
+      '      local api=globals[key]',
+      '      if api~=nil and nativeType(api)~="function" then',
+      '        nativeError("BLACKMAMER V4 callable-table host proxy detected")end',
+      '    end',
+      '  end',
+      '  _bmEnvironmentPreflight()'
     ]:[]),
     ...(robloxApiGuard?[
       '  local _bmGame=game;local _bmScript=script;local _bmTypeof=typeof',
@@ -2571,6 +2611,7 @@ function compile(source, options={}) {
     robloxApiGuard,
     portableApiIntegrityGuard:options.hardened===true&&options.antiDebug!==false,
     protectedApiBoundary:apiBoundaryGuard,
+    environmentPreflight,
     metamethodTostringTrap:metamethodTrap,
     metamethodTrapPeriodic:metamethodTrap&&options.antiDebug!==false,
     protectedFunctions:[...protectedKeys.keys()],generatedKeys,

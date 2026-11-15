@@ -2396,7 +2396,7 @@ function compile(source, options={}) {
   // independent opaque diagnostic IDs inside V4 runtime error calls.
   // They are not anti-hook or cryptographic protection.
   let scrubbedRuntimeErrors=0;
-  const runtimeText=options.hardened?expanded.replace(
+  const runtimeText=(options.hardened&&options.debugRuntimeErrors!==true)?expanded.replace(
     /nativeError\("BLACKMAMER[^"]*"\)/g,()=>{
       scrubbedRuntimeErrors++;
       return 'nativeError("E'+crypto.randomBytes(6).toString('hex')+'")';

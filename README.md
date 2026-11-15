@@ -1,6 +1,10 @@
 # BLACKMAMER STUDIO — Native V4 Obfuscator
 
-Independent Lua/Luau virtual-machine obfuscator. The **production backend is V4-only**; there is no Prometheus CLI/source checkout or Prometheus runtime dependency in the shipped Docker image.
+BLACKMAMER Native V4 is the **outer virtual machine** for one-click standalone builds. The production Docker image now installs a **pinned Prometheus Vmify inner VM**: original Lua/Luau → Prometheus VM → BLACKMAMER Maximum V4 standalone. The API rejects a failure in either stage rather than silently downgrading to a single VM.
+
+**Based on Prometheus by Elias Oelschner, https://github.com/prometheus-lua/Prometheus**
+
+Prometheus is licensed separately; its LICENSE is included in the runtime image. Its revision is pinned to `a98c50165f2a53f6d765a82eee60dfea53803445`. Generated output does not require Prometheus notices, but the web UI and these docs retain attribution.
 
 ## Supported runtime targets
 
@@ -12,11 +16,35 @@ Independent Lua/Luau virtual-machine obfuscator. The **production backend is V4-
 
 These targets run the **supported BLACKMAMER parser subset**, not every Lua 5.1/Luau language feature. Luau-only constructs such as `+=`, `continue`, and `//` are rejected on Lua51/LuaJIT. For unsupported syntax, the API returns HTTP 422 rather than returning a falsely "protected" script.
 
+## Automatic two-stage obfuscation, with performance safeguards
+
+For every `oneClick:true` **standalone** request, the API runs the pinned
+Prometheus `Vmify` preset first, followed by BLACKMAMER Maximum V4 as the
+outer VM. The source and Prometheus intermediate payload must each fit the
+compiler's 128-KB limit, and the Prometheus subprocess has a strict timeout.
+Inputs are passed through temporary files with an argument array, never
+shell-interpolated. Intermediate code is never returned by the API.
+
+The double-VM optimizer reduces *redundant* outer AST decoy branches and VM
+dead-code padding while keeping the outer seven VM engines, function
+encryption, chained instruction encoding and CFG/IR optimization. This can
+reduce startup/parse overhead, but cannot make nested virtual-machine
+execution as fast as native Lua: **there is no guaranteed zero-error,
+zero-overhead mode**. Validate performance on devices and script workloads
+before production. Prometheus' Luau support remains incomplete, so
+incompatible LuaU constructs fail with a clear error rather than an
+unprotected fallback.
+
+API `blackmamerVM.doubleVM`, `prometheusStage`, and
+`dualVmOptimization` report the actual stages. One-click UI refuses
+stale backends that cannot confirm both VMs. Remote Vault and other
+advanced API profiles remain independent, to preserve existing setups.
+
 ## One-click website: Maximum V4 for Roblox Script / LocalScript / ModuleScript
 
 Paste or upload a source file and press **Obfuscate Script**. The default
 `LuaU` output is a standalone single-file chunk that can be pasted into a
-Roblox **Script**, **LocalScript**, or **ModuleScript**. The one-click compiler
+Roblox **Script**, **LocalScript**, or **ModuleScript**. The one-click compiler first applies Prometheus Vmify, then
 automatically enables Maximum V4, seven independent VM engines, AST string
 protection, integrity checks, and standalone function encryption. No user
 selection for client/server placement, license, or key provider is required.
@@ -108,7 +136,7 @@ npm run test:presets
 npm run test:differential
 ```
 
-The `paranoid` output requires `BLACKMAMER_KEY_PROVIDER(id)` in a trusted host environment before evaluating the script. Keep the separately generated keys **out of the output Lua file and public repositories**; never run this profile client-side with a public key and call it secret. The API also accepts `{"preset":"fast"|"balanced"|"paranoid"}`; `NativeV4` remains the compatible default. Note that the current compiler has **49** instruction types, not 48, so it validates against the actual opcode count.
+The `paranoid` output requires `BLACKMAMER_KEY_PROVIDER(id)` in a trusted host environment before evaluating the script. Keep the separately generated keys **out of the output Lua file and public repositories**; never run this profile client-side with a public key and call it secret. The API also accepts `{"preset":"fast"|"balanced"|"paranoid"}`; `NativeV4` remains the compatible default. Note that the current compiler has **54** instruction types (including variadic/expansion instructions), so it validates against the actual opcode count.
 
 The differential regression executes fifty input programs against official Lua 5.1 and compares stdout after V4 obfuscation (balanced and paranoid). The fixtures cover arithmetic, loops, closures, metatables, coroutines, and object-oriented method patterns. New code that intentionally segfaults debuggers or emits invalid Lua escapes is not used: neither reliably protects a runtime and both break normal execution or tooling.
 

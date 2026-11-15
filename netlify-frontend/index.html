@@ -154,6 +154,7 @@ print(&quot;Hello World&quot;)"></textarea>
             <div class="metric">VM2 expressions: <strong id="exprMetric">—</strong></div>
             <div class="metric">VM applied: <strong id="appliedMetric">—</strong></div>
             <div class="metric">Engine VM: <strong id="engineMetric">—</strong></div>
+            <div class="metric">Double VM: <strong id="dualVmMetric">—</strong></div>
             <div class="metric">String AST terenkripsi: <strong id="astStringMetric">—</strong></div>
             <div class="metric">Fallback: <strong id="fallbackMetric">—</strong></div>
           </div>
@@ -167,7 +168,7 @@ print(&quot;Hello World&quot;)"></textarea>
             <label>Protection engine</label><div class="presets"><strong>BLACKMAMER Native V4</strong> / Custom VM</div>
 <input type="hidden" id="preset" value="NativeV4">
 <div class="presets" style="border-color:#cb5470;background:linear-gradient(130deg,#381725,#111e2a)">
-  <strong>MAXIMUM V4 • AUTO</strong><p>7 VM independen, AST + CFG, C++ sealing, enkripsi fungsi otomatis, serta pemeriksaan integritas.</p>
+  <strong>DUAL VM • MAXIMUM V4 • AUTO</strong><p>Prometheus Vmify → BLACKMAMER 7-VM Maximum. Optimasi IR, enkripsi fungsi standalone, dan chained encoding otomatis.</p>
   <small>Satu klik • Roblox Script / LocalScript / ModuleScript</small>
 </div>
           </div>
@@ -194,7 +195,7 @@ print(&quot;Hello World&quot;)"></textarea>
     </main>
     <footer class="footer">
       <span>© BLACKMAMER STUDIO • Lua/Luau obfuscation</span>
-      <span>Independent BLACKMAMER Native V4 VM engine • Lua 5.1, LuaJIT, Luau.</span>
+      <span>Based on Prometheus by Elias Oelschner, <a href="https://github.com/prometheus-lua/Prometheus" target="_blank" rel="noopener">https://github.com/prometheus-lua/Prometheus</a></span>
     </footer>
   </div>
 
@@ -322,8 +323,11 @@ if(data.blackmamerVM?.vmArchitecture!=='seven-independent'||
    data.blackmamerVM?.vmInterpreterCount!==7||
    data.blackmamerVM?.astStringEncryption!==true||
    data.blackmamerVM?.chainedInstructionEncoding!==true||
+   data.blackmamerVM?.doubleVM!==true||
+   data.blackmamerVM?.prometheusStage?.vm!==true||
+   data.blackmamerVM?.dualVmOptimization!==true||
    data.blackmamerVM?.fallback===true)
-   throw new Error('Backend belum menjalankan Maximum V4 dengan chained instruction encoding.');
+   throw new Error('Backend belum menjalankan Prometheus VM + BLACKMAMER Maximum V4 teroptimasi.');
 if(data.target!==target)
    throw new Error('Runtime output backend tidak sesuai pilihan.');
 result.value = data.obfuscated;
@@ -336,12 +340,13 @@ lastMode = payload.target;
         $('exprMetric').textContent = Number(m.virtualizedExpressions || 0).toLocaleString('id-ID');
         $('appliedMetric').textContent = m.applied === true ? 'Ya' : 'Tidak';
         $('engineMetric').textContent = String(m.vmInterpreterCount || 0);
+        $('dualVmMetric').textContent = m.doubleVM&&m.prometheusStage?.vm?'Aktif':'Tidak';
         $('astStringMetric').textContent = Number(m.astEncryptedStrings || 0).toLocaleString('id-ID');
         $('fallbackMetric').textContent = m.fallback === true ? 'Ya' : 'Tidak';
         $('metrics').hidden = false;
         setStatus('Selesai dalam ' + ((performance.now() - started) / 1000).toFixed(1) + ' detik.');
 
-        feedback('Maximum V4 aktif. Satu file hasil bisa digunakan di runtime '+
+        feedback('Double VM Prometheus + BLACKMAMER Maximum V4 aktif. Satu file hasil bisa digunakan di runtime '+
           (target==='LuaU'?'Roblox (Script / LocalScript / ModuleScript)':
             target)+'. Kunci standalone tetap bisa direkonstruksi; uji fungsinya di runtime tujuan.', 'warn');
       } catch (err) {

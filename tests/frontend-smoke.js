@@ -8,6 +8,7 @@ const html=fs.readFileSync(file,'utf8');
 
 assert.match(html,/BLACKMAMER STUDIO/);
 assert.match(html,/MAXIMUM V4 • AUTO/);
+assert.match(html,/Based on Prometheus by Elias Oelschner/);
 assert.match(html,/value="LuaU" selected/);
 assert.match(html,/value="Lua51"/);
 assert.match(html,/value="LuaJIT"/);
@@ -33,7 +34,7 @@ function byId(id){
  return elements.get(id);
 }
 byId('target').value='LuaU';
-let calls=[],badKeys=false,badProfile=false,wrongTarget=false,missingChain=false;
+let calls=[],badKeys=false,badProfile=false,wrongTarget=false,missingChain=false,missingDoubleVM=false;
 const fetchMock=async(url,options)=>{
  calls.push({url,options});
  if(url.includes('/api/health'))return {ok:true,json:async()=>({status:'ready'})};
@@ -46,7 +47,9 @@ const fetchMock=async(url,options)=>{
      autoFunctionEncryption:'standalone',nestedVM:true,autoEncryptedFunctions:2,
      applied:true,fallback:false,vmArchitecture:'seven-independent',
      vmInterpreterCount:7,astStringEncryption:true,astEncryptedStrings:3,
-     chainedInstructionEncoding:!missingChain},
+     chainedInstructionEncoding:!missingChain,doubleVM:!missingDoubleVM,
+     prometheusStage:{vm:!missingDoubleVM,applied:!missingDoubleVM,preset:'Vmify'},
+     dualVmOptimization:true},
    securityModel:{executionContext:request.executionContext||'unspecified',warnings:[]},
    externalKeys:badKeys?[{id:'premium',key:'a1'.repeat(32)}]:[]
  })};
@@ -77,6 +80,7 @@ compiled.runInContext(vm.createContext(sandbox));
  assert.equal(request.options.headers['X-License-Key'],undefined);
  assert.equal(byId('download').disabled,false);
  assert.equal(byId('engineMetric').textContent,'7');
+ assert.equal(byId('dualVmMetric').textContent,'Aktif');
  assert.equal(byId('astStringMetric').textContent,'3');
  assert.equal(byId('result').value,'-- BLACKMAMER V4 output\nreturn true');
 
@@ -112,8 +116,14 @@ compiled.runInContext(vm.createContext(sandbox));
  missingChain=true;
  await byId('obfuscate').click();
  assert.equal(byId('download').disabled,true);
- assert.match(byId('feedback').textContent,/chained instruction encoding/);
+ assert.match(byId('feedback').textContent,/Prometheus VM/);
  missingChain=false;
+
+ missingDoubleVM=true;
+ await byId('obfuscate').click();
+ assert.equal(byId('download').disabled,true);
+ assert.match(byId('feedback').textContent,/Prometheus VM/);
+ missingDoubleVM=false;
 
  wrongTarget=true;
  await byId('obfuscate').click();

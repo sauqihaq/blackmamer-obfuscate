@@ -1,7 +1,8 @@
 'use strict';
 /**
  * BLACKMAMER STUDIO V4-only obfuscation API.
- * Independent compiler/VM: no Prometheus code, runtime, or CLI dependency.
+ * Two-stage standalone: pinned Prometheus VM followed by BLACKMAMER Native V4.
+ * Advanced/specialized API profiles keep their existing one-stage behavior.
  * Source AST -> optional AST decoys -> control-flow transformed VM IR
  * -> native C++ sealed bytecode -> Luau or portable Lua 5.1 runtime.
  */
@@ -9,6 +10,8 @@ const express=require('express');
 const crypto=require('node:crypto');
 const cors=require('cors');
 const {compile,lex,SyntaxErrorV3}=require('./blackmamer-vm3');
+const {preprocess:prometheusPrepass,available:prometheusAvailable,
+  PrometheusStageError,PROMETHEUS_REVISION}=require('./prometheus-stage');
 const {PRESETS}=require('./v4-presets');
 const {checkRuntimePolicy,describeRuntimeSecurity,hasProtectedMarker}=require('./runtime-security-policy');
 const {available:nativeAvailable}=require('./native-sealer');
@@ -50,10 +53,12 @@ app.get('/',(_req,res)=>res.json({
 }));
 app.get('/api/health',(_req,res)=>res.json({
  status:'ready',node:true,engine:'BLACKMAMER Native V4',vm4Available:true,
- vm3Available:false,prometheusInstalled:false,defaultTarget:'LuaU',
+ vm3Available:false,prometheusInstalled:prometheusAvailable(),
+ doubleVmAvailable:prometheusAvailable(),prometheusRevision:PROMETHEUS_REVISION,
+ defaultTarget:'LuaU',
  targetSupport:['LuaU','Lua51','LuaJIT'],levels:[...LEVELS],presets:Object.keys(PRESETS),
  nativeSealerAvailable:nativeAvailable(),runtimeVaultAvailable:vaultEnabled,
- message:'Independent V4-only compiler; Lua 5.1 uses portable string/bit adapters'
+ message:'One-click standalone: Prometheus VM followed by BLACKMAMER V4; advanced API profiles remain independent'
 }));
 app.post('/api/obfuscate',licenseGate,async(req,res)=>{
  const body=req.body||{};
@@ -63,6 +68,9 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
  const oneClick=body.oneClick===true;
  const runtimeMode=body.runtimeMode||'standalone';
  const remoteRequested=runtimeMode==='server-vault';
+ // True double VM is the default for one-click standalone only.
+ // A failure in EITHER compiler fails the request; never silently downgrade.
+ const doubleVM=oneClick&&!remoteRequested;
  const level=selectedPreset?selectedPreset.protectionLevel:
    (oneClick?'Maximum':(body.protectionLevel||body.presetLevel||'Strong'));
  const requestedTarget=body.target||'LuaU';
@@ -108,9 +116,12 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
        error:'BM_ENCFUNC cannot be used in client context; standalone mode would embed its key.',
        code:'CLIENT_FUNCTION_KEYS'
      });
-   const result=compile(source,{
+   const stage=doubleVM?await prometheusPrepass(source,target):null;
+   const compiledSource=stage?stage.source:source;
+   const result=compile(compiledSource,{
      hardened:true,
      target,
+     doubleVmOptimized:doubleVM,
      protectionLevel:level,
      antiTamper:selectedPreset?selectedPreset.antiTamper:(oneClick||body.antiTamper!==false),
      antiDebug:selectedPreset?selectedPreset.antiDebug:
@@ -169,6 +180,9 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
      blackmamerVM:{
        enabled:true,applied:true,mode:'native-v4',hardened:true,
        oneClick,executionContext:policy.context,runtimeMode:remoteRequested?'server-vault':'standalone',
+       doubleVM,
+       prometheusStage:stage?stage.meta:{applied:false,vm:false},
+       dualVmOptimization:result.doubleVmOptimized===true,
        profileLabel:selectedPreset?'BLACKMAMER '+preset+' V4':
          (oneClick?'BLACKMAMER V4 Unified Protection':'Custom API'),
        protectionLevel:result.protectionLevel,
@@ -239,6 +253,7 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
    });
  }catch(error){
    const syntax=error.code==='V3_UNSUPPORTED_SYNTAX';
+   const upstream=error instanceof PrometheusStageError;
    const offset=Number.isInteger(error.offset)?error.offset:null;
    let position=null;
    if(offset!==null&&offset>=0&&offset<=source.length){
@@ -246,12 +261,18 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
      const line=before.split('\n').length;
      position={line,column:offset-before.lastIndexOf('\n'),offset};
    }
-   if(!syntax)console.error('[BLACKMAMER V4]',error.message);
-   return res.status(syntax?422:500).json({
-     error:syntax?'Native V4: '+String(error.message).slice(0,280):
-       'Native V4 gagal memproses script.',
-     code:syntax?'V4_UNSUPPORTED_SYNTAX':'V4_COMPILE_ERROR',
-     position,detail:syntax?String(error.message).slice(0,400):undefined
+   if(!syntax&&!upstream)console.error('[BLACKMAMER V4]',error.message);
+   if(upstream)console.warn('[BLACKMAMER PROMETHEUS STAGE]',error.code);
+   return res.status(upstream?
+       (error.code==='PROMETHEUS_UNAVAILABLE'?503:422):(syntax?422:500)).json({
+     error:upstream?String(error.message).slice(0,280):
+       syntax?'Double VM: Prometheus output belum kompatibel dengan parser BLACKMAMER: '+
+         String(error.message).slice(0,220):
+         'Native V4 gagal memproses script.',
+     code:upstream?error.code:
+       syntax?'DOUBLE_VM_OUTER_UNSUPPORTED_SYNTAX':'V4_COMPILE_ERROR',
+     position:upstream||syntax?null:position,
+     detail:upstream||syntax?String(error.message).slice(0,400):undefined
    });
  }
 });

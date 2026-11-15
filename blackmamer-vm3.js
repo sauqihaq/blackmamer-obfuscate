@@ -134,7 +134,11 @@ class Parser {
   params() {
     this.must('('); const names=[];
     if (!this.take(')')) {
-      do { names.push(this.name()); } while(this.take(','));
+      for(;;){
+        if(this.take('...')){names.push('...');break;}
+        names.push(this.name());
+        if(!this.take(','))break;
+      }
       this.must(')');
     }
     return names;
@@ -230,9 +234,16 @@ class Parser {
       const op=this.tok().value;this.i++;
       return {t:'compound',target:lhs,op,value:this.expr()};
     }
-    if(this.take('=')) {
-      if(!['var','index'].includes(lhs.t)) throw new SyntaxErrorV3('Assignment target must be name or index');
-      return {t:'assign',target:lhs,value:this.expr()};
+    if(this.peek()==='='||this.peek()===','){
+      const targets=[lhs];
+      while(this.take(','))targets.push(this.expr(10));
+      this.must('=');
+      for(const target of targets)if(!['var','index'].includes(target.t))
+        throw new SyntaxErrorV3('Assignment target must be name or index');
+      const values=this.exprlist();
+      if(targets.length===1&&values.length===1)
+        return {t:'assign',target:lhs,value:values[0]};
+      return {t:'assignmulti',targets,values};
     }
     if(lhs.t==='call' || lhs.t==='method') return {t:'callstmt',value:lhs};
     throw new SyntaxErrorV3('Unsupported statement at ' + this.tok().at + ': '+this.peek());
@@ -240,12 +251,12 @@ class Parser {
   table() {
     const fields=[];let ordinal=1;
     while(!this.take('}')) {
-      let key,value;
+      let key,value,implicit=false;
       if(this.take('[')){key=this.expr();this.must(']');this.must('=');value=this.expr();}
       else if(this.tok().type==='id' && this.tokens[this.i+1].value==='=') {
         key={t:'str',value:this.name()};this.must('=');value=this.expr();
-      } else {key={t:'num',value:ordinal++};value=this.expr();}
-      fields.push({key,value});
+      } else {key={t:'num',value:ordinal++};value=this.expr();implicit=true;}
+      fields.push({key,value,implicit});
       if(this.take(',')||this.take(';')) continue;
       this.must('}');break;
     }
@@ -260,6 +271,7 @@ class Parser {
       this.must('else');node={t:'ifexpr',branches,otherwise:this.expr()};
     }
     else if(this.take('nil')) node={t:'nil'};
+    else if(this.take('...')) node={t:'vararg'};
     else if(this.take('true')) node={t:'bool',value:true};
     else if(this.take('false')) node={t:'bool',value:false};
     else if(t.type==='num'){this.i++;node={t:'num',value:t.value};}
@@ -387,7 +399,7 @@ function virtualizeLexicalBindings(ast,audit){
     if(node.t==='var'){node.name=resolve(scope,node.name);return;}
     if(node.t==='fun'){
       const inner=newScope(scope);
-      node.params=node.params.map(name=>declare(inner,name));
+      node.params=node.params.map(name=>name==='...'?name:declare(inner,name));
       visitStatements(node.body,inner);return;
     }
     if(node.t==='table'){for(const f of node.fields){visitExpr(f.key,scope);visitExpr(f.value,scope);}return;}
@@ -433,6 +445,9 @@ function virtualizeLexicalBindings(ast,audit){
           break;
         case 'assign':case 'compound':
           visitExpr(node.target,scope);visitExpr(node.value,scope);break;
+        case 'assignmulti':
+          node.targets.forEach(t=>visitExpr(t,scope));
+          node.values.forEach(v=>visitExpr(v,scope));break;
         case 'callstmt':
           visitExpr(node.value,scope);break;
         case 'return':
@@ -578,7 +593,7 @@ function flattenCfgInstructions(rows,codes){
   return {rows:result,blocks:blocks.length,bridges};
 }
 
-const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','RETVOID','RETM','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV','KRET','GETRET','MOVRET','STRDEC'];
+const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','RETVOID','RETM','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV','KRET','GETRET','MOVRET','STRDEC','VARG','VARGM','CALLX','CALLMX','PUTM'];
 function compile(source, options={}) {
   if(typeof source!=='string') throw new TypeError('Expected Luau source string');
   if(Buffer.byteLength(source)>128*1024) throw new SyntaxErrorV3('V3 source limit: 128 KB');
@@ -601,8 +616,15 @@ function compile(source, options={}) {
       throw new SyntaxErrorV3('Lua 5.1/LuaJIT target cannot compile Luau-only syntax: '+t.value);
   }
   const parsed=new Parser(source).parse();
-  const astFlattenedGroups=options.hardened?flattenSimpleAstSequences(parsed,profile.astFlatten):0;
-  const injectedAstBranches=options.hardened?addDeadAstBranches(parsed,profile.deadChance):0;
+  // The inner Prometheus VM already contributes deep control-flow complexity.
+  // Avoid duplicating the heaviest outer decoy work: preserve actual V4 VM
+  // virtualization, optimizer, strong encryption and seven engines.
+  const dualOptimized=options.doubleVmOptimized===true&&
+    options.hardened===true&&profileName==='Maximum';
+  const astFlattenedGroups=options.hardened?flattenSimpleAstSequences(parsed,
+    dualOptimized?profile.astFlatten*0.35:profile.astFlatten):0;
+  const injectedAstBranches=options.hardened?addDeadAstBranches(parsed,
+    dualOptimized?profile.deadChance*0.3:profile.deadChance):0;
   const bindingAudit=options.auditBindings===true?[]:null;
   const virtualizedLexicalBindings=options.hardened
     ? virtualizeLexicalBindings(parsed,bindingAudit) : 0;
@@ -692,26 +714,47 @@ function compile(source, options={}) {
     // function. Dataflow remains correct because all IR consumers use the
     // returned physical ID rather than assuming sequential register numbers.
     const registerPool=options.hardened?
-      Array.from({length:2048},(_,i)=>i+1):null;
+      Array.from({length:16384},(_,i)=>i+1):null;
     if(registerPool)for(let i=registerPool.length-1;i>0;i--){
       const j=rand(i+1);[registerPool[i],registerPool[j]]=[registerPool[j],registerPool[i]];
     }
     const reg=()=>{
-      if(++builder.regs>2048)throw new SyntaxErrorV3('V3 register limit exceeded');
+      if(++builder.regs>16384)throw new SyntaxErrorV3('V3 register limit exceeded');
       const value=registerPool?registerPool[builder.regs-1]:builder.regs;
       if(builder.regAudit)builder.regAudit.push(value);
       return value;
     };
     const emit=(op,a=0,b=0,c=0)=>{builder.ins.push([codes[op],a,b,c]);return builder.ins.length;};
     const scope=(body)=>{emit('ENTER');builder.depth++;statements(body);builder.depth--;emit('EXIT');};
+    // A source-level macro call constructs one function, not a real Lua
+    // vararg-returning function call. Do not feed it to CALLX/CALLMX.
+    const canExpand=n=>n&&(
+      n.t==='vararg'||n.t==='method'||(
+        n.t==='call'&&!(n.fn?.t==='var'&&
+          ['BM_NO_VIRTUALIZE','BM_ENCFUNC'].includes(n.fn.name))
+      )
+    );
     const expr=(n,multiple=false)=>{
       if(['nil','bool','str','num'].includes(n.t)){const dst=reg();emit('K',dst,key(n.t==='nil'?null:n.value));return dst;}
       if(n.t==='aststring'){
         const dst=reg();emit('STRDEC',dst,key(n.hex),key(n.seed));return dst;
       }
       if(n.t==='var'){const dst=reg();emit('GET',dst,key(n.name));return dst;}
+      if(n.t==='vararg'){
+        if(!params.includes('...'))throw new SyntaxErrorV3('vararg outside variadic function');
+        const dst=reg();emit(multiple?'VARGM':'VARG',dst);return dst;
+      }
       if(n.t==='index'){const obj=expr(n.obj),k=expr(n.key),dst=reg();emit('INDEX',dst,obj,k);return dst;}
-      if(n.t==='table'){const dst=reg();emit('TABLE',dst);for(const f of n.fields){const a=expr(f.key),b=expr(f.value);emit('PUT',dst,a,b);}return dst;}
+      if(n.t==='table'){
+        const dst=reg();emit('TABLE',dst);
+        for(let i=0;i<n.fields.length;i++){
+          const f=n.fields[i],expand=f.implicit&&i===n.fields.length-1&&
+            canExpand(f.value);
+          if(expand)emit('PUTM',dst,expr(f.value,true),f.key.value);
+          else{const a=expr(f.key),b=expr(f.value);emit('PUT',dst,a,b);}
+        }
+        return dst;
+      }
       if(n.t==='fun'){const fnid=makeBuilder(n.body,n.params,protectedId),dst=reg();emit('CLOSURE',dst,fnid);return dst;}
       if(n.t==='call'&&n.fn.t==='var'&&n.fn.name==='BM_NO_VIRTUALIZE'){
         if(!options.hardened)throw new SyntaxErrorV3('BM_NO_VIRTUALIZE requires NativeV4');
@@ -750,9 +793,13 @@ function compile(source, options={}) {
           const obj=expr(n.obj),k=expr({t:'str',value:n.name});
           fn=reg();emit('INDEX',fn,obj,k);regs.push(obj);
         } else fn=expr(n.fn);
-        for(const arg of n.args)regs.push(expr(arg));
-        const idx=argSets.push(regs);const dst=reg();
-        emit(multiple?'CALLM':'CALL',dst,fn,idx);return dst;
+        const tail=n.args[n.args.length-1];
+        const expand=Boolean(canExpand(tail));
+        for(let i=0;i<n.args.length;i++)
+          regs.push(expr(n.args[i],expand&&i===n.args.length-1));
+        const idx=argSets.push(regs),dst=reg();
+        emit(expand?(multiple?'CALLMX':'CALLX'):(multiple?'CALLM':'CALL'),dst,fn,idx);
+        return dst;
       }
       if(n.t==='unary'){
         const from=expr(n.x),dst=reg();
@@ -790,6 +837,21 @@ function compile(source, options={}) {
       if(target.t==='var')emit('SET',key(target.name),valueReg);
       else{const objectReg=expr(target.obj),indexReg=expr(target.key);emit('PUT',objectReg,indexReg,valueReg);}
     };
+    const expandedRhs=values=>{
+      const last=values.length-1;
+      const expand=last>=0&&canExpand(values[last]);
+      const rhs=values.map((v,i)=>expr(v,expand&&i===last));
+      return j=>{
+        let value;
+        if(j<last)value=rhs[j];
+        else if(last>=0){
+          if(expand){value=reg();emit('MVGET',value,rhs[last],j-last+1);}
+          else if(j===last)value=rhs[last];
+        }
+        if(!value){value=reg();emit('K',value,key(null));}
+        return value;
+      };
+    };
     const compound=(n)=>{
       const map={'+=':'ADD','-=':'SUB','*=':'MUL','/=':'DIV',
         '//=':'IDIV','%=':'MOD','^=':'POW','..=':'CAT'};
@@ -814,22 +876,9 @@ function compile(source, options={}) {
           case 'localmulti':{
             // Evaluate every RHS before declaring any local. In Lua/Luau only
             // the final call may expand into extra return values.
-            const values=n.values;
-            const rhs=values.map((v,i)=>expr(v,i===values.length-1&&
-              (v.t==='call'||v.t==='method')));
-            const last=values.length-1;
-            for(let j=0;j<n.names.length;j++){
-              let value;
-              if(j<last)value=rhs[j];
-              else if(last>=0){
-                const tail=values[last];
-                if(tail.t==='call'||tail.t==='method'){
-                  value=reg();emit('MVGET',value,rhs[last],j-last+1);
-                }else if(j===last)value=rhs[last];
-              }
-              if(!value){value=reg();emit('K',value,key(null));}
-              emit('DECL',key(n.names[j]),value);
-            }
+            const getValue=expandedRhs(n.values);
+            for(let j=0;j<n.names.length;j++)
+              emit('DECL',key(n.names[j]),getValue(j));
             break;
           }
           case 'localfun':{
@@ -837,6 +886,19 @@ function compile(source, options={}) {
             const r=expr(n.fun);emit('SET',key(n.name),r);break;
           }
           case 'assign':write(n.target,n.value);break;
+          case 'assignmulti':{
+            const targets=n.targets.map(target=>target.t==='var'
+              ?{name:key(target.name)}:
+                {obj:expr(target.obj),idx:expr(target.key)});
+            const getValue=expandedRhs(n.values);
+            const valueRegs=targets.map((_,j)=>getValue(j));
+            for(let j=0;j<targets.length;j++){
+              const t=targets[j],value=valueRegs[j];
+              if(t.name!==undefined)emit('SET',t.name,value);
+              else emit('PUT',t.obj,t.idx,value);
+            }
+            break;
+          }
           case 'compound':compound(n);break;
           case 'callstmt':expr(n.value);break;
           case 'do':scope(n.body);break;
@@ -856,7 +918,7 @@ function compile(source, options={}) {
           case 'forin':{
             if(!n.iterators.length)throw new SyntaxErrorV3('Missing generic for iterator');
             let iterReg,stateReg,controlReg;
-            if(n.iterators.length===1 && ['call','method'].includes(n.iterators[0].t)){
+            if(n.iterators.length===1 && canExpand(n.iterators[0])){
               const values=expr(n.iterators[0],true);
               iterReg=reg();stateReg=reg();controlReg=reg();
               emit('MVGET',iterReg,values,1);
@@ -957,7 +1019,7 @@ function compile(source, options={}) {
             const values=n.values;
             if(values.length===0){emit('RETVOID');break;}
             const tail=values[values.length-1];
-            const expand=['call','method'].includes(tail.t);
+            const expand=canExpand(tail);
             if(values.length===1&&!expand){
               emit('RET',expr(tail));break;
             }
@@ -976,13 +1038,30 @@ function compile(source, options={}) {
     funcs[id-1]={p:params.map(key),ins:builder.ins,protectedId};
     return id;
   };
-  const initialEntry=makeBuilder(parsed,[]);
+  // Lua chunks are variadic. Prometheus can forward the host's chunk args
+  // through a top-level expression: return (function(...) ... end)(...).
+  // Preserve regular entry prototype shape when the chunk never uses "...".
+  const hasChunkVarargs=node=>{
+    if(!node||typeof node!=='object')return false;
+    if(Array.isArray(node))return node.some(hasChunkVarargs);
+    if(node.t==='fun')return false;
+    if(node.t==='vararg')return true;
+    return Object.values(node).some(hasChunkVarargs);
+  };
+  const rootVarargs=hasChunkVarargs(parsed);
+  const initialEntry=makeBuilder(parsed,rootVarargs?['...']:[]);
   let autoFunctionCount=0;
   if(autoMode!=='off'){
     for(let i=0;i<funcs.length;i++){
       const fn=funcs[i];
       if(fn.protectedId)continue; // explicit BM_ENCFUNC always retains its own external key
       if(autoMode==='external'&&i+1===initialEntry)continue;
+      // Prometheus Vmify expands a tiny program into a large interpreter.
+      // Encrypt the entry and a few small control prototypes; leave large
+      // hot interpreter functions under VM palette+chain+AST protection so
+      // Lua51 does not run expensive pure-Lua HMAC on every 32-byte block.
+      if(dualOptimized&&autoMode==='standalone'&&i+1!==initialEntry&&
+         (fn.ins.length>100||autoFunctionCount>=3))continue;
       fn.protectedId=autoId;
       autoFunctionCount++;
     }
@@ -1070,7 +1149,7 @@ function compile(source, options={}) {
   const optimizerEnabled=options.hardened===true&&profileName==='Maximum'&&
     options.irOptimizer!==false;
   let irOptimizerRemoved=0,deadCodeInstructions=0,deadCodeBlocks=0;
-  let vmCoreInstructions=0,remainingDeadBudget=8192;
+  let vmCoreInstructions=0,remainingDeadBudget=dualOptimized?512:8192;
   for(const fn of funcs){
     if(optimizerEnabled){
       const optimized=optimizeVmIr(fn.ins,codes);
@@ -1080,7 +1159,7 @@ function compile(source, options={}) {
     vmCoreInstructions+=fn.ins.length;
     if(optimizerEnabled&&remainingDeadBudget>0){
       const padded=injectVmDeadCode(fn.ins,codes,consts.length,{
-        density:2.7,budget:remainingDeadBudget
+        density:dualOptimized?0.5:2.7,budget:remainingDeadBudget
       });
       fn.ins=padded.rows;
       deadCodeInstructions+=padded.added;
@@ -1539,16 +1618,27 @@ function compile(source, options={}) {
   ]:[];
 
   const lua51BitOps=lua51?[
-    '  -- Standard Lua 5.1 has no bit32. Portable integer-bit fallback.',
+    '  -- Nibble-table bit32 adapter: 8 lookups per 32-bit operation rather',
+    '  -- than the old 32-iteration per-bit interpreter. LuaJIT uses native bit.',
+    '  local bmNibble={{},{},{}}',
+    '  for x=0,15 do for y=0,15 do',
+    '    local a=x;local b=y;local xv=0;local av=0;local ov=0;local place=1',
+    '    for k=1,4 do',
+    '      local aa=a%2;local bb=b%2',
+    '      if aa~=bb then xv=xv+place end',
+    '      if aa==1 and bb==1 then av=av+place end',
+    '      if aa==1 or bb==1 then ov=ov+place end',
+    '      a=math.floor(a/2);b=math.floor(b/2);place=place*2',
+    '    end',
+    '    local idx=x*16+y;bmNibble[1][idx]=xv;bmNibble[2][idx]=av;bmNibble[3][idx]=ov',
+    '  end end',
     '  local function bmBitPair(a,b,kind)',
+    '    local tbl=bmNibble[kind];local result=0;local place=1',
     '    a=a%4294967296;b=b%4294967296',
-    '    local result=0;local bitvalue=1',
-    '    for i=1,32 do',
-    '      local x=a%2;local y=b%2',
-    '      local take=(kind==1 and x~=y) or (kind==2 and x==1 and y==1) or',
-    '        (kind==3 and (x==1 or y==1))',
-    '      if take then result=result+bitvalue end',
-    '      a=math.floor(a/2);b=math.floor(b/2);bitvalue=bitvalue*2',
+    '    for j=1,8 do',
+    '      local nib=tbl[(a%16)*16+b%16]',
+    '      result=result+nib*place',
+    '      a=math.floor(a/16);b=math.floor(b/16);place=place*16',
     '    end',
     '    return result',
     '  end',
@@ -1574,7 +1664,18 @@ function compile(source, options={}) {
     '    n=n%32;a=a%4294967296',
     '    if n==0 then return a end',
     '    return (math.floor(a/2^n)+(a%2^n)*2^(32-n))%4294967296',
-    '  end'
+    '  end',
+    ...(target==='LuaJIT'?[
+      '  local ok,bmNativeBit=pcall(require,"bit")',
+      '  if ok and bmNativeBit and bmNativeBit.bxor then',
+      '    bit32.bxor=function(...)return bmNativeBit.bxor(...)%4294967296 end',
+      '    bit32.band=function(...)return bmNativeBit.band(...)%4294967296 end',
+      '    bit32.bor=function(...)return bmNativeBit.bor(...)%4294967296 end',
+      '    bit32.bnot=function(a)return bmNativeBit.bnot(a)%4294967296 end',
+      '    bit32.rshift=function(a,n)return bmNativeBit.rshift(a,n)%4294967296 end',
+      '    bit32.rrotate=function(a,n)return bmNativeBit.ror(a,n)%4294967296 end',
+      '  end'
+    ]:[])
   ]:[];
   const lua51Buffers=lua51?[
     '  local bufFrom=function(bytes)return bytes end',
@@ -1999,7 +2100,12 @@ function compile(source, options={}) {
     '    local columns=parseStage(fid,spec)',
     '    local opCol,aCol,bCol,cCol=columns[1],columns[2],columns[3],columns[4]',
     '    local env={vars={},parent=captured}',
-    '    for j,k in ipairs(spec[1])do local v=passed[j];env.vars[K(k)]=v==nil and NIL or v end',
+    '    local fixed=#spec[1];local varargs=nativePack()',
+    '    if fixed>0 and K(spec[1][fixed])=="..." then',
+    '      varargs=nativePack(nativeUnpack(passed,fixed,passed.n or #passed))',
+    '      fixed=fixed-1',
+    '    end',
+    '    for j=1,fixed do local v=passed[j];env.vars[K(spec[1][j])]=v==nil and NIL or v end',
     '    local R={};local pc=1;local ticks=0;local length=spec[5]',
     // Guard scales with each sealed function's instruction count, capped
     // to bound the gap between runtime hook checks even for large functions.
@@ -2045,11 +2151,28 @@ function compile(source, options={}) {
     '      elseif op==O.TABLE then R[a]={}',
     '      elseif op==O.INDEX then R[a]=R[b][R[c]]',
     '      elseif op==O.PUT then R[a][R[b]]=R[c]',
+    '      elseif op==O.PUTM then local values=R[b];for j=1,values.n do R[a][c+j-1]=values[j]end',
     '      elseif op==O.MOV then R[a]=R[b]',
+    '      elseif op==O.VARG then R[a]=varargs[1]',
+    '      elseif op==O.VARGM then R[a]=varargs',
     '      elseif op==O.CALL then local args=A[c] or {};local vals={};for j,v in ipairs(args)do vals[j]=R[v]end',
     '        R[a]=R[b](nativeUnpack(vals,1,#args))',
     '      elseif op==O.CALLM then local args=A[c] or {};local vals={};for j,v in ipairs(args)do vals[j]=R[v]end',
     '        R[a]=nativePack(R[b](nativeUnpack(vals,1,#args)))',
+    '      elseif op==O.CALLX then',
+    '        local args=A[c] or {};local vals={};local count=0',
+    '        for j,v in ipairs(args)do',
+    '          if j==#args then local tail=R[v];for k=1,tail.n do count=count+1;vals[count]=tail[k]end',
+    '          else count=count+1;vals[count]=R[v]end',
+    '        end',
+    '        R[a]=R[b](nativeUnpack(vals,1,count))',
+    '      elseif op==O.CALLMX then',
+    '        local args=A[c] or {};local vals={};local count=0',
+    '        for j,v in ipairs(args)do',
+    '          if j==#args then local tail=R[v];for k=1,tail.n do count=count+1;vals[count]=tail[k]end',
+    '          else count=count+1;vals[count]=R[v]end',
+    '        end',
+    '        R[a]=nativePack(R[b](nativeUnpack(vals,1,count)))',
     '      elseif op==O.MVGET then R[a]=R[b][c]',
     '      elseif op==O.MVPACK then local list=A[b] or {};local vals={};for j,v in ipairs(list)do vals[j]=R[v]end',
     '        R[a]=vals',
@@ -2070,9 +2193,9 @@ function compile(source, options={}) {
     '      elseif op==O.CLOSURE then local capture=env',
     ...(nativeFunctions.length?[
       '        if b<0 then R[a]=makeNativeFunction(-b,capture)',
-      '        else R[a]=function(...)return exec(b,{...},capture)end end'
+      '        else R[a]=function(...)return exec(b,nativePack(...),capture)end end'
     ]:[
-      '        R[a]=function(...)return exec(b,{...},capture)end'
+      '        R[a]=function(...)return exec(b,nativePack(...),capture)end'
     ]),
     '      elseif op==O.RET then return a==0 and nil or R[a]',
     '      elseif op==O.RETVOID then return',
@@ -2113,7 +2236,7 @@ function compile(source, options={}) {
     '      pc=nextpc',
     '    end',
     '  end',
-    '  return exec('+entry+',{},nil)',
+    '  return exec('+entry+','+(rootVarargs?'nativePack(...)':'{}')+',nil)',
     'end)(...)'
   ];
   // Maximum multi-engine architecture installs seven complete, distinct
@@ -2371,6 +2494,8 @@ function compile(source, options={}) {
     }:{}),
     fusedInstructions:fusionTotal,superInstructionKinds:fusionCounts,
     vmInstructions:funcs.reduce((n,f)=>n+f.ins.length,0),
+    doubleVmOptimized:dualOptimized,
+    selectiveFunctionEncryption:dualOptimized&&autoMode==='standalone',
     optimizerEnabled,irOptimizerRemoved,vmCoreInstructions,
     deadCodeInstructions,deadCodeBlocks,
     deadCodeStrategy:optimizerEnabled?'sealed-cfg-islands':'disabled',

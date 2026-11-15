@@ -6,6 +6,8 @@ on:
       - 'blackmamer-vm3.js'
       - 'v4-presets.js'
       - 'runtime-security-policy.js'
+      - 'prometheus-stage.js'
+      - 'tests/double-vm-runtime.js'
       - 'tests/runtime-security-policy.js'
       - 'cli.js'
       - 'tests/vm4-presets.js'
@@ -39,6 +41,8 @@ on:
       - 'tests/vm4-external-luau.js'
       - 'server.js'
       - 'runtime-security-policy.js'
+      - 'prometheus-stage.js'
+      - 'tests/double-vm-runtime.js'
       - 'tests/runtime-security-policy.js'
       - 'Dockerfile'
       - 'netlify-frontend/**'
@@ -62,6 +66,8 @@ on:
       - 'tests/vm4-external-luau.js'
       - 'server.js'
       - 'runtime-security-policy.js'
+      - 'prometheus-stage.js'
+      - 'tests/double-vm-runtime.js'
       - 'tests/runtime-security-policy.js'
       - 'Dockerfile'
       - 'netlify-frontend/**'
@@ -92,8 +98,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Install pinned Prometheus VM for API tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          mkdir -p vendor/prometheus
+          git -C vendor/prometheus init -q
+          git -C vendor/prometheus remote add origin https://github.com/prometheus-lua/Prometheus.git
+          git -C vendor/prometheus fetch -q --depth 1 origin a98c50165f2a53f6d765a82eee60dfea53803445
+          git -C vendor/prometheus checkout -q --detach FETCH_HEAD
+          test "$(git -C vendor/prometheus rev-parse HEAD)" = "a98c50165f2a53f6d765a82eee60dfea53803445"
       - name: Verify compiler and frontend syntax
         run: |
+          node --check prometheus-stage.js
           node --check blackmamer-vm3.js
           node --check vm4-chained-cells.js
           node tests/vm4-chained-cells.js
@@ -121,6 +138,7 @@ jobs:
           node tests/vm4-binding-hardening.js
           node --check server.js
           node tests/frontend-smoke.js
+          node tests/double-vm-runtime.js
       - name: Build native C++17 sealer (warnings treated as errors)
         run: g++ -O2 -std=c++17 -Wall -Wextra -Werror native/sealer.cpp -o native/bm-sealer
       - name: Compare C++ with JavaScript fallback across randomized batches
@@ -149,12 +167,21 @@ jobs:
           git clone --depth 1 https://github.com/luau-lang/luau.git luau-src
           cmake -S luau-src -B luau-build -DCMAKE_BUILD_TYPE=Release -DLUAU_BUILD_TESTS=OFF
           cmake --build luau-build --target Luau.Repl.CLI --parallel 2
+      - name: Install pinned Prometheus VM for Luau double-VM integration
+        run: |
+          mkdir -p vendor/prometheus
+          git -C vendor/prometheus init -q
+          git -C vendor/prometheus remote add origin https://github.com/prometheus-lua/Prometheus.git
+          git -C vendor/prometheus fetch -q --depth 1 origin a98c50165f2a53f6d765a82eee60dfea53803445
+          git -C vendor/prometheus checkout -q --detach FETCH_HEAD
+          test "$(git -C vendor/prometheus rev-parse HEAD)" = "a98c50165f2a53f6d765a82eee60dfea53803445"
       - name: Build native sealer for official Luau runtime tests
         run: g++ -O2 -std=c++17 -Wall -Wextra -Werror native/sealer.cpp -o native/bm-sealer
       - name: Run hardened V4 execution and tamper regression
         env:
           LUAU_BIN: ./luau-build/luau
         run: |
+          node tests/double-vm-runtime.js
           node tests/vm4-luau.js
           node tests/vm4-external-luau.js
           node tests/vm4-remote-luau.js

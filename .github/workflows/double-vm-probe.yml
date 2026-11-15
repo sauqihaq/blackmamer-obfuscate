@@ -43,6 +43,7 @@ jobs:
       - name: Real all-feature Lua 5.1 and LuaJIT parity
         env:
           FULL_TEST_LUAJIT: '1'
+          BLACKMAMER_FULL_DIAGNOSTIC: '1'
         run: node tests/prometheus-full-runtime.js
       - name: Real Lua 5.1 and LuaJIT double-VM execution parity
         env:

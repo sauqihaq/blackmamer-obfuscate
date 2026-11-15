@@ -234,6 +234,7 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
        robloxApiGuard:result.robloxApiGuard===true,
        portableApiIntegrityGuard:result.portableApiIntegrityGuard===true,
        protectedApiBoundary:result.protectedApiBoundary===true,
+       environmentPreflight:result.environmentPreflight===true,
        metamethodTostringTrap:result.metamethodTostringTrap,
        metamethodTrapPeriodic:result.metamethodTrapPeriodic,
        autoFunctionEncryption:result.autoFunctionEncryption,

@@ -167,7 +167,7 @@ print(&quot;Hello World&quot;)"></textarea>
           <div class="field">
             <label>Protection engine</label><div class="presets"><strong>BLACKMAMER Native V4</strong> / Custom VM</div>
 <input type="hidden" id="preset" value="NativeV4">
-<div class="presets" style="border-color:#cb5470;background:linear-gradient(130deg,#381725,#111e2a)">
+<div class="presets" id="profileSummary" style="border-color:#cb5470;background:linear-gradient(130deg,#381725,#111e2a)">
   <strong>DUAL VM • MAXIMUM V4 • AUTO</strong><p>Prometheus FULL 11 fitur → BLACKMAMER 7-VM Maximum. Enkripsi, CFF, anti-tamper, dan chained encoding otomatis.</p>
   <small>Satu klik • Roblox Script / LocalScript / ModuleScript</small>
 </div>
@@ -178,10 +178,16 @@ print(&quot;Hello World&quot;)"></textarea>
             <div class="field">
               <label for="target">Runtime output</label>
               <select id="target"><option value="LuaU" selected>Roblox / Luau (default)</option>
-                <option value="Lua51">Lua 5.1 vanilla</option>
+                <option value="LuaU-server">Roblox Server — Backend Key Vault</option>
+                 <option value="Lua51">Lua 5.1 vanilla</option>
                 <option value="LuaJIT">LuaJIT 2.x</option>
               </select>
               <p class="help">Lua 5.1 dan LuaJIT punya output sendiri; satu file Luau Roblox tidak bisa dijamin jalan di semua interpreter.</p>
+               <div id="serverKeyPanel" hidden>
+                 <label for="vaultLicense">Lisensi BLACKMAMER untuk Server Vault</label>
+                 <input type="password" id="vaultLicense" autocomplete="off" spellcheck="false" placeholder="Masukkan lisensi aktif">
+                 <p class="help">Key disimpan terenkripsi di backend. Hanya Script/ModuleScript server. Membutuhkan HTTP Requests dan Roblox Secrets Store. Mode server ini belum memakai Prometheus FULL 11 fitur.</p>
+               </div>
             </div>
           </details>
           <hr class="rule">
@@ -279,7 +285,14 @@ print(&quot;Hello World&quot;)"></textarea>
       if (bytes(script) > MAX_SCRIPT_BYTES) {
         feedback('Ukuran script maksimal 1 MB untuk backend saat ini.', 'bad'); return;
       }
-      const target=$('target').value;
+      const runtimeChoice=$('target').value;
+      const serverVault=runtimeChoice==='LuaU-server';
+      const target=serverVault?'LuaU':runtimeChoice;
+      const vaultLicense=serverVault?$('vaultLicense').value.trim():'';
+      if(serverVault&&!vaultLicense){
+        feedback('Server Vault membutuhkan lisensi aktif pada opsi runtime.', 'bad');
+        return;
+      }
       const payload = {
         script,
         preset: 'NativeV4',
@@ -287,8 +300,8 @@ print(&quot;Hello World&quot;)"></textarea>
         blackmamerVM: true,
         vmMode: 'native-v4',
         oneClick: true,
-        runtimeMode: 'standalone',
-        ...(target!=='LuaU'?{executionContext:'portable'}:{})
+        runtimeMode:serverVault?'server-vault':'standalone',
+        executionContext:serverVault?'server':target==='LuaU'?'client':'portable'
       };
       setBusy(true);
       setStatus('Menghubungkan ke backend dan memproses script...');
@@ -300,7 +313,8 @@ print(&quot;Hello World&quot;)"></textarea>
         try {
           response = await fetch(API_BASE + '/api/obfuscate', {
             method: 'POST',
-            headers: {'Content-Type':'application/json'},
+            headers: {'Content-Type':'application/json',
+              ...(serverVault?{'X-License-Key':vaultLicense}:{})},
             body: JSON.stringify(payload),
             signal: controller.signal
           });
@@ -316,10 +330,20 @@ print(&quot;Hello World&quot;)"></textarea>
 
         if(Array.isArray(data.externalKeys)&&data.externalKeys.length)
   throw new Error('Mode satu-klik tidak menerima output yang membutuhkan provider key tambahan.');
-if(data.blackmamerVM?.protectionLevel!=='Maximum'||
-   data.blackmamerVM?.autoFunctionEncryption!=='standalone')
-   throw new Error('Backend belum mengaktifkan proteksi Maximum V4 standalone.');
-if(data.blackmamerVM?.vmArchitecture!=='seven-independent'||
+if(data.blackmamerVM?.protectionLevel!=='Maximum')
+   throw new Error('Backend belum menjalankan Maximum V4.');
+if(serverVault){
+  if(data.blackmamerVM?.autoFunctionEncryption!=='external-full'||
+    data.blackmamerVM?.runtimeMode!=='server-vault'||
+    data.runtimeKeyVault?.enabled!==true||
+    data.securityModel?.keyLocation!=='authenticated-server-vault'||
+    data.blackmamerVM?.robloxApiGuard!==true||
+    data.blackmamerVM?.fallback===true)
+     throw new Error('Backend-key Vault tidak diaktifkan atau output masih mengandung kunci.');
+}else if(data.blackmamerVM?.autoFunctionEncryption!=='standalone'){
+  throw new Error('Backend belum menjalankan Maximum V4 standalone.');
+}
+if(!serverVault&&(data.blackmamerVM?.vmArchitecture!=='seven-independent'||
    data.blackmamerVM?.vmInterpreterCount!==7||
    data.blackmamerVM?.astStringEncryption!==true||
    data.blackmamerVM?.chainedInstructionEncoding!==true||
@@ -330,8 +354,10 @@ if(data.blackmamerVM?.vmArchitecture!=='seven-independent'||
    data.blackmamerVM?.prometheusStage?.steps?.length!==11||
    data.blackmamerVM?.fullPrometheusProtection!==true||
    data.blackmamerVM?.dualVmOptimization!==true||
-   data.blackmamerVM?.fallback===true)
+   data.blackmamerVM?.fallback===true))
    throw new Error('Backend belum menjalankan seluruh 11 fitur Prometheus + BLACKMAMER Maximum V4.');
+if(target==='LuaU'&&data.blackmamerVM?.robloxApiGuard!==true)
+   throw new Error('Perlindungan API anti-hook Roblox belum aktif di backend.');
 if(data.target!==target)
    throw new Error('Runtime output backend tidak sesuai pilihan.');
 result.value = data.obfuscated;
@@ -350,9 +376,11 @@ lastMode = payload.target;
         $('metrics').hidden = false;
         setStatus('Selesai dalam ' + ((performance.now() - started) / 1000).toFixed(1) + ' detik.');
 
-        feedback('Prometheus Full (11 fitur) + BLACKMAMER Maximum V4 aktif. Satu file hasil bisa digunakan di runtime '+
-          (target==='LuaU'?'Roblox (Script / LocalScript / ModuleScript)':
-            target)+'. Kunci standalone tetap bisa direkonstruksi; uji fungsinya di runtime tujuan.', 'warn');
+        feedback(serverVault?
+  'Server Vault: key tersimpan di backend, hanya Script/ModuleScript Roblox server. Mode ini tidak memakai Prometheus FULL 11 fitur; aktifkan Secrets Store dan HTTP.':
+  'Prometheus Full 11 fitur + BLACKMAMER Maximum V4. Output untuk '+
+    (target==='LuaU'?'Roblox (Script / LocalScript / ModuleScript)':target)+
+    '. Anti-hook Roblox aktif di Luau; kunci standalone tetap dapat direkonstruksi.', 'warn');
       } catch (err) {
         clearOutput();
         const message = err.name === 'AbortError'
@@ -365,7 +393,17 @@ lastMode = payload.target;
 
     $('obfuscate').addEventListener('click', obfuscate);
     $('healthButton').addEventListener('click', healthCheck);
-    $('target').addEventListener('change',clearOutput);
+    $('target').addEventListener('change',()=>{
+  clearOutput();
+  const isVault=$('target').value==='LuaU-server';
+  $('serverKeyPanel').hidden=!isVault;
+  $('profileSummary').textContent=isVault?
+    'BACKEND KEY VAULT • MAXIMUM V4 • ANTI-HOOK (server only; tanpa Prometheus FULL)':
+    'DUAL VM • MAXIMUM V4 • AUTO • Prometheus FULL 11 fitur → BLACKMAMER 7-VM Maximum.';
+  $('info').textContent=isVault?
+    'Kunci disimpan di backend, file hanya untuk Roblox server. Perlu lisensi aktif, Secrets Store, dan HTTP Requests.':
+    'Standalone: material dekripsi masih bisa direkonstruksi. Jangan taruh secret di LocalScript.';
+});
 source.addEventListener('input', () => { updateStats(); clearOutput(); });
     $('upload').addEventListener('click', () => $('file').click());
     $('file').addEventListener('change', async event => {

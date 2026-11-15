@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'blackmamer-vm3.js'
+      - 'tests/vm4-roblox-host-guard.js'
       - 'prometheus-stage.js'
       - 'prometheus-maximal.lua'
       - 'prometheus-compat-patch.js'
@@ -196,6 +197,7 @@ jobs:
           node tests/prometheus-full-runtime.js
           node tests/vm4-luau.js
           node tests/vm4-external-luau.js
+          node tests/vm4-roblox-host-guard.js
           node tests/vm4-remote-luau.js
           node tests/vm4-lua51.js
           node tests/vm4-no-virtualize.js

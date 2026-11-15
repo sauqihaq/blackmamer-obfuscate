@@ -1573,6 +1573,10 @@ function compile(source, options={}) {
   // Private __tostring sentinel augments runtime integrity checks. It never
   // alters the caller's metatables. Embedded challenge is not a secret.
   const metamethodTrap=options.hardened===true&&options.antiTamper!==false;
+  // Roblox-only best-effort detection. The host may still be instrumented
+  // before startup; no client-side API attestation can be cryptographic.
+  const robloxApiGuard=target==='LuaU'&&options.hardened===true&&
+    options.robloxApiGuard===true;
   const trapChallenge=crypto.randomBytes(12).toString('hex');
   const runtimeTweak=options.hardened
     ? '((spec[3]*97+(pc*(pc%131))*31)%modulus)' : '0';
@@ -1769,6 +1773,28 @@ function compile(source, options={}) {
     '  local nativePack=table.pack or function(...)return {n=select("#",...),...}end',
     '  local nativeType=type; local nativePcall=pcall; local nativeError=error',
     '  local dbg=debug; local globals=(getfenv and getfenv()) or _ENV or _G',
+    ...(robloxApiGuard?[
+      '  local _bmGame=game;local _bmScript=script;local _bmTypeof=typeof',
+      '  local _bmTask=task;local _bmTaskWait=_bmTask and _bmTask.wait',
+      '  local function _bmHostGuard()',
+      '    if nativeType(globals)~="table" or nativeType(_bmTypeof)~="function" then',
+      '      nativeError("BLACKMAMER Roblox environment is missing")end',
+      '    if nativeType(game)~="userdata" or nativeType(script)~="userdata" then',
+      '      nativeError("BLACKMAMER Roblox Instance proxy detected")end',
+      '    if _bmTypeof~=typeof or _bmGame~=game or _bmScript~=script then',
+      '      nativeError("BLACKMAMER Roblox host globals changed")end',
+      '    if _bmTypeof(_bmGame)~="Instance" or _bmTypeof(_bmScript)~="Instance" then',
+      '      nativeError("BLACKMAMER Roblox host types invalid")end',
+      '    if nativeType(task)~="table" or task~=_bmTask or',
+      '      nativeType(_bmTaskWait)~="function" or task.wait~=_bmTaskWait then',
+      '      nativeError("BLACKMAMER Roblox task API changed")end',
+      '    local okG,validG=nativePcall(function()return _bmGame:IsA("DataModel")end)',
+      '    local okS,validS=nativePcall(function()return _bmScript:IsA("LuaSourceContainer")end)',
+      '    if not okG or validG~=true or not okS or validS~=true then',
+      '      nativeError("BLACKMAMER Roblox instance identity invalid")end',
+      '  end',
+      '  _bmHostGuard()'
+    ]:[]),
     ...(nativeFunctions.length?[
       '  local nativeFactories='+nativeFactoriesLua,
       '  local nativeAliasMaps='+nativeAliasesLua
@@ -1865,7 +1891,8 @@ function compile(source, options={}) {
     ...(options.hardened&&options.antiDebug!==false?[
       '  -- Runtime sanity checks are best-effort; no claim of universal debugger detection.',
       '  local function runtimeGuard()',
-      '    if nativeByte~=string.byte or nativeChar~=string.char or',
+      ...(robloxApiGuard?['    _bmHostGuard()']:[]),
+    '    if nativeByte~=string.byte or nativeChar~=string.char or',
       '      nativeConcat~=table.concat or nativeType~=type or bxor~=nativeBitXor or bit32.bxor~=nativeBitXor then',
       '      nativeError("BLACKMAMER V4 runtime API modified")end',
       '    if nativeByte("AB",2)~=66 or nativeChar(66,77)~="BM" or',
@@ -2133,11 +2160,18 @@ function compile(source, options={}) {
     '    local function get(n)',
     '      local frame=env',
     '      while frame do local v=rawget(frame.vars,n);if v~=nil then return nonil(v)end;frame=frame.parent end',
+    ...(robloxApiGuard?[
+      '      if n=="game" or n=="script" or n=="task" or n=="typeof" then _bmHostGuard()end'
+    ]:[]),
     '      return globals[n]',
     '    end',
     '    local function set(n,v)',
     '      local frame=env;while frame do if rawget(frame.vars,n)~=nil then',
     '        frame.vars[n]=v==nil and NIL or v;return end;frame=frame.parent end',
+    ...(robloxApiGuard?[
+      '      if n=="game" or n=="script" or n=="task" or n=="typeof" then',
+      '        nativeError("BLACKMAMER protected Roblox global is read-only")end'
+    ]:[]),
     '      globals[n]=v',
     '    end',
     '    while true do',
@@ -2470,6 +2504,7 @@ function compile(source, options={}) {
     runtimeBootstrap:options.hardened===true,
     opaquePredicates:nestedVM,
     periodicRuntimeGuard:options.hardened===true&&options.antiDebug!==false,
+    robloxApiGuard,
     metamethodTostringTrap:metamethodTrap,
     metamethodTrapPeriodic:metamethodTrap&&options.antiDebug!==false,
     protectedFunctions:[...protectedKeys.keys()],generatedKeys,

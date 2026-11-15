@@ -116,6 +116,7 @@ async function api(route,body){
   assert.ok(oneClick.data.blackmamerVM.autoEncryptedFunctions<=
     oneClick.data.blackmamerVM.virtualizedFunctions);
   assert.deepEqual(oneClick.data.externalKeys,[]);
+  assert.equal(oneClick.data.blackmamerVM.robloxApiGuard,true);
   assert.equal(oneClick.data.protection.antiDebug,true);
   assert.equal(oneClick.data.protection.antiTamper,true);
   assert.equal(oneClick.data.blackmamerVM.metamethodTostringTrap,true);
@@ -148,6 +149,7 @@ async function api(route,body){
   });
   assert.equal(client.status,200,JSON.stringify(client.data).slice(0,600));
   assert.equal(client.data.securityModel.executionContext,'client');
+  assert.equal(client.data.blackmamerVM.robloxApiGuard,true);
   assert.equal(client.data.securityModel.keyLocation,'embedded-reconstructible');
   assert.equal(client.data.blackmamerVM.executionContext,'client');
   assert.deepEqual(client.data.externalKeys,[]);
@@ -157,6 +159,7 @@ async function api(route,body){
   });
   assert.equal(serverStandalone.status,200);
   assert.equal(serverStandalone.data.securityModel.executionContext,'server');
+  assert.equal(serverStandalone.data.blackmamerVM.robloxApiGuard,true);
   assert.match(serverStandalone.data.securityModel.warnings[0],/reconstructible/);
   const unsafeClient=await api('/api/obfuscate',{
     preset:'NativeV4',target:'LuaU',executionContext:'client',

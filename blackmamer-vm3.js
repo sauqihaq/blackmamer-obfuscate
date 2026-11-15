@@ -2721,6 +2721,7 @@ function compile(source, options={}) {
     vmInstructions:funcs.reduce((n,f)=>n+f.ins.length,0),
     vmPayloadCompression,vmPayloadCodec:vmPayloadCompression?'portable-lz-v1':'none',
     vmPayloadBytesBefore,vmPayloadBytesAfter,vmPayloadCompressedFunctions,
+    vmPayloadFunctionCount:rawFunctions.length,
     doubleVmOptimized:dualOptimized,
     selectiveFunctionEncryption:dualOptimized&&autoMode==='standalone',
     optimizerEnabled,irOptimizerRemoved,vmCoreInstructions,

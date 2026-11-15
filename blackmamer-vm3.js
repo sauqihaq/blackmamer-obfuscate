@@ -1047,6 +1047,12 @@ function compile(source, options={}) {
       const fn=funcs[i];
       if(fn.protectedId)continue; // explicit BM_ENCFUNC always retains its own external key
       if(autoMode==='external'&&i+1===initialEntry)continue;
+      // Prometheus Vmify expands a tiny program into a large interpreter.
+      // Encrypt the entry and a few small control prototypes; leave large
+      // hot interpreter functions under VM palette+chain+AST protection so
+      // Lua51 does not run expensive pure-Lua HMAC on every 32-byte block.
+      if(dualOptimized&&autoMode==='standalone'&&i+1!==initialEntry&&
+         (fn.ins.length>100||autoFunctionCount>=3))continue;
       fn.protectedId=autoId;
       autoFunctionCount++;
     }
@@ -2480,6 +2486,7 @@ function compile(source, options={}) {
     fusedInstructions:fusionTotal,superInstructionKinds:fusionCounts,
     vmInstructions:funcs.reduce((n,f)=>n+f.ins.length,0),
     doubleVmOptimized:dualOptimized,
+    selectiveFunctionEncryption:dualOptimized&&autoMode==='standalone',
     optimizerEnabled,irOptimizerRemoved,vmCoreInstructions,
     deadCodeInstructions,deadCodeBlocks,
     deadCodeStrategy:optimizerEnabled?'sealed-cfg-islands':'disabled',

@@ -12,6 +12,7 @@ const execFileAsync=promisify(execFile);
 
 const PROMETHEUS_REVISION='a98c50165f2a53f6d765a82eee60dfea53803445';
 const MAX_BYTES=128*1024;
+const MAX_FULL_INTERMEDIATE_BYTES=192*1024;
 const TIMEOUT_MS=40000;
 const HOME=path.resolve(process.env.BLACKMAMER_PROMETHEUS_HOME||
   path.join(__dirname,'vendor','prometheus'));
@@ -78,9 +79,9 @@ async function preprocess(source,target,{timeoutMs=TIMEOUT_MS,profile='Vmify'}={
     try{stat=await fs.stat(output);}
     catch(e){throw new PrometheusStageError('PROMETHEUS_EMPTY_OUTPUT',
       'Prometheus did not produce an output file.',e);}
-    if(stat.size>MAX_BYTES)
+    if(stat.size>(full?MAX_FULL_INTERMEDIATE_BYTES:MAX_BYTES))
       throw new PrometheusStageError('PROMETHEUS_OUTPUT_TOO_LARGE',
-        'Prometheus VM produced '+stat.size+' bytes; BLACKMAMER accepts at most 128 KB.');
+        'Prometheus VM produced '+stat.size+' bytes; Full profile intermediate limit is 192 KB.');
     if(stat.size===0)throw new PrometheusStageError('PROMETHEUS_EMPTY_OUTPUT',
       'Prometheus generated an empty Lua script.');
     const transformed=await fs.readFile(output,'utf8');
@@ -97,4 +98,4 @@ async function preprocess(source,target,{timeoutMs=TIMEOUT_MS,profile='Vmify'}={
   }finally{await fs.rm(temp,{recursive:true,force:true})}
 }
 module.exports={preprocess,available,PrometheusStageError,
-  PROMETHEUS_REVISION,MAX_BYTES,PROFILE,FULL_PROFILE,FULL_STEPS};
+  PROMETHEUS_REVISION,MAX_BYTES,MAX_FULL_INTERMEDIATE_BYTES,PROFILE,FULL_PROFILE,FULL_STEPS};

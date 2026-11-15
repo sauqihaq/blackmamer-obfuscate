@@ -120,6 +120,9 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
    const buildOptions={
      hardened:true,
      target,
+     // Server-issued one-click Roblox output checks the real Roblox host
+     // APIs before executing VM instructions. This is detection, not attestation.
+     robloxApiGuard:oneClick&&target==='LuaU',
      doubleVmOptimized:doubleVM,
      protectionLevel:level,
      antiTamper:selectedPreset?selectedPreset.antiTamper:(oneClick||body.antiTamper!==false),
@@ -219,6 +222,7 @@ app.post('/api/obfuscate',licenseGate,async(req,res)=>{
         runtimeAliasCount:result.runtimeAliasCount,
         runtimeChaosLineBreaks:result.runtimeChaosLineBreaks,
        periodicRuntimeGuard:result.periodicRuntimeGuard,
+       robloxApiGuard:result.robloxApiGuard===true,
        metamethodTostringTrap:result.metamethodTostringTrap,
        metamethodTrapPeriodic:result.metamethodTrapPeriodic,
        autoFunctionEncryption:result.autoFunctionEncryption,

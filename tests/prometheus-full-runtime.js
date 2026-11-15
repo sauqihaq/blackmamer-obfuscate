@@ -44,7 +44,8 @@ async function main(){
    const transformed=compile(inner.source,{
      hardened:true,target,protectionLevel:'Maximum',
      vmArchitecture:'seven-independent',autoFunctionEncryption:'standalone',
-     doubleVmFull:true,doubleVmOptimized:true,antiTamper:true,antiDebug:true
+     doubleVmFull:true,doubleVmOptimized:true,antiTamper:true,antiDebug:true,
+     debugRuntimeErrors:true
    });
    assert.equal(transformed.chainedInstructionEncoding,true);
    assert.equal(transformed.vmInterpreterCount,7);

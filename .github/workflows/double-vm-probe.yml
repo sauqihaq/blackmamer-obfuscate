@@ -8,6 +8,13 @@ on:
       - '.github/workflows/double-vm-probe.yml'
       - 'blackmamer-vm3.js'
       - 'prometheus-stage.js'
+      - 'prometheus-maximal.lua'
+      - 'tests/prometheus-full-probe.js'
+      - 'tests/prometheus-full-runtime.js'
+      - 'tests/prometheus-semantic-isolate.js'
+      - 'full-prometheus-pipeline.js'
+      - 'prometheus-compat-patch.js'
+      - 'tests/prometheus-full-isolate.js'
       - 'server.js'
       - 'Dockerfile'
   workflow_dispatch:
@@ -29,10 +36,21 @@ jobs:
           git -C vendor/prometheus remote add origin https://github.com/prometheus-lua/Prometheus.git
           git -C vendor/prometheus fetch -q --depth 1 origin a98c50165f2a53f6d765a82eee60dfea53803445
           git -C vendor/prometheus checkout -q --detach FETCH_HEAD
+      - name: Apply pinned Prometheus ProxifyLocals compatibility fix
+        run: node prometheus-compat-patch.js
+      - name: Probe every Prometheus feature before outer BLACKMAMER
+        run: node tests/prometheus-full-probe.js
       - name: Evaluate real double VM compiler pipeline
         run: node tests/double-vm-probe.js
       - name: Profile source vs Prometheus vs DOUBLE VM
         run: node tests/double-vm-perf.js
+      - name: Diagnose Prometheus inner multi-return nil parity
+        run: node tests/prometheus-semantic-isolate.js
+      - name: Real all-feature Lua 5.1 and LuaJIT parity
+        env:
+          FULL_TEST_LUAJIT: '1'
+          BLACKMAMER_FULL_DIAGNOSTIC: '1'
+        run: node tests/prometheus-full-runtime.js
       - name: Real Lua 5.1 and LuaJIT double-VM execution parity
         env:
           DOUBLE_VM_TEST_LUAJIT: '1'

@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - 'blackmamer-vm3.js'
+      - 'prometheus-stage.js'
+      - 'prometheus-maximal.lua'
+      - 'prometheus-compat-patch.js'
+      - 'tests/prometheus-full-runtime.js'
       - 'v4-presets.js'
       - 'runtime-security-policy.js'
       - 'prometheus-stage.js'
@@ -57,6 +61,10 @@ on:
     branches: [main, feature/native-v4-cpp-hardening]
     paths:
       - 'blackmamer-vm3.js'
+      - 'prometheus-stage.js'
+      - 'prometheus-maximal.lua'
+      - 'prometheus-compat-patch.js'
+      - 'tests/prometheus-full-runtime.js'
       - 'native/**'
       - 'native-sealer.js'
       - 'vm4-chained-cells.js'
@@ -108,6 +116,7 @@ jobs:
           git -C vendor/prometheus fetch -q --depth 1 origin a98c50165f2a53f6d765a82eee60dfea53803445
           git -C vendor/prometheus checkout -q --detach FETCH_HEAD
           test "$(git -C vendor/prometheus rev-parse HEAD)" = "a98c50165f2a53f6d765a82eee60dfea53803445"
+          node prometheus-compat-patch.js
       - name: Verify compiler and frontend syntax
         run: |
           node --check prometheus-stage.js
@@ -175,6 +184,7 @@ jobs:
           git -C vendor/prometheus fetch -q --depth 1 origin a98c50165f2a53f6d765a82eee60dfea53803445
           git -C vendor/prometheus checkout -q --detach FETCH_HEAD
           test "$(git -C vendor/prometheus rev-parse HEAD)" = "a98c50165f2a53f6d765a82eee60dfea53803445"
+          node prometheus-compat-patch.js
       - name: Build native sealer for official Luau runtime tests
         run: g++ -O2 -std=c++17 -Wall -Wextra -Werror native/sealer.cpp -o native/bm-sealer
       - name: Run hardened V4 execution and tamper regression
@@ -182,6 +192,7 @@ jobs:
           LUAU_BIN: ./luau-build/luau
         run: |
           node tests/double-vm-runtime.js
+          node tests/prometheus-full-runtime.js
           node tests/vm4-luau.js
           node tests/vm4-external-luau.js
           node tests/vm4-remote-luau.js

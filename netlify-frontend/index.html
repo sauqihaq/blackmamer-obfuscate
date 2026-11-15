@@ -168,7 +168,7 @@ print(&quot;Hello World&quot;)"></textarea>
             <label>Protection engine</label><div class="presets"><strong>BLACKMAMER Native V4</strong> / Custom VM</div>
 <input type="hidden" id="preset" value="NativeV4">
 <div class="presets" style="border-color:#cb5470;background:linear-gradient(130deg,#381725,#111e2a)">
-  <strong>DUAL VM • MAXIMUM V4 • AUTO</strong><p>Prometheus Vmify → BLACKMAMER 7-VM Maximum. Optimasi IR, enkripsi fungsi standalone, dan chained encoding otomatis.</p>
+  <strong>DUAL VM • MAXIMUM V4 • AUTO</strong><p>Prometheus FULL 11 fitur → BLACKMAMER 7-VM Maximum. Enkripsi, CFF, anti-tamper, dan chained encoding otomatis.</p>
   <small>Satu klik • Roblox Script / LocalScript / ModuleScript</small>
 </div>
           </div>
@@ -325,9 +325,13 @@ if(data.blackmamerVM?.vmArchitecture!=='seven-independent'||
    data.blackmamerVM?.chainedInstructionEncoding!==true||
    data.blackmamerVM?.doubleVM!==true||
    data.blackmamerVM?.prometheusStage?.vm!==true||
+   data.blackmamerVM?.prometheusStage?.preset!=='BlackmamerFull'||
+   data.blackmamerVM?.prometheusStage?.allPrometheusSteps!==true||
+   data.blackmamerVM?.prometheusStage?.steps?.length!==11||
+   data.blackmamerVM?.fullPrometheusProtection!==true||
    data.blackmamerVM?.dualVmOptimization!==true||
    data.blackmamerVM?.fallback===true)
-   throw new Error('Backend belum menjalankan Prometheus VM + BLACKMAMER Maximum V4 teroptimasi.');
+   throw new Error('Backend belum menjalankan seluruh 11 fitur Prometheus + BLACKMAMER Maximum V4.');
 if(data.target!==target)
    throw new Error('Runtime output backend tidak sesuai pilihan.');
 result.value = data.obfuscated;
@@ -346,7 +350,7 @@ lastMode = payload.target;
         $('metrics').hidden = false;
         setStatus('Selesai dalam ' + ((performance.now() - started) / 1000).toFixed(1) + ' detik.');
 
-        feedback('Double VM Prometheus + BLACKMAMER Maximum V4 aktif. Satu file hasil bisa digunakan di runtime '+
+        feedback('Prometheus Full (11 fitur) + BLACKMAMER Maximum V4 aktif. Satu file hasil bisa digunakan di runtime '+
           (target==='LuaU'?'Roblox (Script / LocalScript / ModuleScript)':
             target)+'. Kunci standalone tetap bisa direkonstruksi; uji fungsinya di runtime tujuan.', 'warn');
       } catch (err) {

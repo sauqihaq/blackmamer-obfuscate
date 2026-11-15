@@ -4,7 +4,7 @@
 const crypto = require('node:crypto');
 const {compactLuau} = require('./lua-output-compact');
 const {polymorphRuntime} = require('./runtime-polymorph');
-const {sealBatch} = require('./native-sealer');
+const {sealBatch,sealLargeBatch} = require('./native-sealer');
 const {buildIndependentVmLines}=require('./vm7-independent');
 const {protectAstStrings}=require('./ast-string-layer');
 const chainedCells=require('./vm4-chained-cells');
@@ -596,7 +596,8 @@ function flattenCfgInstructions(rows,codes){
 const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','RETVOID','RETM','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV','KRET','GETRET','MOVRET','STRDEC','VARG','VARGM','CALLX','CALLMX','PUTM'];
 function compile(source, options={}) {
   if(typeof source!=='string') throw new TypeError('Expected Luau source string');
-  if(Buffer.byteLength(source)>128*1024) throw new SyntaxErrorV3('V3 source limit: 128 KB');
+  if(Buffer.byteLength(source)>(options.doubleVmFull===true?192*1024:128*1024))
+    throw new SyntaxErrorV3('V3 source limit exceeded');
   // Each build gets independent source-bound material. Public watermarks are
   // identifiers, NOT secrets; the random build secret is never serialized.
   const buildSecret=crypto.randomBytes(32);
@@ -713,13 +714,14 @@ function compile(source, options={}) {
     // V4 uses an independent random virtual register allocation in each
     // function. Dataflow remains correct because all IR consumers use the
     // returned physical ID rather than assuming sequential register numbers.
+    const maxRegisters=options.doubleVmFull===true?65536:16384;
     const registerPool=options.hardened?
-      Array.from({length:16384},(_,i)=>i+1):null;
+      Array.from({length:maxRegisters},(_,i)=>i+1):null;
     if(registerPool)for(let i=registerPool.length-1;i>0;i--){
       const j=rand(i+1);[registerPool[i],registerPool[j]]=[registerPool[j],registerPool[i]];
     }
     const reg=()=>{
-      if(++builder.regs>16384)throw new SyntaxErrorV3('V3 register limit exceeded');
+      if(++builder.regs>maxRegisters)throw new SyntaxErrorV3('V3 register limit exceeded');
       const value=registerPool?registerPool[builder.regs-1]:builder.regs;
       if(builder.regAudit)builder.regAudit.push(value);
       return value;
@@ -1031,7 +1033,8 @@ function compile(source, options={}) {
           }
           default:throw new SyntaxErrorV3('Unsupported statement type '+n.t);
         }
-        if(builder.ins.length>12000)throw new SyntaxErrorV3('V3 instruction limit exceeded');
+        if(builder.ins.length>(options.doubleVmFull===true?96000:12000))
+          throw new SyntaxErrorV3('V3 instruction limit exceeded');
       }
     };
     statements(ast);emit('RETVOID');
@@ -1402,7 +1405,7 @@ function compile(source, options={}) {
   }
   // C++17 sealer handles complete batches when available. A byte-for-byte
   // equivalent JS fallback keeps local development and old deployments working.
-  const sealedBatch=sealBatch([
+  const sealedBatch=(options.doubleVmFull===true?sealLargeBatch:sealBatch)([
     ...rawFunctions.map(([seed,raw])=>[seed,raw]),
     ...rawConstants.map(([,seed,raw])=>[seed,raw]),
     ...(nestedVM?[[outerProgram[0],outerProgram[1]]]:[])
@@ -2122,7 +2125,8 @@ function compile(source, options={}) {
     '      globals[n]=v',
     '    end',
     '    while true do',
-    '      ticks=ticks+1; if ticks>1000000 then nativeError("BLACKMAMER V3 instruction limit") end',
+    '      ticks=ticks+1; if ticks>'+(options.doubleVmFull===true?10000000:1000000)+
+      ' then nativeError("BLACKMAMER V3 instruction limit") end',
     ...(options.hardened&&options.antiDebug!==false?
       ['      if ticks>=guardAt then runtimeGuard();guardAt=ticks+guardBias+((pc*31+spec[3]+ticks)%191)end']:[]),
     '      if pc<1 or pc>length then nativeError("BLACKMAMER V3 bad PC") end',
@@ -2394,7 +2398,7 @@ function compile(source, options={}) {
   // independent opaque diagnostic IDs inside V4 runtime error calls.
   // They are not anti-hook or cryptographic protection.
   let scrubbedRuntimeErrors=0;
-  const runtimeText=options.hardened?expanded.replace(
+  const runtimeText=(options.hardened&&options.debugRuntimeErrors!==true)?expanded.replace(
     /nativeError\("BLACKMAMER[^"]*"\)/g,()=>{
       scrubbedRuntimeErrors++;
       return 'nativeError("E'+crypto.randomBytes(6).toString('hex')+'")';

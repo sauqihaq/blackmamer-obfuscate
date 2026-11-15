@@ -61,4 +61,18 @@ function sealBatch(chunks, sbox, fallback) {
   if (offset !== out.length) throw new Error('Trailing native sealer data');
   return {sealed, nativeUsed: true};
 }
-module.exports = {sealBatch, available};
+// The full Prometheus pass can generate >8,192 sealed constants.
+// Keep the native C++ per-process protocol bounded; seal in independent
+// batches because each chunk's seed and SBOX determine its result alone.
+function sealLargeBatch(chunks,sbox,fallback){
+  if(!Array.isArray(chunks))throw new TypeError('Invalid sealing inputs');
+  if(chunks.length<=8192)return sealBatch(chunks,sbox,fallback);
+  const sealed=[];let nativeUsed=true;
+  for(let i=0;i<chunks.length;i+=4096){
+    const result=sealBatch(chunks.slice(i,i+4096),sbox,fallback);
+    for(const bytes of result.sealed)sealed.push(bytes);
+    nativeUsed=nativeUsed&&result.nativeUsed;
+  }
+  return {sealed,nativeUsed};
+}
+module.exports = {sealBatch,sealLargeBatch,available};

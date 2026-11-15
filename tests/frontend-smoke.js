@@ -34,7 +34,7 @@ function byId(id){
  return elements.get(id);
 }
 byId('target').value='LuaU';
-let calls=[],badKeys=false,badProfile=false,wrongTarget=false,missingChain=false,missingDoubleVM=false;
+let calls=[],badKeys=false,badProfile=false,wrongTarget=false,missingChain=false,missingDoubleVM=false,missingFull=false;
 const fetchMock=async(url,options)=>{
  calls.push({url,options});
  if(url.includes('/api/health'))return {ok:true,json:async()=>({status:'ready'})};
@@ -48,8 +48,13 @@ const fetchMock=async(url,options)=>{
      applied:true,fallback:false,vmArchitecture:'seven-independent',
      vmInterpreterCount:7,astStringEncryption:true,astEncryptedStrings:3,
      chainedInstructionEncoding:!missingChain,doubleVM:!missingDoubleVM,
-     prometheusStage:{vm:!missingDoubleVM,applied:!missingDoubleVM,preset:'Vmify'},
-     dualVmOptimization:true},
+     prometheusStage:{vm:!missingDoubleVM,applied:!missingDoubleVM,
+       preset:missingFull?'Vmify':'BlackmamerFull',
+       allPrometheusSteps:!missingFull,
+       steps:missingFull?['Vmify']:
+         ['SplitStrings','ProxifyLocals','AddVararg','Vmify','EncryptStrings',
+          'AntiTamper','ConstantArray','WrapInFunction','Cff','NumbersToExpressions','WatermarkCheck']},
+     fullPrometheusProtection:!missingFull,dualVmOptimization:true},
    securityModel:{executionContext:request.executionContext||'unspecified',warnings:[]},
    externalKeys:badKeys?[{id:'premium',key:'a1'.repeat(32)}]:[]
  })};
@@ -116,14 +121,20 @@ compiled.runInContext(vm.createContext(sandbox));
  missingChain=true;
  await byId('obfuscate').click();
  assert.equal(byId('download').disabled,true);
- assert.match(byId('feedback').textContent,/Prometheus VM/);
+ assert.match(byId('feedback').textContent,/11 fitur Prometheus/);
  missingChain=false;
 
  missingDoubleVM=true;
  await byId('obfuscate').click();
  assert.equal(byId('download').disabled,true);
- assert.match(byId('feedback').textContent,/Prometheus VM/);
+ assert.match(byId('feedback').textContent,/11 fitur Prometheus/);
  missingDoubleVM=false;
+
+ missingFull=true;
+ await byId('obfuscate').click();
+ assert.equal(byId('download').disabled,true);
+ assert.match(byId('feedback').textContent,/11 fitur Prometheus/);
+ missingFull=false;
 
  wrongTarget=true;
  await byId('obfuscate').click();

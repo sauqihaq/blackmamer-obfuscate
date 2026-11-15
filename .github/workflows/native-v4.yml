@@ -189,6 +189,7 @@ jobs:
         run: g++ -O2 -std=c++17 -Wall -Wextra -Werror native/sealer.cpp -o native/bm-sealer
       - name: Run hardened V4 execution and tamper regression
         env:
+          BLACKMAMER_PROMETHEUS_LUA: luajit
           LUAU_BIN: ./luau-build/luau
         run: |
           node tests/double-vm-runtime.js

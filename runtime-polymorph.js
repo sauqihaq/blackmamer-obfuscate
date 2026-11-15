@@ -9,6 +9,13 @@ const RUNTIME_LOCALS=new Set([
   'nativeByte','nativeChar','nativeConcat','nativeUnpack','nativeBitXor',
   'nativePack','nativeType','nativePcall','nativeError','bxor',
   'nativeTostring','nativeSetmetatable','nativeGetmetatable','nativeRawget',
+  // Hardened runtime startup checks and protected Lua host API boundary.
+  // Only compiler-owned locals are renamed; property names and literals
+  // remain untouched by the syntax-aware tokenizer below.
+  'boundaryRawget','boundaryKeys','boundaryPresent','boundarySnapshot',
+  'boundaryCheck','boundaryRead','boundaryWrite','boundaryPoll',
+  '_bmEnvironmentPreflight','targetObject','targetMeta','sentinel',
+  'functionNames',
   'trapToken','trapObject','trapLock','trapHits','trapGuardTicks',
   'trapMethod','trapMeta','metamethodGuard','previous',
   'dbg','globals','modulus','hmod','hseed','hmul','hadd',

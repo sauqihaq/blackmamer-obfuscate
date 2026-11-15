@@ -1453,11 +1453,18 @@ function compile(source, options={}) {
     }
     return out;
   };
+  // Dense ciphertext chunks shrink thousands of Lua literal/table/ref tokens
+  // in large Prometheus+V4 output. All chunks remain encrypted, variably split,
+  // shuffled across functions/constants, and reassembled by shuffled indices.
+  // The legacy setting is internal to parity/size regression tests only.
+  const denseCipherFragments=options.hardened===true&&options.fragmentPacking!=='legacy';
+  const fragmentMin=denseCipherFragments?(options.doubleVmFull===true?256:144):37;
+  const fragmentJitter=denseCipherFragments?(options.doubleVmFull===true?256:160):61;
   const fragments=[];
   const segment=bytes=>{
     const encoded=asRadix64(bytes),parts=[];
     for(let at=0;at<encoded.length;){
-      const len=Math.min(encoded.length-at,37+rand(61));
+      const len=Math.min(encoded.length-at,fragmentMin+rand(fragmentJitter));
       parts.push(fragments.length);
       fragments.push(encoded.slice(at,at+len));
       at+=len;
@@ -2612,6 +2619,7 @@ function compile(source, options={}) {
     portableApiIntegrityGuard:options.hardened===true&&options.antiDebug!==false,
     protectedApiBoundary:apiBoundaryGuard,
     environmentPreflight,
+    denseCipherFragments,cipherFragmentCount:fragments.length,
     metamethodTostringTrap:metamethodTrap,
     metamethodTrapPeriodic:metamethodTrap&&options.antiDebug!==false,
     protectedFunctions:[...protectedKeys.keys()],generatedKeys,

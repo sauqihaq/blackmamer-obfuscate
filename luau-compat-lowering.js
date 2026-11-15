@@ -55,10 +55,22 @@ function lowerLuau(source,target='LuaU'){
       default: throw Error('Unsupported Luau AST expression in syntax lowering: '+node.t);
     }
   }
+  const hasOwnContinue=nodes=>{
+    const scan=n=>{
+      if(!n||typeof n!=='object')return false;
+      if(Array.isArray(n))return n.some(scan);
+      if(n.t==='continue')return true;
+      // A nested loop or a function establishes its own continue target.
+      if(['fornum','forin','while','repeat','fun','localfun'].includes(n.t))
+        return false;
+      return Object.values(n).some(scan);
+    };
+    return scan(nodes);
+  };
   function loop(head,statements){
-    // Each original loop body executes in a synthetic one-pass repeat.
-    // A Luau continue maps to a break of that repeat; an original break
-    // sets a dedicated flag, then breaks the *outer* loop after the repeat.
+    // Avoid transforming normal loops: only loops with their own continue
+    // need a synthetic one-pass repeat and a flagged outer-break.
+    if(!hasOwnContinue(statements))return head+' '+body(statements,null)+' end';
     const stop=fresh();
     return head+' local '+stop+'=false; repeat '+
       body(statements,{stop})+' until true; if '+stop+' then break end end';
@@ -103,8 +115,9 @@ function lowerLuau(source,target='LuaU'){
       }
       case 'while':return loop('while '+expr(n.condition)+' do',n.body);
       case 'repeat':{
-        // A continue inside repeat must still evaluate the condition on the
-        // same iteration; the inner one-pass repeat provides that behavior.
+        if(!hasOwnContinue(n.body))
+          return 'repeat '+body(n.body,null)+' until '+expr(n.condition);
+        // A Luau continue in repeat still proceeds to condition evaluation.
         const flag=fresh();
         return 'repeat local '+flag+'=false;repeat '+body(n.body,{stop:flag})+
           ' until true;if '+flag+' then break end until '+expr(n.condition);

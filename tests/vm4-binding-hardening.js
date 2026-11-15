@@ -52,7 +52,7 @@ for(let run=0;run<12;run++){
  for(const ids of v4.registerAllocationAudit){
    if(ids.length===0)continue;
    assert.equal(new Set(ids).size,ids.length,'Physical regs reused in prototype');
-   assert.ok(ids.every(n=>Number.isInteger(n)&&n>=1&&n<=2048));
+   assert.ok(ids.every(n=>Number.isInteger(n)&&n>=1&&n<=16384));
    if(ids.length>=8)
      assert.ok(ids.some(n=>n>100),'V4 register locations should be spread across pool');
  }

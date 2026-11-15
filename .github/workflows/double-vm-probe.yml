@@ -4,6 +4,7 @@ on:
     paths:
       - 'tests/double-vm-probe.js'
       - 'tests/double-vm-runtime.js'
+      - 'tests/double-vm-perf.js'
       - '.github/workflows/double-vm-probe.yml'
       - 'blackmamer-vm3.js'
       - 'prometheus-stage.js'
@@ -30,6 +31,8 @@ jobs:
           git -C vendor/prometheus checkout -q --detach FETCH_HEAD
       - name: Evaluate real double VM compiler pipeline
         run: node tests/double-vm-probe.js
+      - name: Profile source vs Prometheus vs DOUBLE VM
+        run: node tests/double-vm-perf.js
       - name: Real Lua 5.1 and LuaJIT double-VM execution parity
         env:
           DOUBLE_VM_TEST_LUAJIT: '1'

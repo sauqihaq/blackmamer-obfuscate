@@ -105,7 +105,12 @@ async function api(route,body){
     oneClick.data.blackmamerVM.vmInstructions*4);
   assert.equal(oneClick.data.blackmamerVM.doubleVM,true);
   assert.equal(oneClick.data.blackmamerVM.prometheusStage.vm,true);
-  assert.equal(oneClick.data.blackmamerVM.prometheusStage.preset,'Vmify');
+  assert.equal(oneClick.data.blackmamerVM.prometheusStage.preset,'BlackmamerFull');
+  assert.equal(oneClick.data.blackmamerVM.prometheusStage.allPrometheusSteps,true);
+  assert.equal(oneClick.data.blackmamerVM.prometheusStage.steps.length,11);
+  assert.ok(oneClick.data.blackmamerVM.prometheusStage.attempts>=1);
+  assert.ok(oneClick.data.blackmamerVM.prometheusStage.attempts<=5);
+  assert.equal(oneClick.data.blackmamerVM.fullPrometheusProtection,true);
   assert.equal(oneClick.data.blackmamerVM.dualVmOptimization,true);
   assert.ok(oneClick.data.blackmamerVM.autoEncryptedFunctions>=1);
   assert.ok(oneClick.data.blackmamerVM.autoEncryptedFunctions<=

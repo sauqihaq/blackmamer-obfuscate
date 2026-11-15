@@ -10,6 +10,7 @@ on:
       - 'prometheus-stage.js'
       - 'prometheus-maximal.lua'
       - 'tests/prometheus-full-probe.js'
+      - 'tests/prometheus-full-runtime.js'
       - 'server.js'
       - 'Dockerfile'
   workflow_dispatch:
@@ -37,6 +38,10 @@ jobs:
         run: node tests/double-vm-probe.js
       - name: Profile source vs Prometheus vs DOUBLE VM
         run: node tests/double-vm-perf.js
+      - name: Real all-feature Lua 5.1 and LuaJIT parity
+        env:
+          FULL_TEST_LUAJIT: '1'
+        run: node tests/prometheus-full-runtime.js
       - name: Real Lua 5.1 and LuaJIT double-VM execution parity
         env:
           DOUBLE_VM_TEST_LUAJIT: '1'

@@ -7,6 +7,7 @@ on:
       - 'tests/vm4-roblox-host-guard.js'
       - 'tests/vm4-universal-platform.js'
       - 'tests/vm4-api-boundary.js'
+      - 'tests/vm4-environment-preflight.js'
       - 'prometheus-stage.js'
       - 'prometheus-maximal.lua'
       - 'prometheus-compat-patch.js'
@@ -198,6 +199,7 @@ jobs:
           # Fast boundary sanity first: avoid hiding regression behind a flaky
           # unrelated randomized full-Prometheus parity run.
           node tests/vm4-api-boundary.js
+          node tests/vm4-environment-preflight.js
           node tests/vm4-universal-platform.js
           node tests/double-vm-runtime.js
           node tests/prometheus-full-runtime.js

@@ -2043,7 +2043,12 @@ function compile(source, options={}) {
     '    local columns=parseStage(fid,spec)',
     '    local opCol,aCol,bCol,cCol=columns[1],columns[2],columns[3],columns[4]',
     '    local env={vars={},parent=captured}',
-    '    for j,k in ipairs(spec[1])do local v=passed[j];env.vars[K(k)]=v==nil and NIL or v end',
+    '    local fixed=#spec[1];local varargs=nativePack()',
+    '    if fixed>0 and K(spec[1][fixed])=="..." then',
+    '      varargs=nativePack(nativeUnpack(passed,fixed,passed.n or #passed))',
+    '      fixed=fixed-1',
+    '    end',
+    '    for j=1,fixed do local v=passed[j];env.vars[K(spec[1][j])]=v==nil and NIL or v end',
     '    local R={};local pc=1;local ticks=0;local length=spec[5]',
     // Guard scales with each sealed function's instruction count, capped
     // to bound the gap between runtime hook checks even for large functions.
@@ -2089,11 +2094,28 @@ function compile(source, options={}) {
     '      elseif op==O.TABLE then R[a]={}',
     '      elseif op==O.INDEX then R[a]=R[b][R[c]]',
     '      elseif op==O.PUT then R[a][R[b]]=R[c]',
+    '      elseif op==O.PUTM then local values=R[b];for j=1,values.n do R[a][c+j-1]=values[j]end',
     '      elseif op==O.MOV then R[a]=R[b]',
+    '      elseif op==O.VARG then R[a]=varargs[1]',
+    '      elseif op==O.VARGM then R[a]=varargs',
     '      elseif op==O.CALL then local args=A[c] or {};local vals={};for j,v in ipairs(args)do vals[j]=R[v]end',
     '        R[a]=R[b](nativeUnpack(vals,1,#args))',
     '      elseif op==O.CALLM then local args=A[c] or {};local vals={};for j,v in ipairs(args)do vals[j]=R[v]end',
     '        R[a]=nativePack(R[b](nativeUnpack(vals,1,#args)))',
+    '      elseif op==O.CALLX then',
+    '        local args=A[c] or {};local vals={};local count=0',
+    '        for j,v in ipairs(args)do',
+    '          if j==#args then local tail=R[v];for k=1,tail.n do count=count+1;vals[count]=tail[k]end',
+    '          else count=count+1;vals[count]=R[v]end',
+    '        end',
+    '        R[a]=R[b](nativeUnpack(vals,1,count))',
+    '      elseif op==O.CALLMX then',
+    '        local args=A[c] or {};local vals={};local count=0',
+    '        for j,v in ipairs(args)do',
+    '          if j==#args then local tail=R[v];for k=1,tail.n do count=count+1;vals[count]=tail[k]end',
+    '          else count=count+1;vals[count]=R[v]end',
+    '        end',
+    '        R[a]=nativePack(R[b](nativeUnpack(vals,1,count)))',
     '      elseif op==O.MVGET then R[a]=R[b][c]',
     '      elseif op==O.MVPACK then local list=A[b] or {};local vals={};for j,v in ipairs(list)do vals[j]=R[v]end',
     '        R[a]=vals',
@@ -2114,9 +2136,9 @@ function compile(source, options={}) {
     '      elseif op==O.CLOSURE then local capture=env',
     ...(nativeFunctions.length?[
       '        if b<0 then R[a]=makeNativeFunction(-b,capture)',
-      '        else R[a]=function(...)return exec(b,{...},capture)end end'
+      '        else R[a]=function(...)return exec(b,nativePack(...),capture)end end'
     ]:[
-      '        R[a]=function(...)return exec(b,{...},capture)end'
+      '        R[a]=function(...)return exec(b,nativePack(...),capture)end'
     ]),
     '      elseif op==O.RET then return a==0 and nil or R[a]',
     '      elseif op==O.RETVOID then return',

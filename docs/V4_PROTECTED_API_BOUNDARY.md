@@ -6,11 +6,12 @@ connection** at script startup.
 
 ## Behavior
 
-- Snapshot selected **already-present raw global bindings** at VM bootstrap.
+- Snapshot selected **already-present global API bindings** at VM bootstrap.
   The watched set includes `print`, `require`, `type`, `pcall`,
   `assert`, `tostring`, `table`, `math`, `string`, and other core
-  Lua APIs. Missing globals are simply ignored; `game` and `script`
-  are not treated as mandatory.
+  Lua APIs. Luau also reads known inherited standard globals when the
+  environment uses an `__index` fallback. Missing APIs are simply ignored;
+  `game` and `script` are not treated as mandatory.
 - For VM global lookups, check watched bindings before returning them. Accesses
   to non-watched/custom globals keep their normal Lua semantics.
 - For global writes via VM instructions, respect the original assignment

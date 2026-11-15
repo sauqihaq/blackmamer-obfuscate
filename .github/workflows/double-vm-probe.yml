@@ -4,6 +4,7 @@ on:
     paths:
       - 'tests/double-vm-probe.js'
       - '.github/workflows/double-vm-probe.yml'
+      - 'blackmamer-vm3.js'
       - 'prometheus-stage.js'
       - 'server.js'
       - 'Dockerfile'

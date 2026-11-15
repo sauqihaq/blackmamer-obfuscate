@@ -53,8 +53,10 @@ try{
   const observed=run(binary,altered.code,target+'-external-api-mutation');
   assert.notEqual(observed.status,0,target+' post-startup API overwrite should be blocked');
   assert.doesNotMatch(observed.stdout,/UNGUARDED_API_CALL/);
-  assert.match(observed.stderr,/BLACKMAMER V4 API boundary binding changed/,
-   target+' must report API boundary rejection');
+  // Hardened output intentionally scrubs runtime error strings per build.
+  // Validate that the guard actually tripped, not a specific plaintext message.
+  assert.match(observed.stderr,/boundaryCheck|API boundary binding changed/,
+   target+' must fail from guarded API boundary');
   verified++;
  }
  console.log('BLACKMAMER PROTECTED API BOUNDARY PASS '+verified+

@@ -445,6 +445,9 @@ function virtualizeLexicalBindings(ast,audit){
           break;
         case 'assign':case 'compound':
           visitExpr(node.target,scope);visitExpr(node.value,scope);break;
+        case 'assignmulti':
+          node.targets.forEach(t=>visitExpr(t,scope));
+          node.values.forEach(v=>visitExpr(v,scope));break;
         case 'callstmt':
           visitExpr(node.value,scope);break;
         case 'return':

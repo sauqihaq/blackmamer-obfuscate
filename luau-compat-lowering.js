@@ -11,7 +11,8 @@ function containsLuauExtension(ast){
   const visit=node=>{
     if(!node||typeof node!=='object')return false;
     if(Array.isArray(node))return node.some(visit);
-    if(node.t==='compound'||node.t==='continue'||node.t==='ifexpr')
+    if(node.t==='compound'||node.t==='continue'||node.t==='ifexpr'||
+       (node.t==='binary'&&node.op==='//'))
       return true;
     if(node.t==='forin'&&node.iterators.length===1&&
        !['call','method'].includes(node.iterators[0]?.t))return true;
@@ -30,6 +31,8 @@ function lowerLuau(source,target='LuaU'){
   const used=new Set(new Parser(source).tokens.filter(t=>t.type==='id').map(t=>t.value));
   const fresh=()=>{let id;do{id='__bm_luau_'+(++serial).toString(36);}while(used.has(id));used.add(id);return id;};
   const exprs=a=>(a||[]).map(expr).join(',');
+  const operation=(left,op,right)=>op==='//'?
+    'math.floor(('+left+')/('+right+'))':left+op+right;
   function expr(node){
     if(!node||node.t==='nil')return 'nil';
     switch(node.t){
@@ -44,7 +47,9 @@ function lowerLuau(source,target='LuaU'){
       case 'table': return '{'+node.fields.map(f=>
         f.implicit?expr(f.value):'['+expr(f.key)+']='+expr(f.value)).join(',')+'}';
       case 'unary': return '('+(node.op==='not'?'not ':node.op)+expr(node.x)+')';
-      case 'binary': return '('+expr(node.left)+' '+node.op+' '+expr(node.right)+')';
+      case 'binary':
+        if(node.op==='//')features.add('floor-division');
+        return '('+operation(expr(node.left),node.op,expr(node.right))+')';
       case 'fun': return 'function('+node.params.join(',')+') '+body(node.body,null)+' end';
       case 'ifexpr':{
         features.add('conditional-expression');
@@ -90,14 +95,15 @@ function lowerLuau(source,target='LuaU'){
       case 'compound':{
         features.add('compound-assignment');
         const op=n.op.slice(0,-1),rhs=expr(n.value);
+        if(op==='//')features.add('floor-division');
         if(n.target.t==='var')
-          return n.target.name+'='+n.target.name+op+'('+rhs+')';
+          return n.target.name+'='+operation(n.target.name,op,'('+rhs+')');
         const obj=fresh(),key=fresh(),dst=fresh();
         // LuaU's compound index assignment evaluates index and object once.
         // Also evaluate the original value before writing the result.
         return 'do local '+obj+'='+expr(n.target.obj)+
           ';local '+key+'='+expr(n.target.key)+
-          ';local '+dst+'='+obj+'['+key+']'+op+'('+rhs+')'+
+          ';local '+dst+'='+operation(obj+'['+key+']',op,'('+rhs+')')+
           ';'+obj+'['+key+']='+dst+' end';
       }
       case 'callstmt': return expr(n.value);

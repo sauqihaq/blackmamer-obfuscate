@@ -718,8 +718,18 @@ function compile(source, options={}) {
     const maxRegisters=options.doubleVmFull===true?262144:16384;
     const registerPool=options.hardened?
       Array.from({length:maxRegisters},(_,i)=>i+1):null;
-    if(registerPool)for(let i=registerPool.length-1;i>0;i--){
-      const j=rand(i+1);[registerPool[i],registerPool[j]]=[registerPool[j],registerPool[i]];
+    // Keep legacy <=64K register operands in their original range for
+    // small full-VM functions. Only functions that exhaust 64K use higher
+    // segments, each independently randomized without collisions.
+    if(registerPool){
+      const segment=options.doubleVmFull===true?65536:maxRegisters;
+      for(let first=0;first<registerPool.length;first+=segment){
+        const end=Math.min(registerPool.length,first+segment);
+        for(let i=end-1;i>first;i--){
+          const j=first+rand(i-first+1);
+          [registerPool[i],registerPool[j]]=[registerPool[j],registerPool[i]];
+        }
+      }
     }
     const reg=()=>{
       if(++builder.regs>maxRegisters)throw new SyntaxErrorV3('V3 register limit exceeded');

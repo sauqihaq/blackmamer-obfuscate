@@ -11,6 +11,7 @@ on:
       - 'prometheus-maximal.lua'
       - 'tests/prometheus-full-probe.js'
       - 'tests/prometheus-full-runtime.js'
+      - 'tests/prometheus-semantic-isolate.js'
       - 'full-prometheus-pipeline.js'
       - 'tests/prometheus-full-isolate.js'
       - 'server.js'
@@ -40,6 +41,8 @@ jobs:
         run: node tests/double-vm-probe.js
       - name: Profile source vs Prometheus vs DOUBLE VM
         run: node tests/double-vm-perf.js
+      - name: Diagnose Prometheus inner multi-return nil parity
+        run: node tests/prometheus-semantic-isolate.js
       - name: Real all-feature Lua 5.1 and LuaJIT parity
         env:
           FULL_TEST_LUAJIT: '1'

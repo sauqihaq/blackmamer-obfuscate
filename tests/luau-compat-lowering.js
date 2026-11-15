@@ -37,6 +37,8 @@ const fixtures=[
  'local i=0;local count=0;repeat i+=1;if i==2 then continue end;'+
  'if i==4 then break end;count+=i until i>7;'+
  'print("REPEAT",i,count)'],
+ ['floor-division',
+ 'local a=-7;local b=a//3; a//=2;local t={x=-13};t.x//=5;print("FLOOR",b,a,t.x)'],
  ['plain-code-unchanged',
  'local sum=0;for i=1,4 do sum=sum+i end;print("PLAIN",sum)']
 ];
@@ -51,7 +53,7 @@ try{
   }else{
    assert.equal(adjusted.applied,true);
    const executable=lex(adjusted.source).filter(t=>t.type==='sym'||t.type==='id');
-   assert.ok(!executable.some(t=>t.value==='+='||t.value==='continue'),
+   assert.ok(!executable.some(t=>['+=','-=','*=','/=','//=','continue','//'].includes(t.value)),
     id+' must remove executable Luau-only tokens (ignoring strings)');
   }
   const native=run(lua,adjusted.source,id+'-lua51');

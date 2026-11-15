@@ -22,7 +22,7 @@ async function main(){
  const started=Date.now();
  const full=await compileFull(source,target,{
    antiTamper:true,antiDebug:true,debugRuntimeErrors:true
- },1);
+ });
  assert.equal(full.stage.meta.allPrometheusSteps,true);
  assert.equal(full.stage.meta.steps.length,11);
  assert.equal(full.result.vmInterpreterCount,7);

@@ -596,7 +596,7 @@ function flattenCfgInstructions(rows,codes){
 const OPS=['K','GET','DECL','SET','TABLE','INDEX','PUT','CALL','CLOSURE','RET','RETVOID','RETM','MOV','JUMP','JF','JT','ENTER','EXIT','ADD','SUB','MUL','DIV','MOD','POW','CAT','LT','LE','GT','GE','EQ','NE','NEG','NOT','LEN','FORCONT','NONZERO','GETK','KGET','KK','KDECL','CALLM','MVGET','MVPACK','ITERNEXT','IDIV','KRET','GETRET','MOVRET','STRDEC','VARG','VARGM','CALLX','CALLMX','PUTM'];
 function compile(source, options={}) {
   if(typeof source!=='string') throw new TypeError('Expected Luau source string');
-  if(Buffer.byteLength(source)>(options.doubleVmFull===true?192*1024:128*1024))
+  if(Buffer.byteLength(source)>(options.doubleVmFull===true?384*1024:128*1024))
     throw new SyntaxErrorV3('V3 source limit exceeded');
   // Each build gets independent source-bound material. Public watermarks are
   // identifiers, NOT secrets; the random build secret is never serialized.

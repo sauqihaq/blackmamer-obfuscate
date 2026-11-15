@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'tests/double-vm-probe.js'
+      - 'tests/double-vm-runtime.js'
       - '.github/workflows/double-vm-probe.yml'
       - 'blackmamer-vm3.js'
       - 'prometheus-stage.js'
@@ -19,7 +20,7 @@ jobs:
         with:
           node-version: '22'
       - name: Install Lua 5.1
-        run: sudo apt-get update && sudo apt-get install -y lua5.1
+        run: sudo apt-get update && sudo apt-get install -y lua5.1 luajit
       - name: Pin upstream Prometheus source
         run: |
           mkdir -p vendor/prometheus
@@ -29,3 +30,7 @@ jobs:
           git -C vendor/prometheus checkout -q --detach FETCH_HEAD
       - name: Evaluate real double VM compiler pipeline
         run: node tests/double-vm-probe.js
+      - name: Real Lua 5.1 and LuaJIT double-VM execution parity
+        env:
+          DOUBLE_VM_TEST_LUAJIT: '1'
+        run: node tests/double-vm-runtime.js

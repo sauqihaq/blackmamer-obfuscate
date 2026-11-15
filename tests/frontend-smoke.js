@@ -11,6 +11,7 @@ assert.match(html,/MAXIMUM V4 • AUTO/);
 assert.match(html,/Based on Prometheus by Elias Oelschner/);
 assert.match(html,/value="LuaU" selected/);
 assert.match(html,/value="Lua51"/);
+assert.match(html,/value="LuaU-server"/);
 assert.match(html,/value="LuaJIT"/);
 assert.match(html,/<details class="advanced">/);
 for(const obsolete of ['id="runtimeMode"','id="runtimeLicensePanel"',
@@ -44,10 +45,13 @@ const fetchMock=async(url,options)=>{
    engine:'BLACKMAMER V4 Native VM',
    target:wrongTarget?'Lua51':request.target,
    blackmamerVM:{oneClick:true,protectionLevel:badProfile?'Light':'Maximum',
-     autoFunctionEncryption:'standalone',nestedVM:true,autoEncryptedFunctions:2,
+     autoFunctionEncryption:request.runtimeMode==='server-vault'?'external-full':'standalone',
+     runtimeMode:request.runtimeMode,robloxApiGuard:request.target==='LuaU',
+     nestedVM:true,autoEncryptedFunctions:2,
      applied:true,fallback:false,vmArchitecture:'seven-independent',
      vmInterpreterCount:7,astStringEncryption:true,astEncryptedStrings:3,
-     chainedInstructionEncoding:!missingChain,doubleVM:!missingDoubleVM,
+     chainedInstructionEncoding:!missingChain,
+     doubleVM:request.runtimeMode!=='server-vault'&&!missingDoubleVM,
      prometheusStage:{vm:!missingDoubleVM,applied:!missingDoubleVM,
        preset:missingFull?'Vmify':'BlackmamerFull',
        allPrometheusSteps:!missingFull,
@@ -55,7 +59,10 @@ const fetchMock=async(url,options)=>{
          ['SplitStrings','ProxifyLocals','AddVararg','Vmify','EncryptStrings',
           'AntiTamper','ConstantArray','WrapInFunction','Cff','NumbersToExpressions','WatermarkCheck']},
      fullPrometheusProtection:!missingFull,dualVmOptimization:true},
-   securityModel:{executionContext:request.executionContext||'unspecified',warnings:[]},
+   securityModel:{executionContext:request.executionContext||'unspecified',
+     keyLocation:request.runtimeMode==='server-vault'?'authenticated-server-vault':'embedded-reconstructible',
+     warnings:[]},
+   runtimeKeyVault:{enabled:request.runtimeMode==='server-vault'},
    externalKeys:badKeys?[{id:'premium',key:'a1'.repeat(32)}]:[]
  })};
 };
@@ -78,7 +85,7 @@ compiled.runInContext(vm.createContext(sandbox));
  assert.equal(p.oneClick,true);
  assert.equal(p.target,'LuaU');
  assert.equal(p.runtimeMode,'standalone');
- assert.equal(p.executionContext,undefined,'Default one-click supports client or server');
+ assert.equal(p.executionContext,'client','Default Roblox runtime is guarded client output');
  assert.equal(p.protectionLevel,undefined);
  assert.equal(p.autoFunctionEncryption,undefined);
  assert.equal(p.antiDebug,undefined);
@@ -88,6 +95,20 @@ compiled.runInContext(vm.createContext(sandbox));
  assert.equal(byId('dualVmMetric').textContent,'Aktif');
  assert.equal(byId('astStringMetric').textContent,'3');
  assert.equal(byId('result').value,'-- BLACKMAMER V4 output\nreturn true');
+
+ byId('target').value='LuaU-server';
+ byId('target').handlers.change();
+ byId('vaultLicense').value='TEST-LICENSE-NOT-A-SECRET';
+ calls=[];await byId('obfuscate').click();
+ request=calls.find(x=>x.url.endsWith('/api/obfuscate'));
+ p=JSON.parse(request.options.body);
+ assert.equal(p.target,'LuaU');
+ assert.equal(p.runtimeMode,'server-vault');
+ assert.equal(p.executionContext,'server');
+ assert.equal(request.options.headers['X-License-Key'],'TEST-LICENSE-NOT-A-SECRET');
+ assert.equal(byId('download').disabled,false);
+ assert.match(byId('feedback').textContent,/Server Vault/);
+ assert.equal(byId('serverKeyPanel').hidden,false);
 
  byId('target').value='Lua51';
  byId('target').handlers.change();

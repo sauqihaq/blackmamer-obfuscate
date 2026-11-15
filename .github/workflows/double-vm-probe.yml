@@ -8,6 +8,8 @@ on:
       - '.github/workflows/double-vm-probe.yml'
       - 'blackmamer-vm3.js'
       - 'prometheus-stage.js'
+      - 'prometheus-maximal.lua'
+      - 'tests/prometheus-full-probe.js'
       - 'server.js'
       - 'Dockerfile'
   workflow_dispatch:
@@ -29,6 +31,8 @@ jobs:
           git -C vendor/prometheus remote add origin https://github.com/prometheus-lua/Prometheus.git
           git -C vendor/prometheus fetch -q --depth 1 origin a98c50165f2a53f6d765a82eee60dfea53803445
           git -C vendor/prometheus checkout -q --detach FETCH_HEAD
+      - name: Probe every Prometheus feature before outer BLACKMAMER
+        run: node tests/prometheus-full-probe.js
       - name: Evaluate real double VM compiler pipeline
         run: node tests/double-vm-probe.js
       - name: Profile source vs Prometheus vs DOUBLE VM

@@ -4,7 +4,7 @@
 const crypto = require('node:crypto');
 const {compactLuau} = require('./lua-output-compact');
 const {polymorphRuntime} = require('./runtime-polymorph');
-const {sealBatch} = require('./native-sealer');
+const {sealBatch,sealLargeBatch} = require('./native-sealer');
 const {buildIndependentVmLines}=require('./vm7-independent');
 const {protectAstStrings}=require('./ast-string-layer');
 const chainedCells=require('./vm4-chained-cells');
@@ -1404,7 +1404,7 @@ function compile(source, options={}) {
   }
   // C++17 sealer handles complete batches when available. A byte-for-byte
   // equivalent JS fallback keeps local development and old deployments working.
-  const sealedBatch=sealBatch([
+  const sealedBatch=(options.doubleVmFull===true?sealLargeBatch:sealBatch)([
     ...rawFunctions.map(([seed,raw])=>[seed,raw]),
     ...rawConstants.map(([,seed,raw])=>[seed,raw]),
     ...(nestedVM?[[outerProgram[0],outerProgram[1]]]:[])

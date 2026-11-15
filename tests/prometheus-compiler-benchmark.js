@@ -8,7 +8,8 @@ const {preprocess,FULL_STEPS}=require('../prometheus-stage');
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bm-prom-compiler-perf-'));
 const fixtures=[
   ['basic','local function f(n)local total=0 for i=1,n do total=total+i end return total end print("sum",f(12))'],
-  ['closures','local function outer(x)return function(y)return x+y end end local a=outer(13) print("closure",a(29))']
+  ['closures','local function outer(x)return function(y)return x+y end end local a=outer(13) print("closure",a(29))'],
+  ['medium',Array.from({length:12},(_,i)=>'local function f'+i+'(x) return x+'+i+' end').join('\n')+'\nprint("medium",f11(31))']
 ];
 function execute(source,name){
   const file=path.join(dir,name+'.lua');

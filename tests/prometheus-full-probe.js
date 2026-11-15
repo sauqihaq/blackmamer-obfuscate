@@ -34,7 +34,7 @@ try {
    try{
      const result=compile(data,{
        hardened:true,target,protectionLevel:'Maximum',vmArchitecture:'seven-independent',
-       autoFunctionEncryption:'standalone',doubleVmOptimized:true,
+       autoFunctionEncryption:'standalone',doubleVmOptimized:true,doubleVmFull:true,
        antiTamper:true,antiDebug:true
      });
      console.log('FULL_PROBE',target,label,'COMPILE_OK',JSON.stringify({

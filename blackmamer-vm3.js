@@ -707,12 +707,12 @@ function compile(source, options={}) {
     // function. Dataflow remains correct because all IR consumers use the
     // returned physical ID rather than assuming sequential register numbers.
     const registerPool=options.hardened?
-      Array.from({length:2048},(_,i)=>i+1):null;
+      Array.from({length:16384},(_,i)=>i+1):null;
     if(registerPool)for(let i=registerPool.length-1;i>0;i--){
       const j=rand(i+1);[registerPool[i],registerPool[j]]=[registerPool[j],registerPool[i]];
     }
     const reg=()=>{
-      if(++builder.regs>2048)throw new SyntaxErrorV3('V3 register limit exceeded');
+      if(++builder.regs>16384)throw new SyntaxErrorV3('V3 register limit exceeded');
       const value=registerPool?registerPool[builder.regs-1]:builder.regs;
       if(builder.regAudit)builder.regAudit.push(value);
       return value;
@@ -1023,7 +1023,17 @@ function compile(source, options={}) {
     funcs[id-1]={p:params.map(key),ins:builder.ins,protectedId};
     return id;
   };
-  const initialEntry=makeBuilder(parsed,[]);
+  // Lua chunks are variadic. Prometheus can forward the host's chunk args
+  // through a top-level expression: return (function(...) ... end)(...).
+  // Preserve regular entry prototype shape when the chunk never uses "...".
+  const hasChunkVarargs=node=>{
+    if(!node||typeof node!=='object')return false;
+    if(Array.isArray(node))return node.some(hasChunkVarargs);
+    if(node.t==='fun')return false;
+    if(node.t==='vararg')return true;
+    return Object.values(node).some(hasChunkVarargs);
+  };
+  const initialEntry=makeBuilder(parsed,hasChunkVarargs(parsed)?['...']:[]);
   let autoFunctionCount=0;
   if(autoMode!=='off'){
     for(let i=0;i<funcs.length;i++){
@@ -2182,7 +2192,7 @@ function compile(source, options={}) {
     '      pc=nextpc',
     '    end',
     '  end',
-    '  return exec('+entry+',{},nil)',
+    '  return exec('+entry+',nativePack(...),nil)',
     'end)(...)'
   ];
   // Maximum multi-engine architecture installs seven complete, distinct

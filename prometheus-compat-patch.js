@@ -52,7 +52,7 @@ let anti=fs.readFileSync(antiFile,'utf8');
 if(!anti.includes(antiMark)){
   if(anti.split(oldLine).length!==2)
     throw Error('Pinned AntiTamper source changed; refuse unverified patch');
-  anti=anti.replace(oldLine,antiMark+'\\n'+newLine);
+  anti=anti.replace(oldLine,antiMark+String.fromCharCode(10)+newLine);
   fs.writeFileSync(antiFile,anti);
 }
 console.log('Pinned Prometheus AntiTamper nested-VM error location compatibility patch applied');

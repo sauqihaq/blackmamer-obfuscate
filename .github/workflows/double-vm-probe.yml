@@ -13,6 +13,7 @@ on:
       - 'tests/prometheus-full-runtime.js'
       - 'tests/prometheus-semantic-isolate.js'
       - 'full-prometheus-pipeline.js'
+      - 'prometheus-compat-patch.js'
       - 'tests/prometheus-full-isolate.js'
       - 'server.js'
       - 'Dockerfile'
@@ -35,6 +36,8 @@ jobs:
           git -C vendor/prometheus remote add origin https://github.com/prometheus-lua/Prometheus.git
           git -C vendor/prometheus fetch -q --depth 1 origin a98c50165f2a53f6d765a82eee60dfea53803445
           git -C vendor/prometheus checkout -q --detach FETCH_HEAD
+      - name: Apply pinned Prometheus ProxifyLocals compatibility fix
+        run: node prometheus-compat-patch.js
       - name: Probe every Prometheus feature before outer BLACKMAMER
         run: node tests/prometheus-full-probe.js
       - name: Evaluate real double VM compiler pipeline

@@ -1,6 +1,6 @@
 # BLACKMAMER STUDIO — Native V4 Obfuscator
 
-BLACKMAMER Native V4 is the **outer virtual machine** for one-click standalone builds. The production Docker image now installs a **pinned Prometheus Vmify inner VM**: original Lua/Luau → Prometheus VM → BLACKMAMER Maximum V4 standalone. The API rejects a failure in either stage rather than silently downgrading to a single VM.
+BLACKMAMER Native V4 is the **outer virtual machine** for one-click standalone builds. The production Docker image includes a pinned Prometheus engine. One-click Full Protection uses **all eleven registered Prometheus steps** in a custom profile, then BLACKMAMER Maximum V4 as an outer VM: original Lua/Luau → Prometheus full pipeline → BLACKMAMER Maximum V4 standalone. The API rejects a failure in either stage rather than silently downgrading to a single VM.
 
 **Based on Prometheus by Elias Oelschner, https://github.com/prometheus-lua/Prometheus**
 
@@ -19,9 +19,11 @@ These targets run the **supported BLACKMAMER parser subset**, not every Lua 5.1/
 ## Automatic two-stage obfuscation, with performance safeguards
 
 For every `oneClick:true` **standalone** request, the API runs the pinned
-Prometheus `Vmify` preset first, followed by BLACKMAMER Maximum V4 as the
-outer VM. The source and Prometheus intermediate payload must each fit the
-compiler's 128-KB limit, and the Prometheus subprocess has a strict timeout.
+Prometheus custom **11-step Full** profile first, followed by BLACKMAMER Maximum V4 as the
+outer VM. The user input remains capped at 128 KB and Full intermediate code at
+192 KB. Up to 5 independent full-feature regeneration attempts are made if
+an output fails compatibility or exceeds the cap, without dropping any step.
+The Prometheus subprocess has a strict timeout.
 Inputs are passed through temporary files with an argument array, never
 shell-interpolated. Intermediate code is never returned by the API.
 
@@ -35,8 +37,13 @@ before production. Prometheus' Luau support remains incomplete, so
 incompatible LuaU constructs fail with a clear error rather than an
 unprotected fallback.
 
-API `blackmamerVM.doubleVM`, `prometheusStage`, and
-`dualVmOptimization` report the actual stages. One-click UI refuses
+API `blackmamerVM.doubleVM`, `blackmamerVM.fullPrometheusProtection`,
+`prometheusStage.steps`, and `dualVmOptimization` report the stages. The
+custom profile uses SplitStrings, ProxifyLocals, AddVararg, Vmify, EncryptStrings,
+AntiTamper, ConstantArray, WrapInFunction, Cff (excluding generated VM internals),
+NumbersToExpressions, and WatermarkCheck. The final standalone script may be
+1–3 MB or larger and startup may take seconds; production Roblox gameplay
+performance and complex-script compatibility are not guaranteed. One-click UI refuses
 stale backends that cannot confirm both VMs. Remote Vault and other
 advanced API profiles remain independent, to preserve existing setups.
 
@@ -44,7 +51,7 @@ advanced API profiles remain independent, to preserve existing setups.
 
 Paste or upload a source file and press **Obfuscate Script**. The default
 `LuaU` output is a standalone single-file chunk that can be pasted into a
-Roblox **Script**, **LocalScript**, or **ModuleScript**. The one-click compiler first applies Prometheus Vmify, then
+Roblox **Script**, **LocalScript**, or **ModuleScript**. The one-click compiler first applies all eleven Prometheus steps, then
 automatically enables Maximum V4, seven independent VM engines, AST string
 protection, integrity checks, and standalone function encryption. No user
 selection for client/server placement, license, or key provider is required.

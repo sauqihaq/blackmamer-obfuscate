@@ -41,12 +41,24 @@ async function main(){
    }));
    assert.equal(intermediate.status,0,'Prometheus Full stage alone failed');
    assert.equal(intermediate.stdout,expected.stdout,'Prometheus Full stage changed stdout');
-   const transformed=compile(inner.source,{
-     hardened:true,target,protectionLevel:'Maximum',
-     vmArchitecture:'seven-independent',autoFunctionEncryption:'standalone',
-     doubleVmFull:true,doubleVmOptimized:true,antiTamper:true,antiDebug:true,
-     debugRuntimeErrors:true
-   });
+   let transformed;
+   try{
+     transformed=compile(inner.source,{
+       hardened:true,target,protectionLevel:'Maximum',
+       vmArchitecture:'seven-independent',autoFunctionEncryption:'standalone',
+       doubleVmFull:true,doubleVmOptimized:true,antiTamper:true,antiDebug:true,
+       debugRuntimeErrors:true
+     });
+   }catch(e){
+     const m=/ at (\\d+)/.exec(String(e.message));
+     const offset=m?Number(m[1]):-1;
+     console.error('PROMETHEUS_FULL_COMPILE_CONTEXT',JSON.stringify({
+       target,name,offset,
+       around:inner.source.slice(Math.max(0,offset-130),offset+160),
+       first:inner.source.slice(0,550)
+     }));
+     throw e;
+   }
    assert.equal(transformed.chainedInstructionEncoding,true);
    assert.equal(transformed.vmInterpreterCount,7);
    const size=Buffer.byteLength(transformed.code);

@@ -7,7 +7,7 @@
 const hashAt=(src,p)=>
   ((((src[p]*251+src[p+1])*251+src[p+2])*251+src[p+3])>>>0)&65535;
 
-function packVmBytes(raw,minSavings=16){
+function packVmBytes(raw,minSavings=16,forcedMode=null){
   const src=Uint8Array.from(raw);
   const size=src.length;
   if(size<96)return {bytes:[0,...src],compressed:false,plainBytes:size};
@@ -44,21 +44,60 @@ function packVmBytes(raw,minSavings=16){
     }else pos++;
   }
   literals(start,size);
-  // Refuse negative gains so random ciphertext-like buffers are never bloated.
-  if(size-(data.length+5)<minSavings)
+  const lengthHeader=[size&255,(size>>>8)&255,
+    (size>>>16)&255,(size>>>24)&255];
+  const lz=[1,...lengthHeader,...data];
+  // Mode 2 suppresses zero bytes with an 8-bit occupancy mask, useful for
+  // high-order zero bytes of the existing 4-byte randomized VM operand format.
+  const bitmap=[2,...lengthHeader];
+  for(let at=0;at<size;at+=8){
+    const maskPos=bitmap.length;bitmap.push(0);
+    let mask=0;
+    for(let bit=0;bit<8&&at+bit<size;bit++){
+      const value=src[at+bit];
+      if(value!==0){mask|=(1<<bit);bitmap.push(value);}
+    }
+    bitmap[maskPos]=mask;
+  }
+  const chosen=forcedMode==='zero-map'?bitmap:
+    forcedMode==='lz'?lz:
+      lz.length<=bitmap.length?lz:bitmap;
+  // Refuse negative gains so random operands are never bloated by default.
+  if(size-chosen.length<minSavings)
     return {bytes:[0,...src],compressed:false,plainBytes:size};
-  return {bytes:[1,size&255,(size>>>8)&255,(size>>>16)&255,
-    (size>>>24)&255,...data],compressed:true,plainBytes:size};
+  return {bytes:chosen,compressed:true,plainBytes:size};
 }
 
 // JS mirror of the portable Lua decoder; test only, not used at runtime.
 function unpackVmBytes(packed,maxBytes=32*1024*1024){
   const src=packed,mode=src[0];
   if(mode===0)return Array.from(src).slice(1);
-  if(mode!==1||src.length<6)throw Error('Invalid VM packed format');
+  if(mode!==1&&mode!==2||src.length<6)
+    throw Error('Invalid VM packed format');
   const required=src[1]+src[2]*256+src[3]*65536+src[4]*16777216;
   if(required>maxBytes)throw Error('VM payload too large');
   const out=[];let at=5;
+  if(mode===2){
+    while(out.length<required){
+      if(at>=src.length)throw Error('VM bitmap truncated');
+      const mask=src[at++];
+      for(let bit=0;bit<8;bit++){
+        const occupied=(mask&(1<<bit))!==0;
+        if(out.length>=required){
+          if(occupied)throw Error('VM invalid bitmap padding');
+          continue;
+        }
+        if(occupied){
+          if(at>=src.length)throw Error('VM bitmap data truncated');
+          const value=src[at++];
+          if(value===0)throw Error('VM invalid bitmap nonzero field');
+          out.push(value);
+        }else out.push(0);
+      }
+    }
+    if(at!==src.length)throw Error('VM bitmap trailing data');
+    return out;
+  }
   while(at<src.length){
     const tag=src[at++];
     if(tag<128){

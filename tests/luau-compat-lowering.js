@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {spawnSync}=require('node:child_process');
 const {lowerLuau}=require('../luau-compat-lowering');
-const {Parser}=require('../blackmamer-vm3');
+const {Parser,lex}=require('../blackmamer-vm3');
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bm-luau-compat-'));
 const luau=process.env.LUAU_BIN||null;
 const lua=process.env.LUA51_BIN||'lua5.1';
@@ -50,7 +50,9 @@ try{
    assert.equal(adjusted.source,source);
   }else{
    assert.equal(adjusted.applied,true);
-   assert.doesNotMatch(adjusted.source,/\+=|\bcontinue\b/);
+   const executable=lex(adjusted.source).filter(t=>t.type==='sym'||t.type==='id');
+   assert.ok(!executable.some(t=>t.value==='+='||t.value==='continue'),
+    id+' must remove executable Luau-only tokens (ignoring strings)');
   }
   const native=run(lua,adjusted.source,id+'-lua51');
   assert.equal(native.status,0,id+' Lua 5.1 lowered failed: '+native.stderr);

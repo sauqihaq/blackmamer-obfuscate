@@ -38,6 +38,8 @@ try{
   [],[0],[1,2,3],
   Array.from({length:10000},()=>0),
   Array.from({length:450000},(_,i)=>i%137),
+  // Random VM 32-bit operands have a predictable high-order zero byte.
+  Array.from({length:40000},(_,i)=>i%4===3?0:Math.max(1,next())),
   ...[96,97,131,132,133,1024,10000,24000]
     .map(size=>Array.from({length:size},next))
  ];
@@ -50,7 +52,11 @@ try{
  for(const malicious of [
   [],[2],[1,9],[1,4,0,0,0,128,0,0],
   [1,4,0,0,0,0,7],
-  [1,1,0,0,0,128,1,0]
+  [1,1,0,0,0,128,1,0],
+  [2,8,0,0,0,255],
+  [2,1,0,0,0,128,21],
+  [2,1,0,0,0,0,99],
+  [2,1,0,0,0,1,0]
  ]){
   assert.throws(()=>unpackVmBytes(malicious));
   checks++;
@@ -61,6 +67,7 @@ try{
   const variants=[
    ['packed-default',{}],
    ['packed-forced',{vmPayloadForcePacked:true}],
+   ['packed-zero-bitmap',{vmPayloadForcePacked:true,vmPayloadTestCodec:'zero-map'}],
    ['legacy',{vmPayloadCompression:false}]
   ];
   for(const [tag,extra] of variants){
@@ -74,10 +81,10 @@ try{
     assert.equal(vm.vmPayloadCodec,'none');
    }else{
     assert.equal(vm.vmPayloadCompression,true);
-    assert.equal(vm.vmPayloadCodec,'portable-lz-v1');
-    if(tag==='packed-forced')
+    assert.equal(vm.vmPayloadCodec,'portable-hybrid-v1');
+    if(tag==='packed-forced'||tag==='packed-zero-bitmap')
       assert.ok(vm.vmPayloadCompressedFunctions>0,
-        target+' test-only build must exercise true LZ VM decode');
+        target+' test-only build must exercise a packed VM decoder');
     if(tag==='packed-default')
       assert.ok(vm.vmPayloadBytesAfter<=vm.vmPayloadBytesBefore+vm.vmPayloadFunctionCount,
         target+' default codec must not bloat payload beyond mode flag');

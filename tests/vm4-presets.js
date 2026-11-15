@@ -17,7 +17,7 @@ for(const name of Object.keys(PRESETS)){
   assert.notEqual(a.code,b.code);
   assert.ok(a.opcodePaletteFingerprints.every(Boolean));
   assert.equal(new Set(a.opcodePaletteFingerprints).size,a.virtualizedFunctions);
-  assert.equal(a.opcodePaletteSize,49,'The current ISA has 49, not 48, opcodes');
+  assert.equal(a.opcodePaletteSize,54,'Prometheus-compatible VM ISA has 54 opcodes');
   assert.ok(a.runtimeAliasCount>=20,'Expected randomized runtime local identifiers');
   assert.equal(a.runtimeChaosLineBreaks,0,'No runtime newline injection in single-line mode');
    assert.doesNotMatch(a.code,/[\r\n]/,'Preset output must be one physical line');

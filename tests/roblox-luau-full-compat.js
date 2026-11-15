@@ -58,7 +58,10 @@ async function main(){
    intermediateBytes:result.stage.meta.outputBytes,
    outerBytes:Buffer.byteLength(result.result.code),
    instructions:result.result.vmInstructions,
-   attempts:result.attempts,lowering:result.stage.meta.luauCompatibility
+   attempts:result.attempts,lowering:result.stage.meta.luauCompatibility,
+   packOriginal:result.result.vmPayloadBytesBefore,
+   packBytes:result.result.vmPayloadBytesAfter,
+   packedPrototypes:result.result.vmPayloadCompressedFunctions
   }));
   checks++;
  }

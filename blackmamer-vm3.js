@@ -8,6 +8,7 @@ const {sealBatch,sealLargeBatch} = require('./native-sealer');
 const {buildIndependentVmLines}=require('./vm7-independent');
 const {protectAstStrings}=require('./ast-string-layer');
 const chainedCells=require('./vm4-chained-cells');
+const {packVmBytes}=require('./vm4-payload-compression');
 const {optimizer:optimizeVmIr,mosaic:injectVmDeadCode}=require('./vm4-deadcode-optimizer');
 const {requireKey,requireId,encryptBytes,runtimeLines:protectedRuntimeLines} = require('./protected-functions');
 const rand = max => crypto.randomInt(max);
@@ -1312,6 +1313,11 @@ function compile(source, options={}) {
   // Full builds extend the instruction-count header by 2 bytes. Other
   // V4 builds keep the exact existing binary layout and decoder offsets.
   const fullHeaderExtra=options.doubleVmFull===true?2:0;
+  // Compress the serialized instruction stream BEFORE the existing S-Box,
+  // function encryption, and integrity digest; never compress ciphertext.
+  const vmPayloadCompression=options.hardened===true&&profileName==='Maximum'&&
+    options.vmPayloadCompression!==false;
+  let vmPayloadBytesBefore=0,vmPayloadBytesAfter=0,vmPayloadCompressedFunctions=0;
   const rawFunctions=packed.map((f,functionIndex)=>{
     const raw=[];
     const width=options.bytecodeWidth==='compact'?3:
@@ -1370,11 +1376,20 @@ function compile(source, options={}) {
           writeCell(f.ins[index],index+1,position);
     }
     const seed=rand(60000)+1000;
+    const prepared=vmPayloadCompression?packVmBytes(raw,
+      options.vmPayloadForcePacked===true?-Number.MAX_SAFE_INTEGER:16,
+      options.vmPayloadTestCodec==='zero-map'?'zero-map':null):
+      {bytes:raw,compressed:false,plainBytes:raw.length};
+    vmPayloadBytesBefore+=raw.length;
+    vmPayloadBytesAfter+=prepared.bytes.length;
+    if(prepared.compressed)vmPayloadCompressedFunctions++;
     if(f.protectedId){
-      const result=encryptBytes(raw,keyFor(f.protectedId),f.protectedId);
+      // Protected functions still receive their own keyed encryption after
+      // packing; the decoder inflates only AFTER the authenticated decrypt.
+      const result=encryptBytes(prepared.bytes,keyFor(f.protectedId),f.protectedId);
       return [seed,result.bytes,width,{id:f.protectedId,nonce:result.nonce,tag:result.tag}];
     }
-    return [seed,raw,width,null];
+    return [seed,prepared.bytes,width,null];
   });
   const rawConstants=consts.map(value=>{
     const typ=value===null?5:typeof value==='string'?1:typeof value==='number'?2:value===true?3:4;
@@ -2045,6 +2060,64 @@ function compile(source, options={}) {
     '    end',
     '    return out',
     '  end',
+    ...(vmPayloadCompression?[
+      '  local function unpackVmPayload(data)',
+      '    local mode=data[1]',
+      '    if mode==0 then',
+      '      local result={};for i=2,#data do result[i-1]=data[i]end',
+      '      return result',
+      '    end',
+      '    if (mode~=1 and mode~=2) or #data<6 then',
+      '      nativeError("BLACKMAMER invalid payload codec")end',
+      '    local expected=data[2]+data[3]*256+data[4]*65536+data[5]*16777216',
+      '    if expected<0 or expected>33554432 then',
+      '      nativeError("BLACKMAMER VM payload exceeds safe limit")end',
+      '    if mode==2 then',
+      '      local result={};local output=0;local at=6',
+      '      while output<expected do',
+      '        if at>#data then nativeError("BLACKMAMER truncated bitmap")end',
+      '        local mask=data[at];at=at+1',
+      '        for bit=0,7 do',
+      '          local present=math.floor(mask/2^bit)%2==1',
+      '          if output>=expected then',
+      '            if present then nativeError("BLACKMAMER invalid bitmap padding")end',
+      '          else',
+      '            output=output+1',
+      '            if present then',
+      '              if at>#data then nativeError("BLACKMAMER truncated bitmap data")end',
+      '              local value=data[at];at=at+1',
+      '              if value==0 then nativeError("BLACKMAMER invalid bitmap value")end',
+      '              result[output]=value',
+      '            else result[output]=0 end',
+      '          end',
+      '        end',
+      '      end',
+      '      if at~=#data+1 then nativeError("BLACKMAMER bitmap trailing data")end',
+      '      return result',
+      '    end',
+      '    local result={};local output=0;local at=6',
+      '    while at<=#data do',
+      '      local tag=data[at];at=at+1',
+      '      if tag<128 then',
+      '        local count=tag+1',
+      '        if at+count-1>#data or output+count>expected then',
+      '          nativeError("BLACKMAMER truncated payload literal")end',
+      '        for j=1,count do output=output+1;result[output]=data[at];at=at+1 end',
+      '      else',
+      '        local count=tag-124',
+      '        if at+1>#data then nativeError("BLACKMAMER missing payload offset")end',
+      '        local distance=data[at]+data[at+1]*256;at=at+2',
+      '        if distance<1 or distance>output or output+count>expected then',
+      '          nativeError("BLACKMAMER invalid payload backreference")end',
+      '        for j=1,count do',
+      '          output=output+1;result[output]=result[output-distance]',
+      '        end',
+      '      end',
+      '    end',
+      '    if output~=expected then nativeError("BLACKMAMER payload size mismatch")end',
+      '    return result',
+      '  end'
+    ]:[]),
     ...(protectedKeys.size?protectedRuntimeLines():[]),
     ...outerRuntime,
     '  local P={}',
@@ -2084,6 +2157,7 @@ function compile(source, options={}) {
       '      raw={};chars={};for j=1,#plain do raw[j]=nativeByte(plain,j)end',
       '    end'
     ]:[]),
+    ...(vmPayloadCompression?['    raw=unpackVmPayload(raw);chars={}']:[]),
     '    for j,b in ipairs(raw)do chars[j]=nativeChar(b)end',
     '    local packed=bufFrom(nativeConcat(chars))',
     '    local pn=bufRead(packed,0)+256*bufRead(packed,1)',
@@ -2670,6 +2744,9 @@ function compile(source, options={}) {
     }:{}),
     fusedInstructions:fusionTotal,superInstructionKinds:fusionCounts,
     vmInstructions:funcs.reduce((n,f)=>n+f.ins.length,0),
+    vmPayloadCompression,vmPayloadCodec:vmPayloadCompression?'portable-hybrid-v1':'none',
+    vmPayloadBytesBefore,vmPayloadBytesAfter,vmPayloadCompressedFunctions,
+    vmPayloadFunctionCount:rawFunctions.length,
     doubleVmOptimized:dualOptimized,
     selectiveFunctionEncryption:dualOptimized&&autoMode==='standalone',
     optimizerEnabled,irOptimizerRemoved,vmCoreInstructions,

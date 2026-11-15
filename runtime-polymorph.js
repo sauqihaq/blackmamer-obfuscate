@@ -19,7 +19,7 @@ const RUNTIME_LOCALS=new Set([
   'trapToken','trapObject','trapLock','trapHits','trapGuardTicks',
   'trapMethod','trapMeta','metamethodGuard','previous',
   'dbg','globals','modulus','hmod','hseed','hmul','hadd',
-  'unseal','verify','runtimeGuard','parseStage','programCache',
+  'unseal','verify','runtimeGuard','unpackVmPayload','parseStage','programCache',
   'exec','get','set','nonil','constantCache','constantNil',
   'bmBitPair','bufFrom','bufLen','bufRead','bufRead32',
   '_BK','_s','_out','_oct','_unfold','_vaultProvider','_vaultCachedKey',

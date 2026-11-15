@@ -8,6 +8,7 @@ on:
       - 'tests/vm4-universal-platform.js'
       - 'tests/vm4-api-boundary.js'
       - 'tests/vm4-cipher-fragment-density.js'
+      - 'tests/vm4-payload-compression.js'
       - 'tests/vm4-environment-preflight.js'
       - 'prometheus-stage.js'
       - 'luau-compat-lowering.js'
@@ -27,6 +28,7 @@ on:
       - 'vm7-independent.js'
       - 'vm4-deadcode-optimizer.js'
       - 'vm4-chained-cells.js'
+      - 'vm4-payload-compression.js'
       - 'tests/vm4-chained-cells.js'
       - 'tests/vm4-deadcode-optimizer.js'
       - 'ast-string-layer.js'
@@ -210,6 +212,7 @@ jobs:
           node tests/luau-compat-lowering.js
           node tests/vm4-api-boundary.js
           node tests/vm4-cipher-fragment-density.js
+          node tests/vm4-payload-compression.js
           node tests/vm4-environment-preflight.js
           node tests/vm4-universal-platform.js
           node tests/double-vm-runtime.js
